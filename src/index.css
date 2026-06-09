@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+  margin: 0;
+}
+
+/* Thin, unobtrusive scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
+
+/* Markdown rendering inside chat + artifacts */
+.prose-chat {
+  @apply text-[15px] leading-relaxed;
+}
+.prose-chat p {
+  @apply my-2;
+}
+.prose-chat ul {
+  @apply my-2 list-disc pl-5;
+}
+.prose-chat ol {
+  @apply my-2 list-decimal pl-5;
+}
+.prose-chat h1 {
+  @apply mt-4 mb-2 text-xl font-semibold;
+}
+.prose-chat h2 {
+  @apply mt-4 mb-2 text-lg font-semibold;
+}
+.prose-chat h3 {
+  @apply mt-3 mb-1 text-base font-semibold;
+}
+.prose-chat pre {
+  @apply my-3 overflow-x-auto rounded-lg bg-slate-900 p-3 text-sm text-slate-100;
+}
+.prose-chat code {
+  @apply rounded bg-slate-200 px-1 py-0.5 text-[13px];
+}
+.prose-chat pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+.prose-chat a {
+  @apply text-brand-600 underline;
+}
+.prose-chat blockquote {
+  @apply my-2 border-l-4 border-slate-300 pl-3 text-slate-600;
+}
+.prose-chat table {
+  @apply my-3 w-full border-collapse text-sm;
+}
+.prose-chat th,
+.prose-chat td {
+  @apply border border-slate-300 px-2 py-1;
+}
