@@ -1,0 +1,5 @@
+# Supabase CLI config. `project_id` is set when you run `supabase link`.
+project_id = "intranet"
+
+[functions.chat]
+verify_jwt = true
