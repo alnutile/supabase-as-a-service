@@ -39,11 +39,18 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `PublicArtifactPage` at route `/share/a/:slug`.
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
-- **Skills:** `SkillsPage` manages saved instruction sets (`skills` table). In
-  `ChatPage`, typing `/` (or the ⚡ button) opens a skill menu; `runSkill()` sends
-  the conversation context with the skill's `instructions` as the `system` override
-  (via `streamChat(..., { system })`). Output mode `artifact` creates an artifact and
-  drops a link in chat; `reply` posts the assistant message inline.
+- **Prompts & skills:** one `skills` table, two modes.
+  - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
+    seeded `is_builtin` "How this workspace works" prompt teaches the assistant the
+    system + the artifact protocol. The chat edge function loads all `auto_apply`
+    rows (via service role) and concatenates them into the system prompt on every call.
+  - `auto_apply = false` → **on-demand** skills (personal). In `ChatPage`, typing `/`
+    (or the ⚡ button) lists them; `runSkill()` sends them as the `system` (artifact
+    mode uses `replaceSystem: true` for clean output; reply mode appends to context).
+- **AI-created artifacts:** the assistant emits a `:::artifact {"title","type"}\n…\n:::`
+  block; `materializeArtifacts()` in `ChatPage` parses it after streaming, inserts an
+  `artifacts` row, and replaces the block with an `/artifacts/:id` share link.
+  `SkillsPage` manages all of the above (always-on editing is admin-gated).
 
 ## Directory map
 
@@ -100,7 +107,10 @@ If you change the schema: update the migration, apply it, run `npm run gen:types
 (`npm:@anthropic-ai/sdk`). Model defaults to **`claude-opus-4-8`** with
 `thinking: { type: 'adaptive' }` and `output_config: { effort }`. Deployed with
 `verify_jwt: true`. Reads `ANTHROPIC_API_KEY` (required), `ANTHROPIC_MODEL`,
-`ANTHROPIC_EFFORT` from edge-function secrets.
+`ANTHROPIC_EFFORT` from edge-function secrets. It assembles the system prompt by
+reading the always-on prompts (`skills.auto_apply = true`) with the service-role key,
+then optionally appends/replaces with an invoked skill's instructions
+(`body.system` + `body.replaceSystem`). Request body: `{ messages, system?, replaceSystem? }`.
 
 **Anthropic conventions (do not change without reason):** default to `claude-opus-4-8`;
 use **adaptive thinking** (`budget_tokens`, `temperature`, `top_p` are removed on Opus

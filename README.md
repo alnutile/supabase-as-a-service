@@ -25,7 +25,7 @@ A small but complete foundation for a team workspace ("intranet") that you fully
 
 - 🔐 **Auth** — email/password and magic links via Supabase Auth. A profile is created automatically on signup.
 - 💬 **AI chat** — talk to Claude to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
-- ⚡ **Skills** — save reusable instruction sets (e.g. "Generate Quote") and run them from chat with `/`. A skill acts on the conversation context and either creates a shareable artifact or replies inline. These are the seed for scheduled/promotable agents.
+- ⚡ **Prompts & skills** — **always-on** prompts (a built-in "how this system works" prompt + admin-set workspace context like *"this is Acme's intranet"*) shape every chat; **on-demand** skills run from chat with `/`. The assistant can also **create artifacts directly** ("turn that into something I can share") — they're saved and linked inline. These are the seed for scheduled/promotable agents.
 - 📄 **Artifacts** — turn any reply (or a blank page) into a markdown / code / HTML / text artifact with live preview. Share it as **Private**, **Unlisted** (anyone with the link), or **Public** — served to anonymous visitors at `/share/a/:slug`.
 - 📁 **Files** — upload to a private, per-user storage bucket and hand out **7-day signed share links** when you want to.
 - 🔒 **Invite-only** — the first user bootstraps the workspace and becomes admin; after that, only emails an admin has invited can sign up (enforced in the database).

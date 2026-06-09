@@ -2,27 +2,31 @@
 // Streams a Claude completion to the browser as SSE. The Anthropic API key
 // stays server-side (set via `supabase secrets set ANTHROPIC_API_KEY=...`).
 // Deployed with verify_jwt=true, so only authenticated users can call it.
+//
+// The system prompt is assembled from the always-on prompts in the `skills`
+// table (auto_apply = true) — the built-in "How this workspace works" prompt
+// plus any workspace-context prompts an admin has added. An invoked skill can
+// either append to that context or replace it.
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
+import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 
 const MODEL = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-opus-4-8'
-const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as
-  | 'low'
-  | 'medium'
-  | 'high'
+const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 
-const SYSTEM_PROMPT = `You are the assistant inside a friendly company intranet built on Supabase.
-You help people think through ideas and build things: documents, plans, code snippets, small web pages, and structured notes.
+// Fallback if no always-on prompts exist (e.g. fresh local DB without the seed).
+const DEFAULT_SYSTEM = `You are the assistant inside a Supabase-powered intranet. Be warm, concise, and practical.
 
-Guidelines:
-- Be warm, concise, and practical. Get to the point.
-- When you produce something the user will want to keep or share — a document, a code file, an HTML page, a structured spec — format it cleanly in Markdown so it can be saved as an "artifact" and shared.
-- Use fenced code blocks with a language tag for any code or HTML.
-- Ask a brief clarifying question only when the request is genuinely ambiguous; otherwise make a reasonable choice and note it.`
+When the user asks you to create, save, or share an artifact (a doc, code file, HTML page, etc.), output it as ONE block in EXACTLY this format:
+
+:::artifact {"title":"Short title","type":"markdown"}
+...the full content...
+:::
+
+"type" is one of: markdown, code, html, text. Put only the content between the fences; don't wrap the block in code fences. The app saves it as a shareable artifact automatically.`
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
@@ -35,6 +39,27 @@ function sse(data: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
 }
 
+async function loadAlwaysOnSystem(): Promise<string> {
+  try {
+    const url = Deno.env.get('SUPABASE_URL')
+    const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!url || !key) return DEFAULT_SYSTEM
+    const admin = createClient(url, key)
+    const { data } = await admin
+      .from('skills')
+      .select('instructions, is_builtin, created_at')
+      .eq('auto_apply', true)
+      .order('is_builtin', { ascending: false })
+      .order('created_at', { ascending: true })
+    const parts = (data ?? [])
+      .map((r: { instructions: string }) => (r.instructions ?? '').trim())
+      .filter(Boolean)
+    return parts.length ? parts.join('\n\n---\n\n') : DEFAULT_SYSTEM
+  } catch {
+    return DEFAULT_SYSTEM
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS })
@@ -45,29 +70,37 @@ Deno.serve(async (req: Request) => {
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: 'ANTHROPIC_API_KEY is not configured' }),
-      { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } },
-    )
+    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY is not configured' }), {
+      status: 500,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+    })
   }
 
   let messages: ChatMessage[]
-  let system = SYSTEM_PROMPT
+  let skillSystem = ''
+  let replaceSystem = false
   try {
     const body = await req.json()
     messages = body.messages
     if (!Array.isArray(messages) || messages.length === 0) {
       throw new Error('`messages` must be a non-empty array')
     }
-    // A skill run sends its own instructions as the system prompt.
-    if (typeof body.system === 'string' && body.system.trim()) {
-      system = body.system
-    }
+    if (typeof body.system === 'string') skillSystem = body.system
+    replaceSystem = body.replaceSystem === true
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }),
-      { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } },
-    )
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
+      status: 400,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+    })
+  }
+
+  // Assemble the effective system prompt.
+  let system: string
+  if (replaceSystem && skillSystem.trim()) {
+    system = skillSystem
+  } else {
+    const base = await loadAlwaysOnSystem()
+    system = skillSystem.trim() ? `${base}\n\n---\n\n${skillSystem}` : base
   }
 
   const anthropic = new Anthropic({ apiKey })
@@ -83,17 +116,13 @@ Deno.serve(async (req: Request) => {
           system,
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         })
-
         llm.on('text', (delta: string) => {
           controller.enqueue(sse({ delta }))
         })
-
         await llm.finalMessage()
         controller.enqueue(sse('[DONE]'))
       } catch (err) {
-        controller.enqueue(
-          sse({ type: 'error', error: err instanceof Error ? err.message : 'stream failed' }),
-        )
+        controller.enqueue(sse({ type: 'error', error: err instanceof Error ? err.message : 'stream failed' }))
       } finally {
         controller.close()
       }

@@ -3,31 +3,16 @@ import type { ArtifactType, Database, SkillOutputMode } from '../lib/database.ty
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { ArtifactIcon, ChatIcon, PlusIcon, SkillIcon, TrashIcon } from '../components/icons'
+import { ArtifactIcon, ChatIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type Skill = Database['public']['Tables']['skills']['Row']
 
 const ARTIFACT_TYPES: ArtifactType[] = ['markdown', 'code', 'html', 'text']
 
-const STARTER = {
-  name: 'Generate Quote',
-  description: 'Turn pasted context into a clean, shareable quote.',
-  instructions: `You are a quoting assistant. Using the context provided in the conversation, produce a professional price quote.
-
-Output a single clean Markdown document with:
-- A short header (client, date, quote number if present)
-- A line-item table (description, qty, unit price, amount)
-- A total
-- Brief terms / validity
-
-Output only the quote — no preamble, no commentary.`,
-  output_mode: 'artifact' as SkillOutputMode,
-  artifact_type: 'markdown' as ArtifactType,
-}
-
 export default function SkillsPage() {
   const { user } = useAuth()
   const [skills, setSkills] = useState<Skill[]>([])
+  const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Skill | null>(null)
 
@@ -35,6 +20,7 @@ export default function SkillsPage() {
     const { data } = await supabase
       .from('skills')
       .select('*')
+      .order('auto_apply', { ascending: false })
       .order('updated_at', { ascending: false })
     setSkills(data ?? [])
     setLoading(false)
@@ -44,16 +30,26 @@ export default function SkillsPage() {
     load()
   }, [load])
 
-  async function createSkill(seed?: Partial<Skill>) {
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setIsAdmin(Boolean(data?.is_admin)))
+  }, [user])
+
+  async function create(autoApply: boolean) {
     const { data, error } = await supabase
       .from('skills')
       .insert({
         owner_id: user!.id,
-        name: seed?.name ?? 'New skill',
-        description: seed?.description ?? null,
-        instructions: seed?.instructions ?? '',
-        output_mode: seed?.output_mode ?? 'artifact',
-        artifact_type: seed?.artifact_type ?? 'markdown',
+        name: autoApply ? 'New always-on prompt' : 'New skill',
+        instructions: '',
+        auto_apply: autoApply,
+        output_mode: autoApply ? 'reply' : 'artifact',
+        artifact_type: 'markdown',
       })
       .select()
       .single()
@@ -63,18 +59,22 @@ export default function SkillsPage() {
     }
   }
 
+  const alwaysOn = skills.filter((s) => s.auto_apply)
+  const onDemand = skills.filter((s) => !s.auto_apply)
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Skills</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Prompts &amp; skills</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Reusable instructions you can run from chat with <code className="rounded bg-slate-100 px-1">/</code>.
+              Always-on prompts shape every chat. On-demand skills run when you type{' '}
+              <code className="rounded bg-slate-100 px-1">/</code>.
             </p>
           </div>
           <button
-            onClick={() => createSkill()}
+            onClick={() => create(false)}
             className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
           >
             <PlusIcon className="h-4 w-4" /> New skill
@@ -83,49 +83,58 @@ export default function SkillsPage() {
 
         {loading ? (
           <p className="text-sm text-slate-400">Loading…</p>
-        ) : skills.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 py-16 text-center">
-            <SkillIcon className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-            <p className="text-sm text-slate-500">No skills yet.</p>
-            <button
-              onClick={() => createSkill(STARTER)}
-              className="mt-3 text-sm font-medium text-brand-600 hover:underline"
-            >
-              Create a starter “Generate Quote” skill
-            </button>
-          </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {skills.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setEditing(s)}
-                className="group rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-brand-300 hover:shadow-sm"
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="truncate font-medium text-slate-800 group-hover:text-brand-700">
-                    {s.name}
-                  </h3>
-                  <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                    {s.output_mode === 'artifact' ? (
-                      <>
-                        <ArtifactIcon className="h-3.5 w-3.5" /> {s.artifact_type}
-                      </>
-                    ) : (
-                      <>
-                        <ChatIcon className="h-3.5 w-3.5" /> reply
-                      </>
-                    )}
-                  </span>
+          <div className="space-y-8">
+            {/* Always-on */}
+            <section>
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Always on · applied to every chat
+                </h2>
+                {isAdmin && (
+                  <button
+                    onClick={() => create(true)}
+                    className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"
+                  >
+                    <PlusIcon className="h-3.5 w-3.5" /> Add
+                  </button>
+                )}
+              </div>
+              {alwaysOn.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-400">
+                  No always-on prompts yet.
+                </p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {alwaysOn.map((s) => (
+                    <SkillCard key={s.id} skill={s} onClick={() => setEditing(s)} alwaysOn />
+                  ))}
                 </div>
-                <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                  {s.description || s.instructions.slice(0, 120) || 'No description'}
+              )}
+              {!isAdmin && (
+                <p className="mt-2 text-xs text-slate-400">
+                  Only an admin can edit always-on prompts.
                 </p>
-                <p className="mt-3 text-[11px] uppercase tracking-wide text-slate-400">
-                  Updated {formatDate(s.updated_at)}
+              )}
+            </section>
+
+            {/* On-demand */}
+            <section>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                On demand · run with /
+              </h2>
+              {onDemand.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-400">
+                  No skills yet. Create one to run it from chat.
                 </p>
-              </button>
-            ))}
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {onDemand.map((s) => (
+                    <SkillCard key={s.id} skill={s} onClick={() => setEditing(s)} />
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
       </div>
@@ -133,6 +142,8 @@ export default function SkillsPage() {
       {editing && (
         <SkillEditor
           skill={editing}
+          canEdit={editing.auto_apply ? isAdmin : true}
+          isAdmin={isAdmin}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
@@ -144,110 +155,209 @@ export default function SkillsPage() {
   )
 }
 
+function SkillCard({
+  skill,
+  onClick,
+  alwaysOn,
+}: {
+  skill: Skill
+  onClick: () => void
+  alwaysOn?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="group rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-brand-300 hover:shadow-sm"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="truncate font-medium text-slate-800 group-hover:text-brand-700">
+          {skill.name}
+        </h3>
+        {skill.is_builtin ? (
+          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+            Built-in
+          </span>
+        ) : alwaysOn ? null : (
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-400">
+            {skill.output_mode === 'artifact' ? (
+              <>
+                <ArtifactIcon className="h-3.5 w-3.5" /> {skill.artifact_type}
+              </>
+            ) : (
+              <>
+                <ChatIcon className="h-3.5 w-3.5" /> reply
+              </>
+            )}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+        {skill.description || skill.instructions.slice(0, 120) || 'No description'}
+      </p>
+      <p className="mt-3 text-[11px] uppercase tracking-wide text-slate-400">
+        Updated {formatDate(skill.updated_at)}
+      </p>
+    </button>
+  )
+}
+
 function SkillEditor({
   skill,
+  canEdit,
+  isAdmin,
   onClose,
   onSaved,
 }: {
   skill: Skill
+  canEdit: boolean
+  isAdmin: boolean
   onClose: () => void
   onSaved: () => void
 }) {
   const [draft, setDraft] = useState(skill)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function save() {
     setSaving(true)
-    await supabase
+    setError(null)
+    const { error: upErr } = await supabase
       .from('skills')
       .update({
         name: draft.name,
         description: draft.description,
         instructions: draft.instructions,
+        auto_apply: draft.auto_apply,
         output_mode: draft.output_mode,
         artifact_type: draft.artifact_type,
         updated_at: new Date().toISOString(),
       })
       .eq('id', draft.id)
     setSaving(false)
+    if (upErr) {
+      setError(upErr.message)
+      return
+    }
     onSaved()
   }
 
   async function remove() {
-    if (!confirm(`Delete skill “${draft.name}”?`)) return
+    if (!confirm(`Delete “${draft.name}”?`)) return
     await supabase.from('skills').delete().eq('id', draft.id)
     onSaved()
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
       <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-700">Edit skill</h2>
-          <button
-            onClick={remove}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-            title="Delete"
-          >
-            <TrashIcon className="h-[18px] w-[18px]" />
-          </button>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            {draft.auto_apply ? 'Always-on prompt' : 'Skill'}
+            {draft.is_builtin && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                Built-in
+              </span>
+            )}
+          </h2>
+          {canEdit && (
+            <button
+              onClick={remove}
+              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              title="Delete"
+            >
+              <TrashIcon className="h-[18px] w-[18px]" />
+            </button>
+          )}
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {!canEdit && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              Only an admin can edit always-on prompts. You can view it here.
+            </p>
+          )}
+
           <Field label="Name">
             <input
               value={draft.name}
+              disabled={!canEdit}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
             />
           </Field>
           <Field label="Description (optional)">
             <input
               value={draft.description ?? ''}
+              disabled={!canEdit}
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
             />
           </Field>
-          <Field label="Instructions">
+          <Field label={draft.auto_apply ? 'Prompt (added to every chat)' : 'Instructions'}>
             <textarea
               value={draft.instructions}
+              disabled={!canEdit}
               onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
-              rows={9}
-              placeholder="Tell the model exactly what to do with the conversation context…"
-              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              rows={10}
+              placeholder={
+                draft.auto_apply
+                  ? 'e.g. This is Acme Co.’s intranet. We make widgets. Keep a friendly, professional tone…'
+                  : 'Tell the model exactly what to do with the conversation context…'
+              }
+              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
             />
           </Field>
-          <div className="flex gap-3">
-            <Field label="Output">
-              <select
-                value={draft.output_mode}
-                onChange={(e) =>
-                  setDraft({ ...draft, output_mode: e.target.value as SkillOutputMode })
-                }
-                className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
-              >
-                <option value="artifact">Create artifact</option>
-                <option value="reply">Reply in chat</option>
-              </select>
-            </Field>
-            {draft.output_mode === 'artifact' && (
-              <Field label="Artifact type">
+
+          {/* Always-on toggle (admins only) */}
+          <label className={`flex items-center gap-2 text-sm ${isAdmin ? '' : 'opacity-60'}`}>
+            <input
+              type="checkbox"
+              checked={draft.auto_apply}
+              disabled={!isAdmin || !canEdit}
+              onChange={(e) => setDraft({ ...draft, auto_apply: e.target.checked })}
+              className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span className="text-slate-700">Always on — apply to every chat</span>
+            {!isAdmin && <span className="text-xs text-slate-400">(admin only)</span>}
+          </label>
+
+          {!draft.auto_apply && (
+            <div className="flex gap-3">
+              <Field label="Output">
                 <select
-                  value={draft.artifact_type}
+                  value={draft.output_mode}
+                  disabled={!canEdit}
                   onChange={(e) =>
-                    setDraft({ ...draft, artifact_type: e.target.value as ArtifactType })
+                    setDraft({ ...draft, output_mode: e.target.value as SkillOutputMode })
                   }
-                  className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                  className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm disabled:bg-slate-50"
                 >
-                  {ARTIFACT_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
+                  <option value="artifact">Create artifact</option>
+                  <option value="reply">Reply in chat</option>
                 </select>
               </Field>
-            )}
-          </div>
+              {draft.output_mode === 'artifact' && (
+                <Field label="Artifact type">
+                  <select
+                    value={draft.artifact_type}
+                    disabled={!canEdit}
+                    onChange={(e) =>
+                      setDraft({ ...draft, artifact_type: e.target.value as ArtifactType })
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm disabled:bg-slate-50"
+                  >
+                    {ARTIFACT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+            </div>
+          )}
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
@@ -255,15 +365,17 @@ function SkillEditor({
             onClick={onClose}
             className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
           >
-            Cancel
+            {canEdit ? 'Cancel' : 'Close'}
           </button>
-          <button
-            onClick={save}
-            disabled={saving || !draft.name.trim()}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+          {canEdit && (
+            <button
+              onClick={save}
+              disabled={saving || !draft.name.trim()}
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          )}
         </div>
       </div>
     </div>

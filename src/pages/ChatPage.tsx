@@ -159,7 +159,8 @@ export default function ChatPage() {
         setStreaming((s) => (s ?? '') + delta),
       )
       setStreaming(null)
-      await insertMessage(convId, 'assistant', full)
+      const finalText = await materializeArtifacts(convId, full)
+      await insertMessage(convId, 'assistant', finalText)
       // Touch conversation so it floats to the top of the list.
       await supabase
         .from('conversations')
@@ -192,6 +193,42 @@ export default function ChatPage() {
       return
     }
     navigate(`/artifacts/${data.id}`)
+  }
+
+  // The assistant can emit :::artifact {json}\n...content...\n::: blocks.
+  // Turn each into a saved artifact and replace the block with a share link.
+  async function materializeArtifacts(convId: string, text: string): Promise<string> {
+    const re = /:::artifact\s*(\{[\s\S]*?\})\s*\r?\n([\s\S]*?)\r?\n:::/g
+    let out = ''
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      out += text.slice(last, m.index)
+      last = re.lastIndex
+      let attrs: { title?: string; type?: string } = {}
+      try {
+        attrs = JSON.parse(m[1])
+      } catch {
+        // malformed header — leave the block as-is
+        out += m[0]
+        continue
+      }
+      const type = (['markdown', 'code', 'html', 'text'].includes(attrs.type ?? '')
+        ? attrs.type
+        : 'markdown') as 'markdown' | 'code' | 'html' | 'text'
+      const title = (attrs.title || 'Untitled artifact').slice(0, 120)
+      const content = m[2].trim()
+      const { data } = await supabase
+        .from('artifacts')
+        .insert({ owner_id: user!.id, conversation_id: convId, title, type, content, visibility: 'private' })
+        .select()
+        .single()
+      out += data
+        ? `✺ **${title}** — [open & share →](/artifacts/${data.id})`
+        : `**${title}** (couldn’t save)`
+    }
+    out += text.slice(last)
+    return out
   }
 
   // Run a saved skill against the current conversation context.
@@ -231,12 +268,14 @@ export default function ChatPage() {
       const full = await streamChat(
         modelHistory,
         (delta) => setStreaming((s) => (s ?? '') + delta),
-        { system: skill.instructions },
+        // Artifact skills fully control output (clean, no workspace chatter);
+        // reply skills layer on top of the always-on context.
+        { system: skill.instructions, replaceSystem: skill.output_mode === 'artifact' },
       )
       setStreaming(null)
 
       if (skill.output_mode === 'reply') {
-        await insertMessage(convId, 'assistant', full)
+        await insertMessage(convId, 'assistant', await materializeArtifacts(convId, full))
       } else {
         const { data: art } = await supabase
           .from('artifacts')
@@ -269,13 +308,15 @@ export default function ChatPage() {
     }
   }
 
-  // Skill menu state derived from the composer (slash command) or the button.
+  // Only on-demand skills appear in the run menu (always-on prompts are applied
+  // automatically by the server and never invoked here).
+  const onDemandSkills = skills.filter((s) => !s.auto_apply)
   const slashQuery = input.startsWith('/') ? input.slice(1).toLowerCase() : null
   const skillMenuOpen = showSkills || slashQuery !== null
   const filteredSkills =
     slashQuery != null
-      ? skills.filter((s) => s.name.toLowerCase().includes(slashQuery))
-      : skills
+      ? onDemandSkills.filter((s) => s.name.toLowerCase().includes(slashQuery))
+      : onDemandSkills
 
   return (
     <div className="relative flex h-full">
@@ -403,7 +444,7 @@ export default function ChatPage() {
                 </div>
                 {filteredSkills.length === 0 ? (
                   <p className="px-3 py-4 text-center text-sm text-slate-400">
-                    {skills.length === 0 ? 'No skills yet — create one' : 'No match'}
+                    {onDemandSkills.length === 0 ? 'No skills yet — create one' : 'No match'}
                   </p>
                 ) : (
                   filteredSkills.map((s) => (

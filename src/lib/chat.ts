@@ -15,7 +15,7 @@ export interface ChatMessage {
 export async function streamChat(
   messages: ChatMessage[],
   onToken: (delta: string) => void,
-  options?: { system?: string; signal?: AbortSignal },
+  options?: { system?: string; replaceSystem?: boolean; signal?: AbortSignal },
 ): Promise<string> {
   const {
     data: { session },
@@ -29,7 +29,11 @@ export async function streamChat(
       apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
       Authorization: `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({ messages, system: options?.system }),
+    body: JSON.stringify({
+      messages,
+      system: options?.system,
+      replaceSystem: options?.replaceSystem,
+    }),
     signal: options?.signal,
   })
 

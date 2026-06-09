@@ -139,23 +139,27 @@ export interface Database {
       skills: {
         Row: {
           id: string
-          owner_id: string
+          owner_id: string | null
           name: string
           description: string | null
           instructions: string
           output_mode: SkillOutputMode
           artifact_type: ArtifactType
+          auto_apply: boolean
+          is_builtin: boolean
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          owner_id: string
+          owner_id?: string | null
           name: string
           description?: string | null
           instructions?: string
           output_mode?: SkillOutputMode
           artifact_type?: ArtifactType
+          auto_apply?: boolean
+          is_builtin?: boolean
           created_at?: string
           updated_at?: string
         }
