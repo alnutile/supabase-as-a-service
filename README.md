@@ -1,90 +1,164 @@
-# Intranet
+<div align="center">
 
-A friendly, React-based intranet layer on top of [Supabase](https://supabase.com). Log in, chat with an AI assistant to build things, and share what you make — publicly or locked down. Files, artifacts, and live updates included.
+# ✺ Intranet
 
-It leans on Supabase for everything that should be "boring and solid":
+**A friendly, open-source intranet layer on top of [Supabase](https://supabase.com).**
 
-- **Auth** — email/password and magic links via Supabase Auth.
-- **Data + security** — Postgres with row-level security; you only ever see your own rows unless something is explicitly shared.
-- **Realtime** — chat messages stream in over websockets, so a conversation stays in sync across devices.
-- **Storage** — private file bucket with owner-scoped access and signed share links.
-- **AI** — a Supabase Edge Function calls Claude server-side (your API key never reaches the browser) and streams the response.
+Log in, chat with AI to build things, and share what you make — publicly or locked down. Files, artifacts, and live updates included.
 
-## Features
+<br/>
 
-| Area | What you get |
-| --- | --- |
-| 💬 **Chat** | Conversations with an AI assistant. Responses stream token-by-token and persist to the database; realtime keeps every device in sync. |
-| 📄 **Artifacts** | Turn any reply (or a blank page) into a document/code/HTML artifact. Edit with live preview, then set it **Private**, **Unlisted** (link only), or **Public**. |
-| 📁 **Files** | Upload files to a private bucket. Generate a 7-day signed share link when you want to hand one out. |
-| 🔐 **Auth + profiles** | Sign up / sign in, edit your display name. A profile row is created automatically on signup. |
+![React](https://img.shields.io/badge/React-18-149ECA?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-38BDF8?logo=tailwindcss&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%7C%20Auth%20%7C%20Realtime%20%7C%20Storage-3FCF8E?logo=supabase&logoColor=white)
+![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)
 
-This is a foundation meant to grow: artifacts and conversations are the natural seeds for **scheduled agents, promotable workflows, and webhooks** down the line.
+</div>
+
+---
+
+## What is this?
+
+A small but complete foundation for a team workspace ("intranet") that you fully own. It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
+
+- 🔐 **Auth** — email/password and magic links via Supabase Auth. A profile is created automatically on signup.
+- 💬 **AI chat** — talk to Claude to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
+- 📄 **Artifacts** — turn any reply (or a blank page) into a markdown / code / HTML / text artifact with live preview. Share it as **Private**, **Unlisted** (anyone with the link), or **Public** — served to anonymous visitors at `/share/a/:slug`.
+- 📁 **Files** — upload to a private, per-user storage bucket and hand out **7-day signed share links** when you want to.
+- 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).
+
+The Anthropic API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
+
+## How it fits together
+
+```
+                 ┌─────────────────────────────────────────────┐
+   Browser  ───▶ │  React SPA (Vite + Tailwind)                 │
+   (Railway)     │   • Supabase Auth (session)                  │
+                 │   • RLS-scoped reads/writes                  │
+                 │   • Realtime subscription (websockets)       │
+                 └───────────────┬─────────────────────────────┘
+                                 │ anon key (safe; RLS protects data)
+                                 ▼
+                 ┌─────────────────────────────────────────────┐
+                 │  Supabase                                    │
+                 │   • Postgres + RLS  (profiles, conversations,│
+                 │     messages, artifacts, files)              │
+                 │   • Auth · Realtime · Storage                │
+                 │   • Edge Function `chat`  ───▶ Anthropic API │
+                 │     (ANTHROPIC_API_KEY stays server-side)    │
+                 └─────────────────────────────────────────────┘
+```
 
 ## Tech stack
 
-- **Frontend:** React 18 + TypeScript + Vite + Tailwind CSS + React Router
-- **Backend:** Supabase (Postgres, Auth, Realtime, Storage, Edge Functions)
-- **AI:** Anthropic Claude (`claude-opus-4-8`) via a Deno edge function
+- **Frontend:** React 18 · TypeScript · Vite · Tailwind CSS · React Router
+- **Backend:** Supabase — Postgres, Auth, Realtime, Storage, Edge Functions (Deno)
+- **AI:** Anthropic Claude (`claude-opus-4-8`) via a streaming edge function
+- **Hosting:** any static host; first-class config for [Railway](https://railway.app)
 
 ## Project layout
 
 ```
 src/
   contexts/AuthContext.tsx     Supabase Auth wrapper (session, sign in/up/out)
-  components/                  Layout, nav, markdown, sharing controls, icons
+  components/                  Layout/nav, markdown, sharing controls, icons
   pages/                       Login, Chat, Artifacts, Artifact editor,
                                Public artifact, Files, Settings
   lib/                         Supabase client, chat streaming, types, utils
 supabase/
   migrations/0001_init.sql     Schema + RLS + realtime + storage policies
   functions/chat/index.ts      Edge function that streams Claude
+railway.json                   Build/serve config for Railway
+DEPLOY.md                      End-to-end deployment guide
 ```
 
-## Getting started
+## Quick start (local)
 
-### 1. Install
+**Prerequisites:** Node 18+, a [Supabase](https://supabase.com) project, an [Anthropic API key](https://console.anthropic.com), and the [Supabase CLI](https://supabase.com/docs/guides/cli).
 
 ```bash
+# 1. Install
 npm install
-```
 
-### 2. Point at your Supabase project
-
-```bash
+# 2. Configure the frontend
 cp .env.example .env.local
-```
+#   then set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (Project Settings → API)
 
-Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Project Settings → API).
-
-### 3. Apply the schema
-
-Either run the SQL in `supabase/migrations/0001_init.sql` from the SQL editor, or with the CLI:
-
-```bash
+# 3. Apply the database schema
 supabase link --project-ref <your-project-ref>
-supabase db push
-```
+supabase db push                 # or paste supabase/migrations/0001_init.sql into the SQL editor
 
-### 4. Deploy the AI edge function
-
-```bash
+# 4. Deploy the AI edge function + its secret
 supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 supabase functions deploy chat
+
+# 5. Run
+npm run dev                      # http://localhost:5173
 ```
 
-(Optional secrets: `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` = `low` | `medium` | `high`.)
+Then sign up, and start chatting.
 
-### 5. Run
+> **Tip for first-run testing:** in Supabase → Authentication → Providers → Email, you can turn off **"Confirm email"** so password signups log in immediately (the built-in email sender is rate-limited).
+
+## Environment variables
+
+| Where | Variable | Notes |
+| --- | --- | --- |
+| Frontend (build-time) | `VITE_SUPABASE_URL` | Your Supabase project URL. Inlined into the bundle. |
+| Frontend (build-time) | `VITE_SUPABASE_ANON_KEY` | Anon/publishable key. Safe in the browser — RLS protects data. |
+| Edge function secret | `ANTHROPIC_API_KEY` | **Server-only.** `supabase secrets set ANTHROPIC_API_KEY=…` |
+| Edge function secret | `ANTHROPIC_MODEL` | Optional. Defaults to `claude-opus-4-8`. |
+| Edge function secret | `ANTHROPIC_EFFORT` | Optional. `low` \| `medium` \| `high`. Defaults to `medium`. |
+
+`VITE_*` vars are read at **build time** — on a host like Railway they must be set before the build runs.
+
+## Deploying
+
+Two pieces go live: the **Supabase backend** (schema, auth, storage, realtime, the `chat` function) and the **static frontend**. Railway is wired up out of the box:
+
+1. Railway → **New Project → Deploy from GitHub repo** → this repo, `main`.
+2. Add service variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+3. Deploy. Railway runs `npm install` → `npm run build` → `npm run start` (serves `dist/` with SPA fallback).
+4. Add your deployed URL to Supabase **Authentication → URL Configuration** (Site URL + Redirect URLs) so email/magic-link redirects land back on your app.
+
+Full details — including the Site URL gotcha — are in [`DEPLOY.md`](./DEPLOY.md).
+
+## Security model
+
+- The browser only ever holds the **anon/publishable** key. Row-level security is what protects data, not key secrecy. Every table has RLS: owners see their own rows; artifacts/files open up only when explicitly set to *unlisted* or *public*.
+- Files live in a **private** storage bucket scoped to `‹user-id›/…`; sharing is done with time-limited signed URLs.
+- The **Anthropic key** is only ever a Supabase Edge Function secret — never in the repo, never in the bundle.
+- The `chat` function requires a valid Supabase JWT (`verify_jwt`), so only signed-in users can call the model.
+
+## Regenerating types
+
+After changing the schema, refresh the typed client:
 
 ```bash
-npm run dev
+npm run gen:types        # supabase gen types typescript --linked > src/lib/database.types.ts
 ```
 
-Open http://localhost:5173, create an account, and start chatting.
+## Roadmap
 
-## Notes
+This is a foundation meant to grow. Conversations and artifacts are the natural seeds for:
 
-- The browser only ever holds the **anon/publishable** key. That's safe by design — row-level security is what protects data, not key secrecy.
-- The Anthropic key lives only as a Supabase **Edge Function secret**.
-- To regenerate `src/lib/database.types.ts` from the live schema: `npm run gen:types`.
+- ⏱️ **Scheduled agents** — promote a useful chat/artifact into a recurring job.
+- 🪝 **Webhooks** — trigger workflows from outside, or call out when something happens.
+- 👥 **Team sharing & spaces** — shared workspaces, roles, comments.
+- 🧩 **Richer artifacts** — versions, attachments, embeds.
+
+Issues and PRs welcome.
+
+## Contributing
+
+1. Fork and clone.
+2. `npm install`, then follow **Quick start** to point at your own Supabase project.
+3. `npm run build` (typecheck + build) and `npm run lint` should pass.
+4. Open a PR with a clear description.
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE). Use it, fork it, build your own intranet.
