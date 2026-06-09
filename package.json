@@ -1,7 +1,7 @@
 {
   "name": "supabase-intranet",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "A friendly React intranet layer on top of Supabase: auth, AI chat, shareable artifacts, files, and realtime.",
   "scripts": {
