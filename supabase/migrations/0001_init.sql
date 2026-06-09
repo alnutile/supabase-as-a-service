@@ -15,6 +15,7 @@ create type public.artifact_type as enum ('markdown', 'code', 'html', 'text');
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -74,6 +75,11 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Trigger functions should not be callable as PostgREST RPC endpoints.
+-- Triggers still fire as the table owner after these revokes.
+revoke execute on function public.handle_new_user() from anon, authenticated, public;
+revoke execute on function public.set_updated_at() from anon, authenticated, public;
 
 -- ---------------------------------------------------------------------------
 -- conversations
