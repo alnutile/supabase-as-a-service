@@ -39,6 +39,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `PublicArtifactPage` at route `/share/a/:slug`.
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
+- **Skills:** `SkillsPage` manages saved instruction sets (`skills` table). In
+  `ChatPage`, typing `/` (or the ⚡ button) opens a skill menu; `runSkill()` sends
+  the conversation context with the skill's `instructions` as the `system` override
+  (via `streamChat(..., { system })`). Output mode `artifact` creates an artifact and
+  drops a link in chat; `reply` posts the assistant message inline.
 
 ## Directory map
 

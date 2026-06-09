@@ -52,11 +52,16 @@ Deno.serve(async (req: Request) => {
   }
 
   let messages: ChatMessage[]
+  let system = SYSTEM_PROMPT
   try {
     const body = await req.json()
     messages = body.messages
     if (!Array.isArray(messages) || messages.length === 0) {
       throw new Error('`messages` must be a non-empty array')
+    }
+    // A skill run sends its own instructions as the system prompt.
+    if (typeof body.system === 'string' && body.system.trim()) {
+      system = body.system
     }
   } catch (err) {
     return new Response(
@@ -75,7 +80,7 @@ Deno.serve(async (req: Request) => {
           max_tokens: 8192,
           thinking: { type: 'adaptive' },
           output_config: { effort: EFFORT },
-          system: SYSTEM_PROMPT,
+          system,
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         })
 

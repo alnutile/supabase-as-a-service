@@ -11,6 +11,7 @@ export type Json =
 export type Visibility = 'private' | 'unlisted' | 'public'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
+export type SkillOutputMode = 'artifact' | 'reply'
 
 export interface Database {
   public: {
@@ -131,6 +132,32 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['files']['Insert']>
+        Relationships: []
+      }
+      skills: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          description: string | null
+          instructions: string
+          output_mode: SkillOutputMode
+          artifact_type: ArtifactType
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name: string
+          description?: string | null
+          instructions?: string
+          output_mode?: SkillOutputMode
+          artifact_type?: ArtifactType
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['skills']['Insert']>
         Relationships: []
       }
     }

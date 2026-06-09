@@ -9,11 +9,13 @@ import {
   LogoutIcon,
   MenuIcon,
   SettingsIcon,
+  SkillIcon,
 } from './icons'
 
 const navItems = [
   { to: '/chat', label: 'Chat', icon: ChatIcon, end: false },
   { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon, end: false },
+  { to: '/skills', label: 'Skills', icon: SkillIcon, end: false },
   { to: '/files', label: 'Files', icon: FileIcon, end: false },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false },
 ]

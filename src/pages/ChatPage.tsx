@@ -5,10 +5,11 @@ import { supabase } from '../lib/supabase'
 import { streamChat, type ChatMessage } from '../lib/chat'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
-import { ArtifactIcon, ChatIcon, PlusIcon, SendIcon } from '../components/icons'
+import { ArtifactIcon, ChatIcon, PlusIcon, SendIcon, SkillIcon } from '../components/icons'
 
 type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
+type Skill = Database['public']['Tables']['skills']['Row']
 
 export default function ChatPage() {
   const { conversationId } = useParams()
@@ -22,6 +23,8 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showConvos, setShowConvos] = useState(false)
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [showSkills, setShowSkills] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const seen = useRef<Set<string>>(new Set())
@@ -38,6 +41,15 @@ export default function ChatPage() {
   useEffect(() => {
     loadConversations()
   }, [loadConversations])
+
+  // --- Load saved skills (for the slash menu / run button) ---
+  useEffect(() => {
+    supabase
+      .from('skills')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .then(({ data }) => setSkills(data ?? []))
+  }, [])
 
   // --- Load + subscribe to messages for the active conversation ---
   useEffect(() => {
@@ -122,6 +134,8 @@ export default function ChatPage() {
     e.preventDefault()
     const text = input.trim()
     if (!text || sending) return
+    // A leading "/" is a skill command, not a message — handled by the menu.
+    if (text.startsWith('/')) return
 
     setSending(true)
     setError(null)
@@ -179,6 +193,89 @@ export default function ChatPage() {
     }
     navigate(`/artifacts/${data.id}`)
   }
+
+  // Run a saved skill against the current conversation context.
+  async function runSkill(skill: Skill) {
+    if (sending) return
+    setShowSkills(false)
+    setError(null)
+
+    const pending = input.trim()
+    // Context = everything already in the conversation, plus any unsent text.
+    const history: ChatMessage[] = messages.map((m) => ({
+      role: (m.role === 'assistant' ? 'assistant' : 'user') as ChatMessage['role'],
+      content: m.content,
+    }))
+    if (pending) history.push({ role: 'user', content: pending })
+
+    if (history.length === 0) {
+      setError('Add some context to the chat first, then run a skill.')
+      return
+    }
+
+    setSending(true)
+    setInput('')
+    try {
+      const convId = await ensureConversation(pending || skill.name)
+      if (pending) await insertMessage(convId, 'user', pending)
+      await insertMessage(convId, 'user', `▶ Ran skill: ${skill.name}`)
+
+      // The skill's instructions become the system prompt; a final nudge gives
+      // the model a turn to respond to.
+      const modelHistory: ChatMessage[] = [
+        ...history,
+        { role: 'user', content: 'Run the skill on the context above and produce the final output now.' },
+      ]
+
+      setStreaming('')
+      const full = await streamChat(
+        modelHistory,
+        (delta) => setStreaming((s) => (s ?? '') + delta),
+        { system: skill.instructions },
+      )
+      setStreaming(null)
+
+      if (skill.output_mode === 'reply') {
+        await insertMessage(convId, 'assistant', full)
+      } else {
+        const { data: art } = await supabase
+          .from('artifacts')
+          .insert({
+            owner_id: user!.id,
+            conversation_id: convId,
+            title: skill.name,
+            type: skill.artifact_type,
+            content: full,
+            visibility: 'private',
+          })
+          .select()
+          .single()
+        const link = art
+          ? `✺ Created artifact **${skill.name}** — [open & share →](/artifacts/${art.id})`
+          : 'Created artifact.'
+        await insertMessage(convId, 'assistant', link)
+      }
+
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', convId)
+      loadConversations()
+    } catch (err) {
+      setStreaming(null)
+      setError(err instanceof Error ? err.message : 'Skill failed')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // Skill menu state derived from the composer (slash command) or the button.
+  const slashQuery = input.startsWith('/') ? input.slice(1).toLowerCase() : null
+  const skillMenuOpen = showSkills || slashQuery !== null
+  const filteredSkills =
+    slashQuery != null
+      ? skills.filter((s) => s.name.toLowerCase().includes(slashQuery))
+      : skills
 
   return (
     <div className="relative flex h-full">
@@ -258,7 +355,7 @@ export default function ChatPage() {
                   What do you want to build?
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Ask the assistant anything. Save useful replies as artifacts to share.
+                  Paste context, ask anything, or type <code className="rounded bg-slate-100 px-1">/</code> to run a saved skill.
                 </p>
               </div>
             )}
@@ -288,27 +385,90 @@ export default function ChatPage() {
         )}
 
         <form onSubmit={handleSend} className="border-t border-slate-200 bg-white p-4">
-          <div className="mx-auto flex max-w-3xl items-end gap-2">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSend(e)
-                }
-              }}
-              rows={1}
-              placeholder="Message the assistant…  (Enter to send, Shift+Enter for newline)"
-              className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
-            <button
-              type="submit"
-              disabled={sending || !input.trim()}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-50"
-            >
-              <SendIcon className="h-5 w-5" />
-            </button>
+          <div className="relative mx-auto max-w-3xl">
+            {/* Skill menu (slash command or the ⚡ button) */}
+            {skillMenuOpen && (
+              <div className="absolute bottom-full mb-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Run a skill
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/skills')}
+                    className="text-xs font-medium text-brand-600 hover:underline"
+                  >
+                    Manage
+                  </button>
+                </div>
+                {filteredSkills.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-slate-400">
+                    {skills.length === 0 ? 'No skills yet — create one' : 'No match'}
+                  </p>
+                ) : (
+                  filteredSkills.map((s) => (
+                    <button
+                      type="button"
+                      key={s.id}
+                      onClick={() => runSkill(s)}
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50"
+                    >
+                      <SkillIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-slate-800">
+                          {s.name}
+                          <span className="ml-2 text-[11px] font-normal text-slate-400">
+                            {s.output_mode === 'artifact' ? `→ ${s.artifact_type} artifact` : '→ reply'}
+                          </span>
+                        </span>
+                        {s.description && (
+                          <span className="block truncate text-xs text-slate-500">{s.description}</span>
+                        )}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSkills((v) => !v)}
+                title="Run a skill"
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${
+                  skillMenuOpen
+                    ? 'border-brand-300 bg-brand-50 text-brand-600'
+                    : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                <SkillIcon className="h-5 w-5" />
+              </button>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    if (skillMenuOpen && filteredSkills.length > 0) {
+                      runSkill(filteredSkills[0])
+                    } else {
+                      handleSend(e)
+                    }
+                  }
+                }}
+                rows={1}
+                placeholder="Message the assistant…  (type / to run a skill)"
+                className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              />
+              <button
+                type="submit"
+                disabled={sending || !input.trim() || input.startsWith('/')}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-50"
+              >
+                <SendIcon className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -328,6 +488,10 @@ function MessageBubble({
   onSaveArtifact?: () => void
 }) {
   const isUser = role === 'user'
+  // Long pasted context collapses so it doesn't dominate the thread.
+  const isLong = isUser && content.length > 600
+  const [expanded, setExpanded] = useState(false)
+  const shown = isLong && !expanded ? content.slice(0, 500) : content
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`group max-w-[85%] ${isUser ? 'order-2' : ''}`}>
@@ -339,7 +503,18 @@ function MessageBubble({
           }`}
         >
           {isUser ? (
-            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{content}</p>
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
+              {shown}
+              {isLong && !expanded && '…'}
+              {isLong && (
+                <button
+                  onClick={() => setExpanded((v) => !v)}
+                  className="ml-1 font-medium text-brand-100 underline underline-offset-2"
+                >
+                  {expanded ? 'Show less' : 'Show more'}
+                </button>
+              )}
+            </p>
           ) : (
             <Markdown>{content}</Markdown>
           )}
