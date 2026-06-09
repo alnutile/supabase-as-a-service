@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "start": "serve -s dist -l ${PORT:-3000}",
+    "start": "serve -s dist -l tcp://0.0.0.0:${PORT:-8080}",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "gen:types": "supabase gen types typescript --linked > src/lib/database.types.ts"
