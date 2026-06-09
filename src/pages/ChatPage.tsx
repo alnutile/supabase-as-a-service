@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { streamChat, type ChatMessage } from '../lib/chat'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
-import { ArtifactIcon, PlusIcon, SendIcon } from '../components/icons'
+import { ArtifactIcon, ChatIcon, PlusIcon, SendIcon } from '../components/icons'
 
 type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
@@ -21,6 +21,7 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showConvos, setShowConvos] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const seen = useRef<Set<string>>(new Set())
@@ -180,12 +181,25 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Conversation list */}
-      <div className="flex w-64 flex-col border-r border-slate-200 bg-white">
+    <div className="relative flex h-full">
+      {/* Conversation list — static sidebar on md+, slide-over on mobile */}
+      {showConvos && (
+        <div
+          className="absolute inset-0 z-10 bg-slate-900/30 md:hidden"
+          onClick={() => setShowConvos(false)}
+        />
+      )}
+      <div
+        className={`absolute inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform md:static md:translate-x-0 ${
+          showConvos ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         <div className="p-3">
           <button
-            onClick={() => navigate('/chat')}
+            onClick={() => {
+              navigate('/chat')
+              setShowConvos(false)
+            }}
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             <PlusIcon className="h-4 w-4" /> New chat
@@ -195,7 +209,10 @@ export default function ChatPage() {
           {conversations.map((c) => (
             <button
               key={c.id}
-              onClick={() => navigate(`/chat/${c.id}`)}
+              onClick={() => {
+                navigate(`/chat/${c.id}`)
+                setShowConvos(false)
+              }}
               className={`block w-full truncate rounded-lg px-3 py-2 text-left text-sm transition ${
                 c.id === conversationId
                   ? 'bg-brand-50 text-brand-700'
@@ -215,6 +232,21 @@ export default function ChatPage() {
 
       {/* Message panel */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile: open the conversation list */}
+        <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
+          <button
+            onClick={() => setShowConvos(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600"
+          >
+            <ChatIcon className="h-4 w-4" /> Conversations
+          </button>
+          <button
+            onClick={() => navigate('/chat')}
+            className="ml-auto flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white"
+          >
+            <PlusIcon className="h-4 w-4" /> New
+          </button>
+        </div>
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-4 py-6">
             {messages.length === 0 && !streaming && (

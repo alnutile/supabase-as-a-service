@@ -91,10 +91,10 @@ export default function ArtifactEditorPage() {
     artifact.public_slug ? `${window.location.origin}/share/a/${artifact.public_slug}` : null
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full flex-col overflow-y-auto md:flex-row md:overflow-hidden">
       {/* Editor */}
-      <div className="flex min-w-0 flex-1 flex-col border-r border-slate-200">
-        <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-3">
+      <div className="flex min-w-0 flex-1 flex-col border-b border-slate-200 md:border-b-0 md:border-r">
+        <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:px-5">
           <input
             value={artifact.title}
             onChange={(e) => patch({ title: e.target.value })}
@@ -132,13 +132,13 @@ export default function ArtifactEditorPage() {
           value={artifact.content}
           onChange={(e) => patch({ content: e.target.value })}
           spellCheck={false}
-          className="flex-1 resize-none bg-white p-5 font-mono text-sm leading-relaxed text-slate-800 outline-none"
+          className="min-h-[45vh] flex-1 resize-none bg-white p-4 font-mono text-sm leading-relaxed text-slate-800 outline-none md:min-h-0 md:p-5"
           placeholder="Write here…"
         />
       </div>
 
       {/* Side panel: sharing + preview */}
-      <div className="flex w-96 flex-col overflow-y-auto bg-slate-50">
+      <div className="flex w-full flex-col bg-slate-50 md:w-96 md:overflow-y-auto">
         <div className="border-b border-slate-200 p-4">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
             Sharing

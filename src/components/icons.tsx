@@ -89,3 +89,15 @@ export const UploadIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
   </svg>
 )
+
+export const MenuIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3 12h18M3 6h18M3 18h18" />
+  </svg>
+)
+
+export const CloseIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </svg>
+)
