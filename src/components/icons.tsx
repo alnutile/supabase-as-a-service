@@ -96,6 +96,21 @@ export const SkillIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const WebhookIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17a4 4 0 0 1 6.32-3.26" />
+    <path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" />
+    <path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 1 1-3.92 4.74" />
+  </svg>
+)
+
+export const CopyIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="9" y="9" width="13" height="13" rx="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+)
+
 export const MenuIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 12h18M3 6h18M3 18h18" />

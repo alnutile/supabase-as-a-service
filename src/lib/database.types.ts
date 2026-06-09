@@ -12,6 +12,7 @@ export type Visibility = 'private' | 'unlisted' | 'public'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'
+export type WebhookEventStatus = 'received' | 'ok' | 'error'
 
 export interface Database {
   public: {
@@ -178,6 +179,52 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['allowed_emails']['Insert']>
+        Relationships: []
+      }
+      webhooks: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          prompt: string
+          token: string
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name: string
+          prompt?: string
+          token?: string
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['webhooks']['Insert']>
+        Relationships: []
+      }
+      webhook_events: {
+        Row: {
+          id: string
+          webhook_id: string
+          status: WebhookEventStatus
+          payload: Json | null
+          result: string | null
+          error: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          webhook_id: string
+          status?: WebhookEventStatus
+          payload?: Json | null
+          result?: string | null
+          error?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['webhook_events']['Insert']>
         Relationships: []
       }
     }

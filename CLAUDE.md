@@ -39,6 +39,13 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `PublicArtifactPage` at route `/share/a/:slug`.
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
+- **Webhooks:** `WebhooksPage` (master–detail) creates `webhooks` rows, each with an
+  opaque `token` and an attached `prompt`. External systems POST to the **public**
+  `webhook` edge function at `/functions/v1/webhook/‹token›` (`verify_jwt: false`); it
+  resolves the webhook by token (service role), runs the prompt against the payload via
+  Claude, and logs a `webhook_events` row (`received` → `ok`/`error`) with the result.
+  The page subscribes to `webhook_events` over Realtime for a live log. Routing the
+  result somewhere (artifact/chat/outbound) is a later step.
 - **Prompts & skills:** one `skills` table, two modes.
   - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
     seeded `is_builtin` "How this workspace works" prompt teaches the assistant the
@@ -66,22 +73,24 @@ src/
     icons.tsx                  Inline SVG icons (no icon dependency)
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
-                               FilesPage, SettingsPage
+                               FilesPage, SkillsPage, WebhooksPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/0001_init.sql     Schema, RLS, realtime publication, storage policies
-  functions/chat/index.ts      Deno edge function streaming Claude
+  migrations/                  0001 schema/RLS; 0003 invite-only; 0004 prompts; 0005 webhooks
+  functions/chat/index.ts      Deno edge function streaming Claude (verify_jwt: true)
+  functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
 railway.json, DEPLOY.md        Deployment config + guide
 ```
 
 ## Database & security model
 
-Schema lives in `supabase/migrations/0001_init.sql`. Tables: `profiles`,
-`conversations`, `messages`, `artifacts`, `files`. Enums: `visibility`
+Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
+`profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
+`allowed_emails`, `webhooks`, `webhook_events`. Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**

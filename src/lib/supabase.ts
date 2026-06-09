@@ -25,3 +25,6 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
 
 /** URL of the deployed `chat` edge function. */
 export const chatFunctionUrl = `${supabaseUrl}/functions/v1/chat`
+
+/** Public ingest URL for a webhook (external systems POST here). */
+export const webhookUrl = (token: string) => `${supabaseUrl}/functions/v1/webhook/${token}`

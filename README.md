@@ -29,6 +29,7 @@ A small but complete foundation for a team workspace ("intranet") that you fully
 - 📄 **Artifacts** — turn any reply (or a blank page) into a markdown / code / HTML / text artifact with live preview. Share it as **Private**, **Unlisted** (anyone with the link), or **Public** — served to anonymous visitors at `/share/a/:slug`.
 - 📁 **Files** — upload to a private, per-user storage bucket and hand out **7-day signed share links** when you want to.
 - 🔒 **Invite-only** — the first user bootstraps the workspace and becomes admin; after that, only emails an admin has invited can sign up (enforced in the database).
+- 🪝 **Webhooks** — create a webhook to get a public URL, attach a prompt, and every inbound POST is processed by the assistant. Events + results are logged live. The action the result triggers (artifact, chat, outbound call) plugs in next.
 - 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).
 
 The Anthropic API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
