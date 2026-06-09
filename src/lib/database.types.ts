@@ -22,6 +22,7 @@ export interface Database {
           email: string | null
           display_name: string | null
           avatar_url: string | null
+          is_admin: boolean
           created_at: string
           updated_at: string
         }
@@ -30,6 +31,7 @@ export interface Database {
           email?: string | null
           display_name?: string | null
           avatar_url?: string | null
+          is_admin?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -158,6 +160,20 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['skills']['Insert']>
+        Relationships: []
+      }
+      allowed_emails: {
+        Row: {
+          email: string
+          invited_by: string | null
+          created_at: string
+        }
+        Insert: {
+          email: string
+          invited_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['allowed_emails']['Insert']>
         Relationships: []
       }
     }

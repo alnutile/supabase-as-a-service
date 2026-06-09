@@ -86,6 +86,10 @@ Schema lives in `supabase/migrations/0001_init.sql`. Tables: `profiles`,
 - A trigger (`handle_new_user`) auto-creates a `profiles` row on signup. Trigger
   functions have `EXECUTE` revoked from API roles and pinned `search_path`.
 - `messages` and `conversations` are in the `supabase_realtime` publication.
+- **Invite-only:** `profiles.is_admin` (first signup = admin). A BEFORE INSERT guard
+  on `auth.users` (`enforce_invite_only`) rejects signups unless it's the first user
+  or the email is in `allowed_emails` (admin-managed; RLS gated to admins). Admins
+  manage invites in Settings → Invite people.
 
 If you change the schema: update the migration, apply it, run `npm run gen:types`
 (or hand-edit `database.types.ts` to match), and re-check Supabase security advisors.

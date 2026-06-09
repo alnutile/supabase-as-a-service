@@ -37,7 +37,15 @@ export default function LoginPage() {
         setNotice('Magic link sent — check your email.')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      const msg = err instanceof Error ? err.message : 'Something went wrong'
+      // The invite-only guard surfaces as a database error from the signup call.
+      if (mode === 'signup' && /invite|database error|not allowed|saving new user/i.test(msg)) {
+        setError(
+          'This workspace is invite-only. Ask an admin to add your email, then sign up.',
+        )
+      } else {
+        setError(msg)
+      }
     } finally {
       setBusy(false)
     }
