@@ -74,7 +74,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
 - **Agents:** an `agents` row is a deployable unit — a name + system prompt
   (`instructions`) + `tool_ids` it may use. `AgentsPage` is the dashboard (CRUD,
   workspace-visible). "Chat" opens `/chat?agent=:id`, where `ChatPage` layers the
-  agent's prompt onto the conversation (`streamChat({ system })`).
+  agent's prompt on the conversation and scopes the toolset to the agent's tools
+  (`streamChat({ system, toolIds })` → chat function's `loadTools(restrictIds)`).
+  A webhook can also **target an agent** (`webhooks.agent_id`): the webhook function
+  then runs the agent (its prompt + tools) over the payload via its own tool loop
+  instead of the bare prompt.
 - **MCP server:** `supabase/functions/mcp/index.ts` is a JSON-RPC-over-HTTP MCP
   server (`verify_jwt: false`) an **external** Claude (Claude Code / Desktop) connects
   to. Auth is a per-user `mcp_tokens` token (Settings → Connect Claude); every action

@@ -7,6 +7,7 @@ import { CopyIcon, PlusIcon, TrashIcon, WebhookIcon } from '../components/icons'
 
 type Webhook = Database['public']['Tables']['webhooks']['Row']
 type WebhookEvent = Database['public']['Tables']['webhook_events']['Row']
+type Agent = Database['public']['Tables']['agents']['Row']
 
 export default function WebhooksPage() {
   const { user } = useAuth()
@@ -113,13 +114,28 @@ function WebhookDetail({
   const [name, setName] = useState(webhook.name)
   const [prompt, setPrompt] = useState(webhook.prompt)
   const [isActive, setIsActive] = useState(webhook.is_active)
+  const [agentId, setAgentId] = useState(webhook.agent_id ?? '')
+  const [agents, setAgents] = useState<Agent[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
   const [events, setEvents] = useState<WebhookEvent[]>([])
 
+  useEffect(() => {
+    supabase
+      .from('agents')
+      .select('*')
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => setAgents(data ?? []))
+  }, [])
+
   const url = webhookUrl(webhook.token)
-  const dirty = name !== webhook.name || prompt !== webhook.prompt || isActive !== webhook.is_active
+  const dirty =
+    name !== webhook.name ||
+    prompt !== webhook.prompt ||
+    isActive !== webhook.is_active ||
+    agentId !== (webhook.agent_id ?? '')
 
   const loadEvents = useCallback(async () => {
     const { data } = await supabase
@@ -151,7 +167,13 @@ function WebhookDetail({
     setSaving(true)
     const { data } = await supabase
       .from('webhooks')
-      .update({ name, prompt, is_active: isActive, updated_at: new Date().toISOString() })
+      .update({
+        name,
+        prompt,
+        is_active: isActive,
+        agent_id: agentId || null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', webhook.id)
       .select()
       .single()
@@ -214,6 +236,30 @@ function WebhookDetail({
   -d '{"hello":"world"}'`}
           </pre>
         </details>
+      </div>
+
+      {/* Agent (optional) */}
+      <div className="mt-4">
+        <label className="mb-1 block text-xs font-medium text-slate-600">
+          Run an agent (optional)
+        </label>
+        <select
+          value={agentId}
+          onChange={(e) => setAgentId(e.target.value)}
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        >
+          <option value="">No agent — use the prompt below</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        {agentId && (
+          <p className="mt-1 text-xs text-amber-600">
+            This webhook runs the agent (its prompt + tools) on each payload. The prompt below is ignored.
+          </p>
+        )}
       </div>
 
       {/* Prompt */}

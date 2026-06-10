@@ -45,6 +45,7 @@ interface ChatMessage {
 }
 
 interface ToolRow {
+  id: string
   name: string
   description: string
   input_schema: Record<string, unknown>
@@ -145,7 +146,12 @@ async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): P
 
 // Build the Anthropic `tools` array from active rows, and a lookup of the
 // custom (http) tools so we can execute them when the model calls them.
-async function loadTools(db: ReturnType<typeof createClient> | null) {
+// `restrictIds` (when an agent is driving the chat) limits the exposed tools to
+// the agent's chosen set. undefined = all active tools.
+async function loadTools(
+  db: ReturnType<typeof createClient> | null,
+  restrictIds?: string[] | null,
+) {
   const anthropicTools: unknown[] = []
   const httpTools = new Map<string, ToolRow>()
   const capabilities: string[] = []
@@ -154,6 +160,7 @@ async function loadTools(db: ReturnType<typeof createClient> | null) {
     const { data } = await db.from('tools').select('*').eq('is_active', true)
     let webEnabled = false
     for (const t of (data ?? []) as ToolRow[]) {
+      if (restrictIds && !restrictIds.includes(t.id)) continue
       if (t.kind === 'web') {
         webEnabled = true
       } else if (t.kind === 'http' && t.name) {
@@ -210,6 +217,7 @@ Deno.serve(async (req: Request) => {
   let inMessages: ChatMessage[]
   let skillSystem = ''
   let replaceSystem = false
+  let toolIds: string[] | undefined
   try {
     const body = await req.json()
     inMessages = body.messages
@@ -218,6 +226,7 @@ Deno.serve(async (req: Request) => {
     }
     if (typeof body.system === 'string') skillSystem = body.system
     replaceSystem = body.replaceSystem === true
+    if (Array.isArray(body.toolIds)) toolIds = body.toolIds.map(String)
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
       status: 400,
@@ -227,7 +236,7 @@ Deno.serve(async (req: Request) => {
 
   const db = admin()
   const userId = userIdFromAuth(req)
-  const { anthropicTools, httpTools, capabilities } = await loadTools(db)
+  const { anthropicTools, httpTools, capabilities } = await loadTools(db, toolIds)
 
   let system: string
   if (replaceSystem && skillSystem.trim()) {

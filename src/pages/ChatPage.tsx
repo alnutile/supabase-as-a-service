@@ -236,8 +236,9 @@ export default function ChatPage() {
       const full = await streamChat(
         history,
         (delta) => setStreaming((s) => (s ?? '') + delta),
-        // Running as an agent: layer its prompt onto the workspace context.
-        agent ? { system: agent.instructions } : undefined,
+        // Running as an agent: layer its prompt onto the workspace context and
+        // scope the assistant to the agent's chosen tools.
+        agent ? { system: agent.instructions, toolIds: agent.tool_ids } : undefined,
       )
       setStreaming(null)
       const finalText = await materializeArtifacts(convId, full)
