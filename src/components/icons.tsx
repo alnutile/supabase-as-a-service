@@ -111,6 +111,12 @@ export const CopyIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const ToolIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M14.7 6.3a4 4 0 0 0-5.4 5.3L3 18l3 3 6.4-6.3a4 4 0 0 0 5.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z" />
+  </svg>
+)
+
 export const MenuIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 12h18M3 6h18M3 18h18" />

@@ -10,6 +10,7 @@ import PublicArtifactPage from './pages/PublicArtifactPage'
 import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
 import WebhooksPage from './pages/WebhooksPage'
+import ToolsPage from './pages/ToolsPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="webhooks" element={<WebhooksPage />} />
+        <Route path="tools" element={<ToolsPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

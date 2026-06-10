@@ -1,19 +1,18 @@
 // Supabase Edge Function: `chat`
-// Streams a Claude completion to the browser as SSE. The Anthropic API key
-// stays server-side (set via `supabase secrets set ANTHROPIC_API_KEY=...`).
-// Deployed with verify_jwt=true, so only authenticated users can call it.
+// Streams a Claude completion to the browser as SSE. Runs an agentic tool loop:
+// the assistant can call tools (web search/fetch + custom HTTP tools defined in
+// the `tools` table), the function executes them and feeds results back, looping
+// until the model is done. The Anthropic key stays server-side (verify_jwt=true).
 //
-// The system prompt is assembled from the always-on prompts in the `skills`
-// table (auto_apply = true) — the built-in "How this workspace works" prompt
-// plus any workspace-context prompts an admin has added. An invoked skill can
-// either append to that context or replace it.
+// The system prompt is assembled from the always-on prompts (skills.auto_apply).
+// Tools are loaded from the `tools` table (is_active = true).
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 
 const MODEL = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-opus-4-8'
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
+const MAX_TOOL_TURNS = 8
 
-// Fallback if no always-on prompts exist (e.g. fresh local DB without the seed).
 const DEFAULT_SYSTEM = `You are the assistant inside a Supabase-powered intranet. Be warm, concise, and practical.
 
 When the user asks you to create, save, or share an artifact (a doc, code file, HTML page, etc.), output it as ONE block in EXACTLY this format:
@@ -35,17 +34,28 @@ interface ChatMessage {
   content: string
 }
 
+interface ToolRow {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  kind: string
+  config: { url?: string; method?: string; headers?: Record<string, string> }
+}
+
 function sse(data: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
 }
 
-async function loadAlwaysOnSystem(): Promise<string> {
+function admin() {
+  const url = Deno.env.get('SUPABASE_URL')
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  return url && key ? createClient(url, key) : null
+}
+
+async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): Promise<string> {
+  if (!db) return DEFAULT_SYSTEM
   try {
-    const url = Deno.env.get('SUPABASE_URL')
-    const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    if (!url || !key) return DEFAULT_SYSTEM
-    const admin = createClient(url, key)
-    const { data } = await admin
+    const { data } = await db
       .from('skills')
       .select('instructions, is_builtin, created_at')
       .eq('auto_apply', true)
@@ -60,13 +70,58 @@ async function loadAlwaysOnSystem(): Promise<string> {
   }
 }
 
+// Build the Anthropic `tools` array from active rows, and a lookup of the
+// custom (http) tools so we can execute them when the model calls them.
+async function loadTools(db: ReturnType<typeof createClient> | null) {
+  const anthropicTools: unknown[] = []
+  const httpTools = new Map<string, ToolRow>()
+  if (!db) return { anthropicTools, httpTools }
+  try {
+    const { data } = await db.from('tools').select('*').eq('is_active', true)
+    let webEnabled = false
+    for (const t of (data ?? []) as ToolRow[]) {
+      if (t.kind === 'web') {
+        webEnabled = true
+      } else if (t.kind === 'http' && t.name) {
+        anthropicTools.push({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema ?? { type: 'object', properties: {} },
+        })
+        httpTools.set(t.name, t)
+      }
+    }
+    if (webEnabled) {
+      anthropicTools.push({ type: 'web_search_20260209', name: 'web_search' })
+      anthropicTools.push({ type: 'web_fetch_20260209', name: 'web_fetch' })
+    }
+  } catch {
+    // tools are optional — degrade to no tools
+  }
+  return { anthropicTools, httpTools }
+}
+
+// Execute a custom http tool: POST the model's inputs to the configured URL.
+async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
+  const url = tool.config?.url
+  if (!url) return 'Tool is misconfigured: no url.'
+  try {
+    const res = await fetch(url, {
+      method: tool.config?.method ?? 'POST',
+      headers: { 'Content-Type': 'application/json', ...(tool.config?.headers ?? {}) },
+      body: JSON.stringify(input ?? {}),
+    })
+    const text = await res.text()
+    // Cap to keep tool results from blowing the context window.
+    return text.slice(0, 50000) || `(empty response, status ${res.status})`
+  } catch (err) {
+    return `Tool call failed: ${err instanceof Error ? err.message : 'unknown error'}`
+  }
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: CORS })
-  }
-  if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405, headers: CORS })
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: CORS })
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) {
@@ -76,13 +131,13 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  let messages: ChatMessage[]
+  let inMessages: ChatMessage[]
   let skillSystem = ''
   let replaceSystem = false
   try {
     const body = await req.json()
-    messages = body.messages
-    if (!Array.isArray(messages) || messages.length === 0) {
+    inMessages = body.messages
+    if (!Array.isArray(inMessages) || inMessages.length === 0) {
       throw new Error('`messages` must be a non-empty array')
     }
     if (typeof body.system === 'string') skillSystem = body.system
@@ -94,32 +149,66 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Assemble the effective system prompt.
+  const db = admin()
+
   let system: string
   if (replaceSystem && skillSystem.trim()) {
     system = skillSystem
   } else {
-    const base = await loadAlwaysOnSystem()
+    const base = await loadAlwaysOnSystem(db)
     system = skillSystem.trim() ? `${base}\n\n---\n\n${skillSystem}` : base
   }
 
+  const { anthropicTools, httpTools } = await loadTools(db)
   const anthropic = new Anthropic({ apiKey })
+
+  // Conversation messages, mutated across tool turns.
+  const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = inMessages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }))
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const llm = anthropic.messages.stream({
-          model: MODEL,
-          max_tokens: 8192,
-          thinking: { type: 'adaptive' },
-          output_config: { effort: EFFORT },
-          system,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        })
-        llm.on('text', (delta: string) => {
-          controller.enqueue(sse({ delta }))
-        })
-        await llm.finalMessage()
+        for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+          const llm = anthropic.messages.stream({
+            model: MODEL,
+            max_tokens: 16000,
+            thinking: { type: 'adaptive' },
+            output_config: { effort: EFFORT },
+            system,
+            tools: anthropicTools.length ? (anthropicTools as never) : undefined,
+            messages: messages as never,
+          })
+          llm.on('text', (delta: string) => controller.enqueue(sse({ delta })))
+          const final = await llm.finalMessage()
+
+          // Preserve the assistant turn verbatim (thinking + tool_use blocks
+          // must be passed back on the next request).
+          messages.push({ role: 'assistant', content: final.content })
+
+          if (final.stop_reason === 'tool_use') {
+            const toolResults: unknown[] = []
+            for (const block of final.content as Array<Record<string, unknown>>) {
+              if (block.type !== 'tool_use') continue
+              const tool = httpTools.get(block.name as string)
+              const output = tool
+                ? await runHttpTool(tool, block.input)
+                : `Unknown tool: ${block.name}`
+              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output })
+            }
+            messages.push({ role: 'user', content: toolResults })
+            continue
+          }
+
+          if (final.stop_reason === 'pause_turn') {
+            // Server-side tool (web) paused at its iteration limit — continue.
+            continue
+          }
+
+          break // end_turn / max_tokens / refusal
+        }
         controller.enqueue(sse('[DONE]'))
       } catch (err) {
         controller.enqueue(sse({ type: 'error', error: err instanceof Error ? err.message : 'stream failed' }))

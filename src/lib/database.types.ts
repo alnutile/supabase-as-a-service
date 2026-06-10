@@ -13,6 +13,7 @@ export type MessageRole = 'user' | 'assistant' | 'system'
 export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'
 export type WebhookEventStatus = 'received' | 'ok' | 'error'
+export type ToolKind = 'http' | 'web'
 
 export interface Database {
   public: {
@@ -225,6 +226,36 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['webhook_events']['Insert']>
+        Relationships: []
+      }
+      tools: {
+        Row: {
+          id: string
+          name: string
+          description: string
+          input_schema: Json
+          kind: ToolKind
+          config: Json
+          is_active: boolean
+          is_builtin: boolean
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string
+          input_schema?: Json
+          kind?: ToolKind
+          config?: Json
+          is_active?: boolean
+          is_builtin?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['tools']['Insert']>
         Relationships: []
       }
     }

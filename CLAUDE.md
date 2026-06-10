@@ -54,6 +54,13 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   - `auto_apply = false` → **on-demand** skills (personal). In `ChatPage`, typing `/`
     (or the ⚡ button) lists them; `runSkill()` sends them as the `system` (artifact
     mode uses `replaceSystem: true` for clean output; reply mode appends to context).
+- **Tools (tools-as-data):** the `tools` table defines capabilities the chat loop
+  exposes to Claude. `kind = 'http'` → a custom tool; Claude calls it and the chat
+  function POSTs the inputs to `config.url` and feeds the response back. `kind = 'web'`
+  → switches on Anthropic's server-side `web_search`/`web_fetch`. Admin-managed
+  (`ToolsPage`); a seeded `is_builtin` "web_browsing" row is on by default. The chat
+  function runs an **agentic loop** (model → tool_use → execute → tool_result → … →
+  end_turn), preserving thinking + tool_use blocks across turns (the opus-4-8 rule).
 - **AI-created artifacts:** the assistant emits a `:::artifact {"title","type"}\n…\n:::`
   block; `materializeArtifacts()` in `ChatPage` parses it after streaming, inserts an
   `artifacts` row, and replaces the block with an `/artifacts/:id` share link.
@@ -73,15 +80,16 @@ src/
     icons.tsx                  Inline SVG icons (no icon dependency)
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
-                               FilesPage, SkillsPage, WebhooksPage, SettingsPage
+                               FilesPage, SkillsPage, WebhooksPage, ToolsPage,
+                               SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 schema/RLS; 0003 invite-only; 0004 prompts; 0005 webhooks
-  functions/chat/index.ts      Deno edge function streaming Claude (verify_jwt: true)
+  migrations/                  0001 schema/RLS; 0003 invite-only; 0004 prompts; 0005 webhooks; 0006 tools
+  functions/chat/index.ts      Deno edge function: agentic tool loop, streams Claude (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
 railway.json, DEPLOY.md        Deployment config + guide
 ```
@@ -90,7 +98,7 @@ railway.json, DEPLOY.md        Deployment config + guide
 
 Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
-`allowed_emails`, `webhooks`, `webhook_events`. Enums: `visibility`
+`allowed_emails`, `webhooks`, `webhook_events`, `tools`. Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**
@@ -120,6 +128,10 @@ If you change the schema: update the migration, apply it, run `npm run gen:types
 reading the always-on prompts (`skills.auto_apply = true`) with the service-role key,
 then optionally appends/replaces with an invoked skill's instructions
 (`body.system` + `body.replaceSystem`). Request body: `{ messages, system?, replaceSystem? }`.
+It also loads active `tools` rows and runs an **agentic loop**: server-side
+`web_search`/`web_fetch` (for `kind = 'web'`) and custom `http` tools (POST inputs to
+`config.url`, feed the response back). It appends each assistant turn's full `content`
+(thinking + tool_use blocks) before sending `tool_result`s, then loops to `MAX_TOOL_TURNS`.
 
 **Anthropic conventions (do not change without reason):** default to `claude-opus-4-8`;
 use **adaptive thinking** (`budget_tokens`, `temperature`, `top_p` are removed on Opus
