@@ -75,7 +75,8 @@ async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): P
 async function loadTools(db: ReturnType<typeof createClient> | null) {
   const anthropicTools: unknown[] = []
   const httpTools = new Map<string, ToolRow>()
-  if (!db) return { anthropicTools, httpTools }
+  const capabilities: string[] = []
+  if (!db) return { anthropicTools, httpTools, capabilities }
   try {
     const { data } = await db.from('tools').select('*').eq('is_active', true)
     let webEnabled = false
@@ -89,16 +90,18 @@ async function loadTools(db: ReturnType<typeof createClient> | null) {
           input_schema: t.input_schema ?? { type: 'object', properties: {} },
         })
         httpTools.set(t.name, t)
+        capabilities.push(`\`${t.name}\` — ${t.description}`)
       }
     }
     if (webEnabled) {
       anthropicTools.push({ type: 'web_search_20260209', name: 'web_search' })
       anthropicTools.push({ type: 'web_fetch_20260209', name: 'web_fetch' })
+      capabilities.unshift('Web browsing — search the web and fetch URLs yourself')
     }
   } catch {
     // tools are optional — degrade to no tools
   }
-  return { anthropicTools, httpTools }
+  return { anthropicTools, httpTools, capabilities }
 }
 
 // Execute a custom http tool: POST the model's inputs to the configured URL.
@@ -150,6 +153,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const db = admin()
+  const { anthropicTools, httpTools, capabilities } = await loadTools(db)
 
   let system: string
   if (replaceSystem && skillSystem.trim()) {
@@ -158,8 +162,14 @@ Deno.serve(async (req: Request) => {
     const base = await loadAlwaysOnSystem(db)
     system = skillSystem.trim() ? `${base}\n\n---\n\n${skillSystem}` : base
   }
+  // Make the system layer declare the live capability set, so the assistant
+  // always knows which tools/abilities it currently has.
+  if (capabilities.length) {
+    system += `\n\n# Tools available to you right now\n${capabilities
+      .map((c) => `- ${c}`)
+      .join('\n')}\nUse them whenever they help. You also create shareable artifacts with the :::artifact protocol.`
+  }
 
-  const { anthropicTools, httpTools } = await loadTools(db)
   const anthropic = new Anthropic({ apiKey })
 
   // Conversation messages, mutated across tool turns.
