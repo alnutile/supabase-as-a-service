@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Database } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
+import { mcpUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { PlusIcon, TrashIcon } from '../components/icons'
+import { CopyIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
+type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -76,6 +77,8 @@ export default function SettingsPage() {
 
         {isAdmin && <InvitePeople />}
 
+        <ConnectClaude />
+
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-700">About this workspace</h2>
           <p className="mt-2 text-sm leading-relaxed text-slate-500">
@@ -87,6 +90,108 @@ export default function SettingsPage() {
         </section>
       </div>
     </div>
+  )
+}
+
+function ConnectClaude() {
+  const { user } = useAuth()
+  const [tokens, setTokens] = useState<McpToken[]>([])
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase
+      .from('mcp_tokens')
+      .select('*')
+      .order('created_at', { ascending: false })
+    setTokens(data ?? [])
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function generate() {
+    await supabase.from('mcp_tokens').insert({ owner_id: user!.id, name: 'Claude' })
+    load()
+  }
+
+  async function revoke(id: string) {
+    await supabase.from('mcp_tokens').delete().eq('id', id)
+    load()
+  }
+
+  async function copy(text: string, key: string) {
+    await navigator.clipboard.writeText(text)
+    setCopied(key)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  return (
+    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
+      <h2 className="text-sm font-semibold text-slate-700">Connect Claude (MCP)</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Generate a token and connect Claude Code or Claude Desktop to this workspace. Then you can
+        say “build an agent that does X on my intranet” and Claude pushes it here — it shows up under
+        Agents, Tools, and Webhooks.
+      </p>
+
+      <div className="mt-3 flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+          {mcpUrl}
+        </code>
+        <button
+          onClick={() => copy(mcpUrl, 'url')}
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <CopyIcon className="h-3.5 w-3.5" /> {copied === 'url' ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+
+      <div className="mt-4">
+        <button
+          onClick={generate}
+          className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+        >
+          <PlusIcon className="h-4 w-4" /> New connection token
+        </button>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {tokens.map((t) => {
+          const cmd = `claude mcp add --transport http intranet ${mcpUrl} --header "Authorization: Bearer ${t.token}"`
+          return (
+            <div key={t.id} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-600">
+                  {t.name} · {t.last_used_at ? `last used ${formatDate(t.last_used_at)}` : 'never used'}
+                </span>
+                <button
+                  onClick={() => revoke(t.id)}
+                  className="ml-auto rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  title="Revoke"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-2 flex items-start gap-2">
+                <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
+                  {cmd}
+                </pre>
+                <button
+                  onClick={() => copy(cmd, t.id)}
+                  className="shrink-0 rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  {copied === t.id ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+        {tokens.length === 0 && (
+          <p className="text-xs text-slate-400">No connection tokens yet.</p>
+        )}
+      </div>
+    </section>
   )
 }
 

@@ -280,6 +280,52 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['activity_log']['Insert']>
         Relationships: []
       }
+      agents: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          description: string
+          instructions: string
+          tool_ids: string[]
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name: string
+          description?: string
+          instructions?: string
+          tool_ids?: string[]
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['agents']['Insert']>
+        Relationships: []
+      }
+      mcp_tokens: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          token: string
+          last_used_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name?: string
+          token?: string
+          last_used_at?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['mcp_tokens']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: { [_ in never]: never }

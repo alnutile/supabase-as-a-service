@@ -11,6 +11,7 @@ import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
 import WebhooksPage from './pages/WebhooksPage'
 import ToolsPage from './pages/ToolsPage'
+import AgentsPage from './pages/AgentsPage'
 import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
 
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="skills" element={<SkillsPage />} />
         <Route path="webhooks" element={<WebhooksPage />} />
         <Route path="tools" element={<ToolsPage />} />
+        <Route path="agents" element={<AgentsPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="settings" element={<SettingsPage />} />

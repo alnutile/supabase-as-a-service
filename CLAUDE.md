@@ -71,6 +71,16 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   block; `materializeArtifacts()` in `ChatPage` parses it after streaming, inserts an
   `artifacts` row, and replaces the block with an `/artifacts/:id` share link.
   `SkillsPage` manages all of the above (always-on editing is admin-gated).
+- **Agents:** an `agents` row is a deployable unit — a name + system prompt
+  (`instructions`) + `tool_ids` it may use. `AgentsPage` is the dashboard (CRUD,
+  workspace-visible). "Chat" opens `/chat?agent=:id`, where `ChatPage` layers the
+  agent's prompt onto the conversation (`streamChat({ system })`).
+- **MCP server:** `supabase/functions/mcp/index.ts` is a JSON-RPC-over-HTTP MCP
+  server (`verify_jwt: false`) an **external** Claude (Claude Code / Desktop) connects
+  to. Auth is a per-user `mcp_tokens` token (Settings → Connect Claude); every action
+  runs as the token's owner. It exposes build tools (`create_agent`, `create_http_tool`,
+  `create_skill`, `create_webhook`, `create_artifact`, `list_*`) so an outside Claude can
+  push agents/tools into the workspace, where they appear in the dashboard.
 
 ## Directory map
 
@@ -87,16 +97,17 @@ src/
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
                                FilesPage, SkillsPage, WebhooksPage, ToolsPage,
-                               ActivityPage, SettingsPage
+                               AgentsPage, ActivityPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 schema/RLS; 0003 invite-only; 0004 prompts; 0005 webhooks; 0006 tools; 0007 activity/attachments
+  migrations/                  0001 base; 0003 invite-only; 0004 prompts; 0005 webhooks; 0006 tools; 0007 activity/attachments; 0008 agents/MCP
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams Claude (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
+  functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
 railway.json, DEPLOY.md        Deployment config + guide
 ```
 
@@ -104,7 +115,8 @@ railway.json, DEPLOY.md        Deployment config + guide
 
 Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
-`allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`. Enums: `visibility`
+`allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
+`mcp_tokens`. Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**

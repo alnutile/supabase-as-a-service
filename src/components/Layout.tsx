@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
   ActivityIcon,
+  AgentIcon,
   ArtifactIcon,
   ChatIcon,
   CloseIcon,
@@ -17,6 +18,7 @@ import {
 
 const navItems = [
   { to: '/chat', label: 'Chat', icon: ChatIcon, end: false },
+  { to: '/agents', label: 'Agents', icon: AgentIcon, end: false },
   { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon, end: false },
   { to: '/skills', label: 'Skills', icon: SkillIcon, end: false },
   { to: '/tools', label: 'Tools', icon: ToolIcon, end: false },

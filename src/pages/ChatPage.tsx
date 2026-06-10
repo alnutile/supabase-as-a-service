@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import {
+  AgentIcon,
   ArtifactIcon,
   ChatIcon,
   CloseIcon,
@@ -21,11 +22,14 @@ const BUCKET = 'files'
 type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
+type Agent = Database['public']['Tables']['agents']['Row']
 
 export default function ChatPage() {
   const { conversationId } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [agent, setAgent] = useState<Agent | null>(null)
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -64,6 +68,21 @@ export default function ChatPage() {
       .order('updated_at', { ascending: false })
       .then(({ data }) => setSkills(data ?? []))
   }, [])
+
+  // --- If launched as an agent (?agent=id), load it and run chats with its prompt ---
+  const agentId = searchParams.get('agent')
+  useEffect(() => {
+    if (!agentId) {
+      setAgent(null)
+      return
+    }
+    supabase
+      .from('agents')
+      .select('*')
+      .eq('id', agentId)
+      .maybeSingle()
+      .then(({ data }) => setAgent(data))
+  }, [agentId])
 
   // --- Load + subscribe to messages for the active conversation ---
   useEffect(() => {
@@ -214,8 +233,11 @@ export default function ChatPage() {
       ]
 
       setStreaming('')
-      const full = await streamChat(history, (delta) =>
-        setStreaming((s) => (s ?? '') + delta),
+      const full = await streamChat(
+        history,
+        (delta) => setStreaming((s) => (s ?? '') + delta),
+        // Running as an agent: layer its prompt onto the workspace context.
+        agent ? { system: agent.instructions } : undefined,
       )
       setStreaming(null)
       const finalText = await materializeArtifacts(convId, full)
@@ -444,6 +466,15 @@ export default function ChatPage() {
             <PlusIcon className="h-4 w-4" /> New
           </button>
         </div>
+        {agent && (
+          <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+            <AgentIcon className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 truncate font-medium">Agent: {agent.name}</span>
+            <button onClick={() => navigate('/chat')} className="ml-auto text-xs underline hover:no-underline">
+              Exit agent
+            </button>
+          </div>
+        )}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-4 py-6">
             {messages.length === 0 && !streaming && (

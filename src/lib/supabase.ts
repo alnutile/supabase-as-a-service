@@ -28,3 +28,6 @@ export const chatFunctionUrl = `${supabaseUrl}/functions/v1/chat`
 
 /** Public ingest URL for a webhook (external systems POST here). */
 export const webhookUrl = (token: string) => `${supabaseUrl}/functions/v1/webhook/${token}`
+
+/** MCP server URL — connect an external Claude (Claude Code / Desktop) here. */
+export const mcpUrl = `${supabaseUrl}/functions/v1/mcp`
