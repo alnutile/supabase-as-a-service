@@ -8,6 +8,9 @@
 // Tools are loaded from the `tools` table (is_active = true).
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
+
+const MAX_ATTACH_BYTES = 6_000_000 // ~6MB per file
 
 const MODEL = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-opus-4-8'
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
@@ -29,9 +32,16 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+interface Attachment {
+  path: string
+  name: string
+  mime?: string
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  attachments?: Attachment[]
 }
 
 interface ToolRow {
@@ -50,6 +60,69 @@ function admin() {
   const url = Deno.env.get('SUPABASE_URL')
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   return url && key ? createClient(url, key) : null
+}
+
+// Decode the user id (sub) from the forwarded access token (verify_jwt already
+// validated it upstream — we only read the claim for attribution).
+function userIdFromAuth(req: Request): string | null {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  try {
+    const json = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof json.sub === 'string' ? json.sub : null
+  } catch {
+    return null
+  }
+}
+
+// Turn a message with file attachments into Anthropic content blocks (image /
+// document / inlined text), downloading each file from storage with the service
+// role. Messages without attachments stay as plain strings.
+async function expandContent(
+  db: ReturnType<typeof createClient> | null,
+  msg: ChatMessage,
+): Promise<unknown> {
+  if (!db || !msg.attachments || msg.attachments.length === 0) return msg.content
+  const blocks: unknown[] = [{ type: 'text', text: msg.content || '(see attached files)' }]
+  for (const att of msg.attachments) {
+    try {
+      const { data: blob } = await db.storage.from('files').download(att.path)
+      if (!blob) continue
+      const buf = new Uint8Array(await blob.arrayBuffer())
+      if (buf.byteLength > MAX_ATTACH_BYTES) {
+        blocks.push({ type: 'text', text: `(Attached file "${att.name}" is too large to read.)` })
+        continue
+      }
+      const mime = att.mime ?? ''
+      if (mime.startsWith('image/')) {
+        blocks.push({ type: 'image', source: { type: 'base64', media_type: mime, data: encodeBase64(buf) } })
+      } else if (mime === 'application/pdf') {
+        blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: encodeBase64(buf) } })
+      } else {
+        const text = new TextDecoder().decode(buf).slice(0, 60000)
+        blocks.push({ type: 'text', text: `Attached file "${att.name}":\n\n${text}` })
+      }
+    } catch {
+      blocks.push({ type: 'text', text: `(Could not read attached file "${att.name}".)` })
+    }
+  }
+  return blocks
+}
+
+async function logActivity(
+  db: ReturnType<typeof createClient> | null,
+  type: string,
+  summary: string,
+  detail: Record<string, unknown>,
+  actorId: string | null,
+) {
+  if (!db) return
+  try {
+    await db.from('activity_log').insert({ type, summary, detail, actor_id: actorId })
+  } catch {
+    // best-effort
+  }
 }
 
 async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): Promise<string> {
@@ -153,6 +226,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const db = admin()
+  const userId = userIdFromAuth(req)
   const { anthropicTools, httpTools, capabilities } = await loadTools(db)
 
   let system: string
@@ -173,10 +247,10 @@ Deno.serve(async (req: Request) => {
   const anthropic = new Anthropic({ apiKey })
 
   // Conversation messages, mutated across tool turns.
-  const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = inMessages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }))
+  const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = []
+  for (const m of inMessages) {
+    messages.push({ role: m.role, content: await expandContent(db, m) })
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -206,6 +280,9 @@ Deno.serve(async (req: Request) => {
               const output = tool
                 ? await runHttpTool(tool, block.input)
                 : `Unknown tool: ${block.name}`
+              if (tool) {
+                await logActivity(db, 'tool.call', `Used tool: ${block.name}`, { name: block.name }, userId)
+              }
               toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output })
             }
             messages.push({ role: 'user', content: toolResults })

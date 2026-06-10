@@ -31,6 +31,8 @@ A small but complete foundation for a team workspace ("intranet") that you fully
 - 🔒 **Invite-only** — the first user bootstraps the workspace and becomes admin; after that, only emails an admin has invited can sign up (enforced in the database).
 - 🪝 **Webhooks** — create a webhook to get a public URL, attach a prompt, and every inbound POST is processed by the assistant. Events + results are logged live. The action the result triggers (artifact, chat, outbound call) plugs in next.
 - 🛠️ **Tools (tools-as-data)** — give the assistant real abilities it can call mid-chat. Built-in **web search + fetch** (it reads URLs itself), plus **custom HTTP tools**: define a name, description, and input schema, point it at any URL, and the chat function runs the agentic loop. Adding a tool is adding a row — the system extends its own capabilities.
+- 📎 **Chat with files** — attach files in chat; they land in your Files area and the assistant reads them (images, PDFs, and text) to answer questions or parse them.
+- 📊 **Activity** — a live, real-time feed of what's happening across the workspace: webhook events, tool calls, artifacts, and uploads, all in one place.
 - 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).
 
 The Anthropic API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.

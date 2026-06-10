@@ -65,6 +65,7 @@ export interface Database {
           owner_id: string
           role: MessageRole
           content: string
+          attachments: Json | null
           metadata: Json
           created_at: string
         }
@@ -74,6 +75,7 @@ export interface Database {
           owner_id: string
           role: MessageRole
           content: string
+          attachments?: Json | null
           metadata?: Json
           created_at?: string
         }
@@ -256,6 +258,26 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['tools']['Insert']>
+        Relationships: []
+      }
+      activity_log: {
+        Row: {
+          id: string
+          type: string
+          summary: string
+          detail: Json | null
+          actor_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          type: string
+          summary: string
+          detail?: Json | null
+          actor_id?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['activity_log']['Insert']>
         Relationships: []
       }
     }

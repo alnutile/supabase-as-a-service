@@ -2,10 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
-import { streamChat, type ChatMessage } from '../lib/chat'
+import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
-import { ArtifactIcon, ChatIcon, PlusIcon, SendIcon, SkillIcon } from '../components/icons'
+import {
+  ArtifactIcon,
+  ChatIcon,
+  CloseIcon,
+  FileIcon,
+  PaperclipIcon,
+  PlusIcon,
+  SendIcon,
+  SkillIcon,
+} from '../components/icons'
+
+const BUCKET = 'files'
 
 type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
@@ -25,8 +36,11 @@ export default function ChatPage() {
   const [showConvos, setShowConvos] = useState(false)
   const [skills, setSkills] = useState<Skill[]>([])
   const [showSkills, setShowSkills] = useState(false)
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [uploading, setUploading] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const seen = useRef<Set<string>>(new Set())
 
   // --- Load conversation list ---
@@ -118,10 +132,17 @@ export default function ChatPage() {
     convId: string,
     role: 'user' | 'assistant',
     content: string,
+    atts?: ChatAttachment[],
   ) {
     const { data, error: insErr } = await supabase
       .from('messages')
-      .insert({ conversation_id: convId, owner_id: user!.id, role, content })
+      .insert({
+        conversation_id: convId,
+        owner_id: user!.id,
+        role,
+        content,
+        attachments: (atts && atts.length ? atts : null) as never,
+      })
       .select()
       .single()
     if (insErr || !data) throw insErr ?? new Error('Could not save message')
@@ -130,28 +151,66 @@ export default function ChatPage() {
     return data
   }
 
+  // Upload a file to the Files area and queue it on the next message so the
+  // assistant can read it.
+  async function handleAttach(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0 || !user) return
+    setUploading(true)
+    setError(null)
+    try {
+      const added: ChatAttachment[] = []
+      for (const file of Array.from(fileList)) {
+        const path = `${user.id}/${crypto.randomUUID()}/${file.name}`
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET)
+          .upload(path, file, { upsert: false, contentType: file.type || undefined })
+        if (upErr) throw upErr
+        await supabase.from('files').insert({
+          owner_id: user.id,
+          bucket: BUCKET,
+          path,
+          name: file.name,
+          mime_type: file.type || null,
+          size_bytes: file.size,
+          visibility: 'private',
+        })
+        added.push({ path, name: file.name, mime: file.type || undefined })
+      }
+      setAttachments((prev) => [...prev, ...added])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault()
     const text = input.trim()
-    if (!text || sending) return
+    const atts = attachments
+    if ((!text && atts.length === 0) || sending) return
     // A leading "/" is a skill command, not a message — handled by the menu.
     if (text.startsWith('/')) return
 
     setSending(true)
     setError(null)
     setInput('')
+    setAttachments([])
 
     try {
-      const convId = await ensureConversation(text)
-      await insertMessage(convId, 'user', text)
+      const convId = await ensureConversation(text || atts[0]?.name || 'New chat')
+      await insertMessage(convId, 'user', text, atts)
 
-      // Build the history to send to the model (current state + the new turn).
+      // Build the history to send to the model (current state + the new turn),
+      // carrying any file attachments so the assistant can read them.
       const history: ChatMessage[] = [
         ...messages.map((m) => ({
           role: (m.role === 'assistant' ? 'assistant' : 'user') as ChatMessage['role'],
           content: m.content,
+          attachments: (m.attachments as ChatAttachment[] | null) ?? undefined,
         })),
-        { role: 'user', content: text },
+        { role: 'user', content: text || '(see attached files)', attachments: atts },
       ]
 
       setStreaming('')
@@ -407,6 +466,7 @@ export default function ChatPage() {
                   key={m.id}
                   role={m.role}
                   content={m.content}
+                  attachments={(m.attachments as ChatAttachment[] | null) ?? undefined}
                   onSaveArtifact={
                     m.role === 'assistant' ? () => saveAsArtifact(m.content) : undefined
                   }
@@ -472,6 +532,28 @@ export default function ChatPage() {
               </div>
             )}
 
+            {/* Pending file attachments */}
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {attachments.map((a, i) => (
+                  <span
+                    key={a.path}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600"
+                  >
+                    <FileIcon className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="max-w-[160px] truncate">{a.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      <CloseIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-end gap-2">
               <button
                 type="button"
@@ -485,6 +567,22 @@ export default function ChatPage() {
               >
                 <SkillIcon className="h-5 w-5" />
               </button>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                title="Attach a file"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                <PaperclipIcon className="h-5 w-5" />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => handleAttach(e.target.files)}
+              />
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -504,7 +602,12 @@ export default function ChatPage() {
               />
               <button
                 type="submit"
-                disabled={sending || !input.trim() || input.startsWith('/')}
+                disabled={
+                  sending ||
+                  uploading ||
+                  (!input.trim() && attachments.length === 0) ||
+                  input.startsWith('/')
+                }
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-50"
               >
                 <SendIcon className="h-5 w-5" />
@@ -521,11 +624,13 @@ function MessageBubble({
   role,
   content,
   streaming,
+  attachments,
   onSaveArtifact,
 }: {
   role: string
   content: string
   streaming?: boolean
+  attachments?: ChatAttachment[]
   onSaveArtifact?: () => void
 }) {
   const isUser = role === 'user'
@@ -558,6 +663,21 @@ function MessageBubble({
             </p>
           ) : (
             <Markdown>{content}</Markdown>
+          )}
+          {attachments && attachments.length > 0 && (
+            <div className={`mt-2 flex flex-wrap gap-1.5 ${isUser ? 'justify-end' : ''}`}>
+              {attachments.map((a) => (
+                <span
+                  key={a.path}
+                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] ${
+                    isUser ? 'bg-brand-500/40 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  <FileIcon className="h-3 w-3" />
+                  <span className="max-w-[140px] truncate">{a.name}</span>
+                </span>
+              ))}
+            </div>
           )}
           {streaming && <span className="ml-0.5 inline-block animate-pulse">▋</span>}
         </div>

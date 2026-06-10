@@ -1,9 +1,16 @@
 import { chatFunctionUrl, supabase } from './supabase'
 import type { MessageRole } from './database.types'
 
+export interface ChatAttachment {
+  path: string
+  name: string
+  mime?: string
+}
+
 export interface ChatMessage {
   role: Exclude<MessageRole, 'system'>
   content: string
+  attachments?: ChatAttachment[]
 }
 
 /**

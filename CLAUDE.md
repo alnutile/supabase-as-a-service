@@ -30,6 +30,9 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `src/App.tsx`.
 - **Chat:** `src/pages/ChatPage.tsx` writes user/assistant messages to Postgres and
   subscribes to `messages` via Supabase Realtime (websockets) for cross-device sync.
+  The composer can **attach files** (📎): they upload to the `files` bucket (and show in
+  Files), are stored on the message's `attachments` jsonb, and the chat function reads
+  them — images/PDFs as content blocks, text inlined — so the assistant can parse them.
   Streaming comes from `src/lib/chat.ts` → `POST` to the `chat` edge function, which
   returns **SSE** lines `data: {"delta": "..."}` and ends with `data: [DONE]`.
   The function calls Anthropic; the client only sends the message history + the user's
@@ -39,6 +42,9 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `PublicArtifactPage` at route `/share/a/:slug`.
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
+- **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
+  DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
+  calls). RLS: you see your own rows, admins see all. Realtime-subscribed.
 - **Webhooks:** `WebhooksPage` (master–detail) creates `webhooks` rows, each with an
   opaque `token` and an attached `prompt`. External systems POST to the **public**
   `webhook` edge function at `/functions/v1/webhook/‹token›` (`verify_jwt: false`); it
@@ -81,14 +87,14 @@ src/
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
                                FilesPage, SkillsPage, WebhooksPage, ToolsPage,
-                               SettingsPage
+                               ActivityPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 schema/RLS; 0003 invite-only; 0004 prompts; 0005 webhooks; 0006 tools
+  migrations/                  0001 schema/RLS; 0003 invite-only; 0004 prompts; 0005 webhooks; 0006 tools; 0007 activity/attachments
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams Claude (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
 railway.json, DEPLOY.md        Deployment config + guide
@@ -98,7 +104,7 @@ railway.json, DEPLOY.md        Deployment config + guide
 
 Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
-`allowed_emails`, `webhooks`, `webhook_events`, `tools`. Enums: `visibility`
+`allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`. Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**
