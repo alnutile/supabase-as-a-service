@@ -78,7 +78,10 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   (`streamChat({ system, toolIds })` → chat function's `loadTools(restrictIds)`).
   A webhook can also **target an agent** (`webhooks.agent_id`): the webhook function
   then runs the agent (its prompt + tools) over the payload via its own tool loop
-  instead of the bare prompt.
+  instead of the bare prompt. **Scheduled agents:** a `schedules` row (agent + input +
+  `interval_minutes`) is run by the `scheduler` edge function, which a `pg_cron` job
+  ticks every minute (via `pg_net`, authed by a `cron_config` secret). Manage schedules
+  inside the agent editor.
 - **MCP server:** `supabase/functions/mcp/index.ts` is a JSON-RPC-over-HTTP MCP
   server (`verify_jwt: false`) an **external** Claude (Claude Code / Desktop) connects
   to. Auth is a per-user `mcp_tokens` token (Settings → Connect Claude); every action

@@ -8,6 +8,15 @@ import { AgentIcon, ChatIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type Agent = Database['public']['Tables']['agents']['Row']
 type Tool = Database['public']['Tables']['tools']['Row']
+type Schedule = Database['public']['Tables']['schedules']['Row']
+
+const INTERVALS = [
+  { label: 'Every 15 minutes', minutes: 15 },
+  { label: 'Hourly', minutes: 60 },
+  { label: 'Daily', minutes: 1440 },
+  { label: 'Weekly', minutes: 10080 },
+]
+const intervalLabel = (m: number) => INTERVALS.find((i) => i.minutes === m)?.label ?? `Every ${m} min`
 
 export default function AgentsPage() {
   const { user } = useAuth()
@@ -134,6 +143,45 @@ function AgentEditor({
   const [toolIds, setToolIds] = useState<string[]>(agent.tool_ids)
   const [isActive, setIsActive] = useState(agent.is_active)
   const [saving, setSaving] = useState(false)
+  const { user } = useAuth()
+  const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [newInterval, setNewInterval] = useState(1440)
+  const [newInput, setNewInput] = useState('')
+
+  const loadSchedules = useCallback(async () => {
+    const { data } = await supabase
+      .from('schedules')
+      .select('*')
+      .eq('agent_id', agent.id)
+      .order('created_at', { ascending: false })
+    setSchedules(data ?? [])
+  }, [agent.id])
+
+  useEffect(() => {
+    loadSchedules()
+  }, [loadSchedules])
+
+  async function addSchedule() {
+    await supabase.from('schedules').insert({
+      owner_id: user!.id,
+      agent_id: agent.id,
+      input: newInput,
+      interval_minutes: newInterval,
+      next_run_at: new Date(Date.now() + newInterval * 60_000).toISOString(),
+    })
+    setNewInput('')
+    loadSchedules()
+  }
+
+  async function toggleSchedule(s: Schedule) {
+    await supabase.from('schedules').update({ is_active: !s.is_active }).eq('id', s.id)
+    loadSchedules()
+  }
+
+  async function removeSchedule(id: string) {
+    await supabase.from('schedules').delete().eq('id', id)
+    loadSchedules()
+  }
 
   function toggleTool(id: string) {
     setToolIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -225,6 +273,53 @@ function AgentEditor({
               </div>
             )}
           </div>
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Schedules (run this agent automatically)
+            </span>
+            <div className="space-y-1">
+              {schedules.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
+                  <button
+                    onClick={() => toggleSchedule(s)}
+                    title={s.is_active ? 'Active' : 'Paused'}
+                    className={`h-2 w-2 shrink-0 rounded-full ${s.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                  />
+                  <span className="shrink-0 font-medium text-slate-600">{intervalLabel(s.interval_minutes)}</span>
+                  <span className="min-w-0 flex-1 truncate text-slate-500">{s.input || '(no input)'}</span>
+                  <button onClick={() => removeSchedule(s.id)} className="text-slate-400 hover:text-red-600">
+                    <TrashIcon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <select
+                value={newInterval}
+                onChange={(e) => setNewInterval(Number(e.target.value))}
+                className="shrink-0 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+              >
+                {INTERVALS.map((i) => (
+                  <option key={i.minutes} value={i.minutes}>
+                    {i.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={newInput}
+                onChange={(e) => setNewInput(e.target.value)}
+                placeholder="What the agent should do each run…"
+                className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
+              />
+              <button
+                onClick={addSchedule}
+                className="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"

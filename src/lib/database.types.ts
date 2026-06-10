@@ -328,6 +328,32 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['mcp_tokens']['Insert']>
         Relationships: []
       }
+      schedules: {
+        Row: {
+          id: string
+          owner_id: string
+          agent_id: string
+          input: string
+          interval_minutes: number
+          is_active: boolean
+          last_run_at: string | null
+          next_run_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          agent_id: string
+          input?: string
+          interval_minutes?: number
+          is_active?: boolean
+          last_run_at?: string | null
+          next_run_at?: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['schedules']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: { [_ in never]: never }
