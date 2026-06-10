@@ -14,13 +14,13 @@ Two pieces go live: the **Supabase backend** (database, auth, storage, realtime,
 
 ## 2. Frontend on Railway
 
-Railway builds the Vite app and serves the static output with `serve` (see `railway.json` and the `start` script).
+Railway builds the Vite app from the committed **`Dockerfile`** (`railway.json` sets `builder: DOCKERFILE`) and serves the static output with `serve`.
 
 1. In Railway: **New Project → Deploy from GitHub repo** → pick this repo (`main`).
-2. Add **service variables** (these are read at *build* time — Vite inlines them into the bundle):
+2. Add **service variables** (read at *build* time — Vite inlines them into the bundle; the Dockerfile declares them as `ARG`s so Railway passes them through):
    - `VITE_SUPABASE_URL` = your Supabase project URL
-   - `VITE_SUPABASE_ANON_KEY` = your anon/publishable key
-3. Deploy. Railway runs `npm install` → `npm run build` → `npm run start` (serves `dist/` on `$PORT` with SPA fallback).
+   - `VITE_SUPABASE_ANON_KEY` = your anon/publishable key (public by design — RLS protects the data)
+3. Deploy. The Dockerfile runs `npm ci` → `npm run build`, then `npm run start` serves `dist/` on `$PORT` with SPA fallback.
 4. Open the generated Railway URL. Add that URL to Supabase **Auth → URL Configuration → Site URL / Redirect URLs** so magic links and email confirmations redirect back correctly.
 
 ### Notes
