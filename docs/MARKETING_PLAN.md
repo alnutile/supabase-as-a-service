@@ -13,6 +13,25 @@ One line, repeated until it's boring to *you*. That's roughly when it starts lan
 everyone else. Every post, bio, README, and reply should be able to collapse back to this
 sentence.
 
+## What this campaign is actually for
+
+This is a **reputation play, not a revenue play**. The product is open source the way
+WordPress is — free, forkable, owned by whoever runs it. The campaign's job is for
+people to know the builder's name, what he can do, and what's possible at this layer.
+That changes three things:
+
+- **Voice:** never selling, always showing. "Look what's possible" beats "you should
+  use this" in every post.
+- **Lead with the origin story.** The builder shipped this product category in 2023
+  (LaraLlama: document collections, email ingestion, multi-LLM workflows, deployable
+  chatbots — archived 2025) before the platforms made it a category. "I was two years
+  early; the models finally caught up to the idea" is the most credible opening
+  available — it converts every later post from a pitch into earned insight.
+- **The metric is recognition,** not deploys: repo stars, followers, and especially
+  inbound — DMs, podcast invites, "can you build this for us." (Visible open-source
+  projects are also how acquisitions and partnerships find you; same actions either
+  way.)
+
 ## Two audiences, one funnel
 
 1. **Builders** (developers, freelancers, agency tech leads) — found on Reddit, Hacker
@@ -30,7 +49,8 @@ Don't lead with features. Walk the audience through an argument, one claim per w
 
 | Phase | Weeks | Theme | The claim being taught |
 | --- | --- | --- | --- |
-| Problem | 1–2 | Scattered knowledge | "Your company's knowledge lives in inboxes and heads. AI can't help with what it can't see." |
+| Origin | 1 | "I was two years early" | The LaraLlama story: right idea, 2023 models couldn't deliver it; now they can, so I'm rebuilding in the open. Credibility + narrative in one. |
+| Problem | 2 | Scattered knowledge | "Your company's knowledge lives in inboxes and heads. AI can't help with what it can't see." |
 | Problem | 3 | Personal AI is a dead end | "Ten employees with ten ChatGPT accounts = zero shared memory, and your data leaks out one paste at a time." |
 | Shift | 4 | Shared context | "AI gets useful when it's *yours*: your proposals, your rate card, your voice — for the whole team." |
 | Shift | 5 | Ownership & cost | "The whole thing runs on a free-tier Postgres you own. No per-seat fees. RLS, not promises." |
@@ -94,6 +114,20 @@ in these subs (account credibility matters), then post on this rhythm:
 | r/LocalLLaMA, r/OpenSourceAI | Save for the model-routing release — cost reduction is their language | Week 11+ |
 | Hacker News (Show HN) | One shot; fire it when the deploy is one-command smooth and the README demo GIF exists. A weekday morning US time. Stay in the thread all day. | Week 8–10, when polished |
 
+### YouTube — one video per week's theme
+
+The highest-trust format for "know what this person can do," which is the campaign's
+actual goal. Two shapes, both derived from the week's theme:
+
+- **Build-alongs / walkthroughs (8–12 min):** the architecture, a feature being built,
+  a real workflow end to end. These are the reputation engine — they *prove*
+  competence instead of claiming it. Video 1 is the origin story + new-repo tour.
+- **Shorts (60–90s):** the week's demo clip, vertical cut. Same recording as the
+  LinkedIn/Reddit clip — record once, cut twice.
+
+Don't over-produce: screen recording, optional face cam, captions, honest pacing.
+Embed each video in that week's Substack essay and link it from the LinkedIn demo post.
+
 ### Demos — the asset that does the heavy lifting
 
 One 90-second screen recording of the WHY.md day-one story: upload 20 proposals → ask
@@ -140,8 +174,9 @@ This is the actual answer to the question, independent of channel mechanics:
 
 ## Measuring (weekly, 10 minutes, one spreadsheet row)
 
-GitHub stars · Substack subscribers · LinkedIn followers + best post · inbound DMs /
-"how do I deploy this" questions. The leading indicator that it's sinking in: **people
+GitHub stars · Substack subscribers · LinkedIn followers + best post · YouTube
+subscribers + watch time · inbound DMs, "how do I deploy this" questions, and
+podcast/collab invites (the reputation metric that matters most). The leading indicator that it's sinking in: **people
 describing the product back to you in their own words** — in comments, DMs, or Reddit
 threads you didn't start. Optimize for that, not for any single viral post.
 
