@@ -4,6 +4,9 @@
   "version": "0.1.1",
   "type": "module",
   "description": "A friendly React intranet layer on top of Supabase: auth, AI chat, shareable artifacts, files, and realtime.",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
