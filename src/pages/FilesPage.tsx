@@ -6,6 +6,7 @@ import { formatBytes, formatDate } from '../lib/util'
 import { FileIcon, LinkIcon, TrashIcon, UploadIcon } from '../components/icons'
 
 type FileRow = Database['public']['Tables']['files']['Row']
+type Doc = Database['public']['Tables']['documents']['Row']
 const BUCKET = 'files'
 
 export default function FilesPage() {
@@ -17,6 +18,8 @@ export default function FilesPage() {
   const [linkFor, setLinkFor] = useState<{ id: string; url: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const [docs, setDocs] = useState<Record<string, Doc>>({})
+
   const load = useCallback(async () => {
     const { data } = await supabase
       .from('files')
@@ -26,9 +29,25 @@ export default function FilesPage() {
     setLoading(false)
   }, [])
 
+  const loadDocs = useCallback(async () => {
+    const { data } = await supabase.from('documents').select('*')
+    const map: Record<string, Doc> = {}
+    for (const d of data ?? []) map[d.file_id] = d
+    setDocs(map)
+  }, [])
+
   useEffect(() => {
     load()
-  }, [load])
+    loadDocs()
+    // Live-update indexing status as the ingest worker progresses.
+    const channel = supabase
+      .channel('documents')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => loadDocs())
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [load, loadDocs])
 
   async function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return
@@ -149,6 +168,7 @@ export default function FilesPage() {
                     {f.visibility !== 'private' && ' · link shared'}
                   </p>
                 </button>
+                <IndexBadge doc={docs[f.id]} />
                 <button
                   onClick={() => share(f)}
                   title="Copy 7-day share link"
@@ -175,5 +195,32 @@ export default function FilesPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// Indexing status for a PDF (so the knowledge-base pipeline is observable).
+function IndexBadge({ doc }: { doc?: Doc }) {
+  if (!doc) return null
+  if (doc.status === 'done') {
+    return (
+      <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+        ✓ Indexed{doc.chunk_count ? ` · ${doc.chunk_count}` : ''}
+      </span>
+    )
+  }
+  if (doc.status === 'error') {
+    return (
+      <span
+        title={doc.error ?? 'Indexing failed'}
+        className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700"
+      >
+        Index failed
+      </span>
+    )
+  }
+  return (
+    <span className="shrink-0 animate-pulse rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+      Indexing…
+    </span>
   )
 }
