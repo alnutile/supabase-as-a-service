@@ -82,6 +82,27 @@ out.
   sitting in a standard Postgres database you control — not in an export queue at a SaaS
   vendor.
 
+### 5. Hosting is hard — this makes it someone else's job (for free)
+
+Getting an internal app *hosted* — with login, HTTPS, backups, and security patches —
+is normally where small businesses give up or start paying: a consultant, a DevOps
+hire, or a SaaS subscription that holds the data hostage. This project is built so the
+hard parts are carried by managed platforms' free tiers:
+
+- **Supabase** runs the database, authentication, file storage, realtime, and the
+  server-side AI functions — patched, backed up, and TLS'd by them, owned by you.
+- **A static host** (Railway is preconfigured) serves the app itself. There is no
+  server you maintain, nothing to patch at 2am, no machine to outgrow.
+- **Secure by architecture, not by configuration:** row-level security, invite-only
+  signup, server-side keys, and time-limited share links are the defaults — you don't
+  hire someone to harden it, because it ships hardened.
+
+The result: a team can go from *nothing* to a hosted, authenticated intranet — with an
+AI assistant, agents, webhooks, and file sharing — in an afternoon of copy-paste, for
+roughly the cost of the AI usage alone. Sharing the things you make is the same story:
+a proposal or a file becomes a link you hand out, with no "how do I give the client
+access" project attached.
+
 ## A concrete day one
 
 A small agency deploys this in an afternoon:
