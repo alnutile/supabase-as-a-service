@@ -462,9 +462,73 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['guardrails']['Insert']>
         Relationships: []
       }
+      integrations: {
+        Row: {
+          id: string
+          kind: 'email'
+          provider: 'postmark' | 'resend'
+          from_address: string
+          inbound_token: string | null
+          allowed_recipients: string[] | null
+          secret_id: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          kind: 'email'
+          provider: 'postmark' | 'resend'
+          from_address: string
+          inbound_token?: string | null
+          allowed_recipients?: string[] | null
+          secret_id: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['integrations']['Insert']>
+        Relationships: []
+      }
+      inbox_messages: {
+        Row: {
+          id: string
+          from_address: string
+          to_address: string | null
+          subject: string
+          body_text: string
+          received_at: string
+          read_at: string | null
+          raw: Json | null
+        }
+        Insert: {
+          id?: string
+          from_address: string
+          to_address?: string | null
+          subject?: string
+          body_text?: string
+          received_at?: string
+          read_at?: string | null
+          raw?: Json | null
+        }
+        Update: Partial<Database['public']['Tables']['inbox_messages']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
-    Functions: { [_ in never]: never }
+    Functions: {
+      set_email_integration: {
+        Args: {
+          p_provider: string
+          p_from_address: string
+          p_api_key: string
+          p_allowed_recipients?: string[] | null
+        }
+        Returns: undefined
+      }
+      email_is_configured: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+    }
     Enums: { [_ in never]: never }
     CompositeTypes: { [_ in never]: never }
   }

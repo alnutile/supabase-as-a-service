@@ -4,6 +4,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
+import { runBuiltin } from '../_shared/builtins.ts'
 
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 6
@@ -21,13 +22,17 @@ interface ToolRow {
 async function loadAgentTools(db: any, restrictIds: string[]) {
   const anthropicTools: unknown[] = []
   const httpTools = new Map<string, ToolRow>()
-  if (!restrictIds.length) return { anthropicTools, httpTools }
+  const builtins = new Set<string>()
+  if (!restrictIds.length) return { anthropicTools, httpTools, builtins }
   const { data } = await db.from('tools').select('*').eq('is_active', true)
   let web = false
   for (const t of (data ?? []) as ToolRow[]) {
     if (!restrictIds.includes(t.id)) continue
     if (t.kind === 'web') web = true
-    else if (t.kind === 'http' && t.name) {
+    else if (t.kind === 'builtin' && t.name) {
+      anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
+      builtins.add(t.name)
+    } else if (t.kind === 'http' && t.name) {
       anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
       httpTools.set(t.name, t)
     }
@@ -36,7 +41,7 @@ async function loadAgentTools(db: any, restrictIds: string[]) {
     anthropicTools.push({ type: 'web_search_20260209', name: 'web_search' })
     anthropicTools.push({ type: 'web_fetch_20260209', name: 'web_fetch' })
   }
-  return { anthropicTools, httpTools }
+  return { anthropicTools, httpTools, builtins }
 }
 
 async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
@@ -59,8 +64,8 @@ function textOf(content: Array<Record<string, unknown>>): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string) {
-  const { anthropicTools, httpTools } = await loadAgentTools(db, agent.tool_ids ?? [])
+async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null) {
+  const { anthropicTools, httpTools, builtins } = await loadAgentTools(db, agent.tool_ids ?? [])
   const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
     { role: 'user', content: input || '(scheduled run)' },
   ]
@@ -81,8 +86,12 @@ async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: st
       const toolResults: unknown[] = []
       for (const block of msg.content as Array<Record<string, unknown>>) {
         if (block.type !== 'tool_use') continue
-        const tool = httpTools.get(block.name as string)
-        const out = tool ? await runHttpTool(tool, block.input) : `Unknown tool: ${block.name}`
+        const name = block.name as string
+        const tool = httpTools.get(name)
+        let out: string
+        if (tool) out = await runHttpTool(tool, block.input)
+        else if (builtins.has(name)) out = await runBuiltin(db, name, (block.input as Record<string, unknown>) ?? {}, ownerId)
+        else out = `Unknown tool: ${name}`
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: out })
       }
       messages.push({ role: 'user', content: toolResults })
@@ -122,7 +131,7 @@ Deno.serve(async (req: Request) => {
     try {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
-        const result = await runAgent(anthropic, db, agent, s.input, model)
+        const result = await runAgent(anthropic, db, agent, s.input, model, s.owner_id)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,

@@ -11,6 +11,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
 import { resolveModel } from '../_shared/models.ts'
 import { runGuardrails } from '../_shared/guardrails.ts'
+import { runBuiltin } from '../_shared/builtins.ts'
 
 const MAX_ATTACH_BYTES = 6_000_000 // ~6MB per file
 
@@ -194,35 +195,9 @@ async function loadTools(
   return { anthropicTools, httpTools, builtins, capabilities }
 }
 
-// Built-in tools executed in-function. `search_documents` embeds the query with
-// the free in-edge gte-small model and runs a pgvector match over the workspace's
-// shared knowledge base (documents with scope = 'workspace') plus the caller's
-// own private documents. RLS-scoped via match_document_chunks (service-role only).
-async function runBuiltin(
-  db: ReturnType<typeof createClient> | null,
-  name: string,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (name !== 'search_documents') return `Unknown builtin: ${name}`
-  if (!db || !userId) return 'Document search is unavailable.'
-  try {
-    // deno-lint-ignore no-explicit-any
-    const model = new (globalThis as any).Supabase.ai.Session('gte-small')
-    const embedding = await model.run(String(input?.query ?? ''), { mean_pool: true, normalize: true })
-    const { data } = await db.rpc('match_document_chunks', {
-      query_embedding: embedding,
-      match_owner: userId,
-      match_count: 6,
-    })
-    if (!data || data.length === 0) return 'No matching passages found in the documents.'
-    return (data as Array<{ content: string; document_name?: string }>)
-      .map((d, i) => `[${i + 1}] (${d.document_name ?? 'document'}) ${d.content}`)
-      .join('\n\n---\n\n')
-  } catch (err) {
-    return `Document search failed: ${err instanceof Error ? err.message : 'error'}`
-  }
-}
+// Built-in tools (search_documents, send_email, check_email) are executed by the
+// shared runBuiltin() in ../_shared/builtins.ts so chat, webhook, and scheduler
+// all run them identically.
 
 // Execute a custom http tool: POST the model's inputs to the configured URL.
 async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
