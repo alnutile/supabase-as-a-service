@@ -153,12 +153,9 @@ npm run gen:types        # supabase gen types typescript --linked > src/lib/data
 
 ## Roadmap
 
-This is a foundation meant to grow. Conversations and artifacts are the natural seeds for:
-
-- ⏱️ **Scheduled agents** — promote a useful chat/artifact into a recurring job.
-- 🪝 **Webhooks** — trigger workflows from outside, or call out when something happens.
-- 👥 **Team sharing & spaces** — shared workspaces, roles, comments.
-- 🧩 **Richer artifacts** — versions, attachments, embeds.
+This is a foundation meant to grow — toward shared team knowledge, visible AI costs with
+cheaper-model routing, guardrails for unattended automation, and a finished proposal
+workflow. The full plan and reasoning live in [`ROADMAP.md`](./ROADMAP.md).
 
 Issues and PRs welcome.
 
