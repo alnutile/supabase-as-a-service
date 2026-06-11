@@ -21,7 +21,9 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 
 ## What is this?
 
-A small but complete foundation for a team workspace ("intranet") that you fully own. It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
+A small but complete foundation for a team workspace ("intranet") that you fully own — a shared AI assistant that learns your business from your own documents and prompts, turns conversations into shareable deliverables, and automates inbound work. **Wondering why a small business would run this? Read [WHY.md](./WHY.md).**
+
+It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
 
 - 🔐 **Auth** — email/password and magic links via Supabase Auth. A profile is created automatically on signup.
 - 💬 **AI chat** — talk to Claude to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
@@ -154,12 +156,9 @@ npm run gen:types        # supabase gen types typescript --linked > src/lib/data
 
 ## Roadmap
 
-This is a foundation meant to grow. Conversations and artifacts are the natural seeds for:
-
-- ⏱️ **Scheduled agents** — promote a useful chat/artifact into a recurring job.
-- 🪝 **Webhooks** — trigger workflows from outside, or call out when something happens.
-- 👥 **Team sharing & spaces** — shared workspaces, roles, comments.
-- 🧩 **Richer artifacts** — versions, attachments, embeds.
+This is a foundation meant to grow — toward shared team knowledge, visible AI costs with
+cheaper-model routing, guardrails for unattended automation, and a finished proposal
+workflow. The full plan and reasoning live in [`ROADMAP.md`](./ROADMAP.md).
 
 Issues and PRs welcome.
 
