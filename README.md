@@ -21,7 +21,9 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 
 ## What is this?
 
-A small but complete foundation for a team workspace ("intranet") that you fully own. It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
+A small but complete foundation for a team workspace ("intranet") that you fully own — a shared AI assistant that learns your business from your own documents and prompts, turns conversations into shareable deliverables, and automates inbound work. **Wondering why a small business would run this? Read [WHY.md](./WHY.md).**
+
+It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
 
 - 🔐 **Auth** — email/password and magic links via Supabase Auth. A profile is created automatically on signup.
 - 💬 **AI chat** — talk to Claude to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
