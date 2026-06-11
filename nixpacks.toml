@@ -1,0 +1,4 @@
+# Force the Node provider. Nixpacks otherwise auto-detects this as a Deno
+# project (from the supabase/functions/ edge-function code) and installs Deno
+# instead of Node — so `npm` is missing and `npm run build` fails (exit 127).
+providers = ['node']
