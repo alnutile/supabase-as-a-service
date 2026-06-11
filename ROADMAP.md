@@ -31,6 +31,11 @@ needs two changes that are fully specified and ready to build:
 
 ## Next: cost — see it, cap it, shrink it
 
+The foundation is specced: **[Model Profiles](./docs/tasks/model-profiles.md)** — named
+job slots (`orchestrator`, `utility`) the workspace assigns models to, managed in
+Settings. Features bind to the slot, never to a model id, so swapping in a cheaper
+model is one admin edit, not a code change.
+
 1. **Token & cost tracking.** Log input/output tokens for every model call — chat,
    webhook runs, scheduled agents, MCP — into the activity feed, with a simple spend
    view in Settings (by workspace, user, and agent). "It cost us $11 last month, here's
@@ -50,7 +55,8 @@ needs two changes that are fully specified and ready to build:
 ## Next: guardrails
 
 Webhooks accept input from the outside world by design, and agents can hold tools —
-that combination needs a checkpoint. The plan is a **Guardrails** section of the app
+that combination needs a checkpoint. The plan
+([spec](./docs/tasks/guardrails.md)) is a **Guardrails** section of the app
 (admin-managed, alongside Tools and Prompts):
 
 - A guardrail is a **separate pre-flight check by a cheap model** (e.g. Haiku), run
