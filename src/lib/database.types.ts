@@ -12,7 +12,7 @@ export type Visibility = 'private' | 'unlisted' | 'public'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'
-export type WebhookEventStatus = 'received' | 'ok' | 'error'
+export type WebhookEventStatus = 'received' | 'ok' | 'error' | 'blocked'
 export type ToolKind = 'http' | 'web'
 
 export interface Database {
@@ -192,6 +192,7 @@ export interface Database {
           prompt: string
           token: string
           agent_id: string | null
+          allow_tools: boolean
           is_active: boolean
           created_at: string
           updated_at: string
@@ -203,6 +204,7 @@ export interface Database {
           prompt?: string
           token?: string
           agent_id?: string | null
+          allow_tools?: boolean
           is_active?: boolean
           created_at?: string
           updated_at?: string
@@ -428,6 +430,36 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['model_profiles']['Insert']>
+        Relationships: []
+      }
+      guardrails: {
+        Row: {
+          id: string
+          name: string
+          instructions: string
+          applies_to_webhooks: boolean
+          applies_to_chat: boolean
+          action: 'block' | 'flag'
+          is_active: boolean
+          is_builtin: boolean
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          instructions: string
+          applies_to_webhooks?: boolean
+          applies_to_chat?: boolean
+          action?: 'block' | 'flag'
+          is_active?: boolean
+          is_builtin?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['guardrails']['Insert']>
         Relationships: []
       }
     }

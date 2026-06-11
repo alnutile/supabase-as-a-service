@@ -115,6 +115,7 @@ function WebhookDetail({
   const [prompt, setPrompt] = useState(webhook.prompt)
   const [isActive, setIsActive] = useState(webhook.is_active)
   const [agentId, setAgentId] = useState(webhook.agent_id ?? '')
+  const [allowTools, setAllowTools] = useState(webhook.allow_tools)
   const [agents, setAgents] = useState<Agent[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -135,7 +136,8 @@ function WebhookDetail({
     name !== webhook.name ||
     prompt !== webhook.prompt ||
     isActive !== webhook.is_active ||
-    agentId !== (webhook.agent_id ?? '')
+    agentId !== (webhook.agent_id ?? '') ||
+    allowTools !== webhook.allow_tools
 
   const loadEvents = useCallback(async () => {
     const { data } = await supabase
@@ -172,6 +174,7 @@ function WebhookDetail({
         prompt,
         is_active: isActive,
         agent_id: agentId || null,
+        allow_tools: allowTools,
         updated_at: new Date().toISOString(),
       })
       .eq('id', webhook.id)
@@ -256,9 +259,26 @@ function WebhookDetail({
           ))}
         </select>
         {agentId && (
-          <p className="mt-1 text-xs text-amber-600">
-            This webhook runs the agent (its prompt + tools) on each payload. The prompt below is ignored.
-          </p>
+          <>
+            <p className="mt-1 text-xs text-amber-600">
+              This webhook runs the agent on each payload. The prompt below is ignored.
+            </p>
+            <label className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={allowTools}
+                onChange={(e) => setAllowTools(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              />
+              <span>
+                Allow agent tools
+                <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                  Tools let the agent act on whatever this webhook receives. Leave off unless the
+                  source is trusted — otherwise the agent runs read-only.
+                </span>
+              </span>
+            </label>
+          </>
         )}
       </div>
 
@@ -316,6 +336,7 @@ const STATUS_STYLES: Record<WebhookEventStatus, string> = {
   received: 'bg-amber-100 text-amber-700',
   ok: 'bg-emerald-100 text-emerald-700',
   error: 'bg-red-100 text-red-700',
+  blocked: 'bg-red-100 text-red-700',
 }
 
 function EventRow({ event }: { event: WebhookEvent }) {

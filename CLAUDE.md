@@ -62,9 +62,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   opaque `token` and an attached `prompt`. External systems POST to the **public**
   `webhook` edge function at `/functions/v1/webhook/‹token›` (`verify_jwt: false`); it
   resolves the webhook by token (service role), runs the prompt against the payload via
-  Claude, and logs a `webhook_events` row (`received` → `ok`/`error`) with the result.
-  The page subscribes to `webhook_events` over Realtime for a live log. Routing the
-  result somewhere (artifact/chat/outbound) is a later step.
+  Claude, and logs a `webhook_events` row (`received` → `ok`/`error`/`blocked`) with the
+  result. The page subscribes to `webhook_events` over Realtime for a live log. Routing
+  the result somewhere (artifact/chat/outbound) is a later step. A webhook-targeted agent
+  runs **read-only by default** — its tools are loaded only when `webhooks.allow_tools = true`
+  (a deterministic rule, not a model decision), so an untrusted source can't make the agent act.
 - **Prompts & skills:** one `skills` table, two modes.
   - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
     seeded `is_builtin` "How this workspace works" prompt teaches the assistant the
@@ -80,6 +82,20 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   (`ToolsPage`); a seeded `is_builtin` "web_browsing" row is on by default. The chat
   function runs an **agentic loop** (model → tool_use → execute → tool_result → … →
   end_turn), preserving thinking + tool_use blocks across turns (the opus-4-8 rule).
+- **Guardrails:** the `guardrails` table holds admin-managed pre-flight checks evaluated
+  by the cheap `utility` model profile **before** the orchestrator runs. `GuardrailsPage`
+  (admin-only) manages them; each has `instructions` (what to check for), `applies_to_webhooks`
+  / `applies_to_chat`, and `action` (`block` | `flag`). `runGuardrails()` in
+  `supabase/functions/_shared/guardrails.ts` loads the active checks for the context, makes
+  **one** `utility`-model call (plain `messages.create`, no thinking; content passed as
+  untrusted data inside delimiters), and parses a strict-JSON verdict. **Enforcement is in
+  code acting on the parsed JSON — the verdict is never inserted into the orchestrator's
+  prompt.** Webhooks **fail closed** (an evaluator error blocks the run → `webhook_events`
+  status `blocked`, 403); chat **fails open** (errors let the message through). A `block`
+  verdict stops the run; `flag` only logs. Outcomes are written to `activity_log`
+  (`guardrail.blocked` / `.flagged` / `.error`). A seeded `is_builtin` "Prompt injection
+  screen" applies to webhooks and blocks. RLS mirrors `tools` (authenticated SELECT, admin
+  write, builtin not deletable).
 - **AI-created artifacts:** the assistant emits a `:::artifact {"title","type"}\n…\n:::`
   block; `materializeArtifacts()` in `ChatPage` parses it after streaming, inserts an
   `artifacts` row, and replaces the block with an `/artifacts/:id` share link.

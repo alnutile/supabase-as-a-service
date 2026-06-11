@@ -8,6 +8,7 @@ type Activity = Database['public']['Tables']['activity_log']['Row']
 
 // Colour each event family so the feed is scannable at a glance.
 function badgeStyle(type: string): string {
+  if (type.startsWith('guardrail')) return type.endsWith('.flagged') ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
   if (type.endsWith('.error')) return 'bg-red-100 text-red-700'
   if (type.startsWith('webhook')) return 'bg-amber-100 text-amber-700'
   if (type.startsWith('tool')) return 'bg-indigo-100 text-indigo-700'

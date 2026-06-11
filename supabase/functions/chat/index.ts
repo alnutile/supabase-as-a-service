@@ -10,6 +10,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
 import { resolveModel } from '../_shared/models.ts'
+import { runGuardrails } from '../_shared/guardrails.ts'
 
 const MAX_ATTACH_BYTES = 6_000_000 // ~6MB per file
 
@@ -294,6 +295,31 @@ Deno.serve(async (req: Request) => {
   }
 
   const anthropic = new Anthropic({ apiKey })
+
+  // Guardrails (chat context): cheap utility-model pre-flight on the latest user
+  // message. Makes NO model call when there are no active chat guardrails. Chat
+  // fails OPEN — a signed-in human is present, availability beats a flaky gate.
+  const lastUser = inMessages[inMessages.length - 1]
+  const lastText = lastUser && lastUser.role === 'user' ? lastUser.content : ''
+  const guard = await runGuardrails(db, anthropic, 'chat', lastText)
+  if (guard.ok === false && 'error' in guard) {
+    await logActivity(db, 'guardrail.error', 'Guardrail check errored (chat — proceeding)', { error: guard.error }, userId)
+  } else if (guard.ok === false && guard.blocked) {
+    const gname = guard.violations[0].name
+    await logActivity(db, 'guardrail.blocked', `Blocked chat message — ${gname}`, { violations: guard.violations }, userId)
+    const blocked = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sse({ delta: `Blocked by workspace guardrail: ${gname}.` }))
+        controller.enqueue(sse('[DONE]'))
+        controller.close()
+      },
+    })
+    return new Response(blocked, {
+      headers: { ...CORS, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+    })
+  } else if (guard.ok === false) {
+    await logActivity(db, 'guardrail.flagged', `Flagged chat message — ${guard.violations[0].name}`, { violations: guard.violations }, userId)
+  }
 
   // Conversation messages, mutated across tool turns.
   const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = []

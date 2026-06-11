@@ -6,6 +6,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
+import { runGuardrails } from '../_shared/guardrails.ts'
 
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 6
@@ -99,7 +100,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: webhook } = await db
     .from('webhooks')
-    .select('id, prompt, is_active, agent_id')
+    .select('id, owner_id, name, prompt, is_active, agent_id, allow_tools')
     .eq('token', token)
     .maybeSingle()
   if (!webhook || !webhook.is_active) return json({ error: 'Unknown or inactive webhook' }, 404)
@@ -126,7 +127,26 @@ Deno.serve(async (req: Request) => {
     const anthropic = new Anthropic({ apiKey })
     const MODEL = await resolveModel(db, 'orchestrator')
 
+    // Guardrails: a cheap utility-model pre-flight on the untrusted payload,
+    // enforced here in code. Webhooks fail CLOSED — unattended + attacker-facing.
+    const guard = await runGuardrails(db, anthropic, 'webhook', payloadText)
+    if (guard.ok === false && 'error' in guard) {
+      if (eventId) await db.from('webhook_events').update({ status: 'blocked', error: `Guardrail evaluator error: ${guard.error}` }).eq('id', eventId)
+      await db.from('activity_log').insert({ type: 'guardrail.error', summary: `Guardrail check errored for "${webhook.name}" — blocked`, detail: { event_id: eventId, error: guard.error }, actor_id: webhook.owner_id })
+      return json({ ok: false, event_id: eventId, blocked: true }, 403)
+    }
+    if (guard.ok === false && guard.blocked) {
+      const reasons = guard.violations.map((v) => `${v.name}: ${v.reason}`).join('; ')
+      if (eventId) await db.from('webhook_events').update({ status: 'blocked', error: reasons }).eq('id', eventId)
+      await db.from('activity_log').insert({ type: 'guardrail.blocked', summary: `Blocked "${webhook.name}" — ${guard.violations[0].name}`, detail: { event_id: eventId, violations: guard.violations }, actor_id: webhook.owner_id })
+      return json({ ok: false, event_id: eventId, blocked: true }, 403)
+    }
+    if (guard.ok === false) {
+      await db.from('activity_log').insert({ type: 'guardrail.flagged', summary: `Flagged "${webhook.name}" — ${guard.violations[0].name}`, detail: { event_id: eventId, violations: guard.violations }, actor_id: webhook.owner_id })
+    }
+
     // Resolve what runs: an attached agent (prompt + tools) or the bare prompt.
+    // Deterministic rule: the agent runs toolless unless the webhook opts in.
     let system = webhook.prompt || 'Process the incoming webhook payload and summarize what it contains.'
     let anthropicTools: unknown[] = []
     let httpTools = new Map<string, ToolRow>()
@@ -134,9 +154,11 @@ Deno.serve(async (req: Request) => {
       const { data: agent } = await db.from('agents').select('instructions, tool_ids').eq('id', webhook.agent_id).maybeSingle()
       if (agent) {
         system = agent.instructions || system
-        const loaded = await loadAgentTools(db, agent.tool_ids ?? [])
-        anthropicTools = loaded.anthropicTools
-        httpTools = loaded.httpTools
+        if (webhook.allow_tools) {
+          const loaded = await loadAgentTools(db, agent.tool_ids ?? [])
+          anthropicTools = loaded.anthropicTools
+          httpTools = loaded.httpTools
+        }
       }
     }
 
