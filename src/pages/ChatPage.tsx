@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
+import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import {
@@ -180,31 +181,14 @@ export default function ChatPage() {
       const added: ChatAttachment[] = []
       for (const file of Array.from(fileList)) {
         const path = `${user.id}/${crypto.randomUUID()}/${file.name}`
-        // Read the bytes up front — some mobile file sources hand over a virtual
-        // (cloud-backed) handle the browser can't stream; materializing it makes
-        // the upload reliable and gives a real error if it can't be read.
-        let body: ArrayBuffer
-        try {
-          body = await file.arrayBuffer()
-        } catch {
-          throw new Error(
-            `Couldn’t read “${file.name}”. Download it to your device first (or pick it via Dropbox/Drive), then attach.`,
-          )
-        }
-        if (body.byteLength === 0) {
-          throw new Error(`“${file.name}” came through empty — download it to your device first, then attach.`)
-        }
-        const { error: upErr } = await supabase.storage
-          .from(BUCKET)
-          .upload(path, body, { upsert: false, contentType: file.type || 'application/octet-stream' })
-        if (upErr) throw upErr
+        const size = await uploadPickedFile(path, file)
         await supabase.from('files').insert({
           owner_id: user.id,
           bucket: BUCKET,
           path,
           name: file.name,
           mime_type: file.type || null,
-          size_bytes: body.byteLength,
+          size_bytes: size,
           visibility: 'private',
         })
         added.push({ path, name: file.name, mime: file.type || undefined })

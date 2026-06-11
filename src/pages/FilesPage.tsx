@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
+import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { formatBytes, formatDate } from '../lib/util'
 import { FileIcon, LinkIcon, TrashIcon, UploadIcon } from '../components/icons'
@@ -56,31 +57,14 @@ export default function FilesPage() {
     try {
       for (const file of Array.from(fileList)) {
         const path = `${user!.id}/${crypto.randomUUID()}/${file.name}`
-        // Read the bytes up front. Some mobile file sources hand over a virtual
-        // (cloud-backed) handle the browser can't stream — materializing it here
-        // makes the upload reliable and surfaces a real error if it can't.
-        let body: ArrayBuffer
-        try {
-          body = await file.arrayBuffer()
-        } catch {
-          throw new Error(
-            `Couldn’t read “${file.name}”. Some apps hand over files the browser can’t read directly — download it to your device first, then upload.`,
-          )
-        }
-        if (body.byteLength === 0) {
-          throw new Error(`“${file.name}” came through empty — download it to your device first, then upload.`)
-        }
-        const { error: upErr } = await supabase.storage
-          .from(BUCKET)
-          .upload(path, body, { upsert: false, contentType: file.type || 'application/octet-stream' })
-        if (upErr) throw upErr
+        const size = await uploadPickedFile(path, file)
         const { error: rowErr } = await supabase.from('files').insert({
           owner_id: user!.id,
           bucket: BUCKET,
           path,
           name: file.name,
           mime_type: file.type || null,
-          size_bytes: body.byteLength,
+          size_bytes: size,
           visibility: 'private',
         })
         if (rowErr) throw rowErr
