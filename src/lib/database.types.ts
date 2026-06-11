@@ -361,6 +361,7 @@ export interface Database {
           file_id: string
           name: string
           status: string
+          scope: string
           error: string | null
           chunk_count: number
           created_at: string
@@ -372,6 +373,7 @@ export interface Database {
           file_id: string
           name: string
           status?: string
+          scope?: string
           error?: string | null
           chunk_count?: number
           created_at?: string

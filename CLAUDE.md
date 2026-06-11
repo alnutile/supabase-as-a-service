@@ -45,10 +45,16 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
 - **PDF knowledge (RAG):** uploading a PDF enqueues a `documents` row (trigger on
   `files`). A `pg_cron` tick calls the `ingest` edge function, which extracts the
   text layer (`unpdf`), chunks it, embeds each chunk **free** with the in-edge
-  `gte-small` model, and stores `document_chunks` in **pgvector**. The seeded
-  built-in `search_documents` tool (kind `builtin`) lets the assistant query them:
-  the chat function embeds the query and runs `match_document_chunks` (cosine,
-  RLS-scoped to the user). Text-layer PDFs only for now (scanned → Stage 2 vision).
+  `gte-small` model, and stores `document_chunks` in **pgvector**. Documents are
+  **workspace-shared by default** (`documents.scope = 'workspace'`): any member's
+  chat can search their chunks. The owner can flip a document to `'private'` in
+  Files ("Only me"). RLS enforces this — members read `scope = 'workspace'` rows,
+  chunks are readable by the owner or when the parent doc is shared, and only the
+  owner can change scope. The seeded built-in `search_documents` tool runs
+  `match_document_chunks` (cosine; `scope = 'workspace' OR owner = caller`,
+  returns the document name for citations). Scope is **separate** from
+  `files.visibility` — the raw PDF blob stays owner-private; only the text chunks
+  are shared. Text-layer PDFs only for now (scanned → Stage 2 vision).
 - **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
   DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
   calls). RLS: you see your own rows, admins see all. Realtime-subscribed.

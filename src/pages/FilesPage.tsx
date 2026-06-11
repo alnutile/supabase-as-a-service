@@ -50,6 +50,13 @@ export default function FilesPage() {
     }
   }, [load, loadDocs])
 
+  // Share an indexed document with the workspace, or keep it private. (Separate
+  // from files.visibility, which controls signed-link sharing of the raw blob.)
+  async function setScope(doc: Doc, scope: string) {
+    setDocs((prev) => ({ ...prev, [doc.file_id]: { ...doc, scope } }))
+    await supabase.from('documents').update({ scope }).eq('id', doc.id)
+  }
+
   async function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return
     setUploading(true)
@@ -150,7 +157,9 @@ export default function FilesPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {files.map((f) => (
+            {files.map((f) => {
+              const doc = docs[f.id]
+              return (
               <div key={f.id} className="flex items-center gap-3 px-4 py-3">
                 <FileIcon className="h-5 w-5 shrink-0 text-slate-400" />
                 <button
@@ -166,7 +175,8 @@ export default function FilesPage() {
                     {f.visibility !== 'private' && ' · link shared'}
                   </p>
                 </button>
-                <IndexBadge doc={docs[f.id]} />
+                {doc && <ScopeToggle doc={doc} onChange={(scope) => setScope(doc, scope)} />}
+                <IndexBadge doc={doc} />
                 <button
                   onClick={() => share(f)}
                   title="Copy 7-day share link"
@@ -182,7 +192,8 @@ export default function FilesPage() {
                   <TrashIcon className="h-[18px] w-[18px]" />
                 </button>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
@@ -193,6 +204,28 @@ export default function FilesPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// Whether an indexed document is part of the shared team knowledge base or
+// private to the owner. (Only the extracted chunks are shared — the raw file
+// in storage stays private regardless.)
+function ScopeToggle({ doc, onChange }: { doc: Doc; onChange: (scope: string) => void }) {
+  const shared = doc.scope === 'workspace'
+  return (
+    <button
+      onClick={() => onChange(shared ? 'private' : 'workspace')}
+      title={
+        shared
+          ? 'In the team knowledge base — tap to make it searchable only by you'
+          : 'Only you can search this — tap to add it to the team knowledge base'
+      }
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+        shared ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-500'
+      }`}
+    >
+      {shared ? 'Team knowledge' : 'Only me'}
+    </button>
   )
 }
 

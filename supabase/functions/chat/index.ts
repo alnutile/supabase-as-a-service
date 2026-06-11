@@ -194,8 +194,9 @@ async function loadTools(
 }
 
 // Built-in tools executed in-function. `search_documents` embeds the query with
-// the free in-edge gte-small model and runs a pgvector match over the user's
-// indexed PDF chunks.
+// the free in-edge gte-small model and runs a pgvector match over the workspace's
+// shared knowledge base (documents with scope = 'workspace') plus the caller's
+// own private documents. RLS-scoped via match_document_chunks (service-role only).
 async function runBuiltin(
   db: ReturnType<typeof createClient> | null,
   name: string,
@@ -213,9 +214,9 @@ async function runBuiltin(
       match_owner: userId,
       match_count: 6,
     })
-    if (!data || data.length === 0) return 'No matching passages found in the user’s documents.'
-    return (data as Array<{ content: string }>)
-      .map((d, i) => `[${i + 1}] ${d.content}`)
+    if (!data || data.length === 0) return 'No matching passages found in the documents.'
+    return (data as Array<{ content: string; document_name?: string }>)
+      .map((d, i) => `[${i + 1}] (${d.document_name ?? 'document'}) ${d.content}`)
       .join('\n\n---\n\n')
   } catch (err) {
     return `Document search failed: ${err instanceof Error ? err.message : 'error'}`
