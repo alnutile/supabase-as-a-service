@@ -354,6 +354,54 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['schedules']['Insert']>
         Relationships: []
       }
+      documents: {
+        Row: {
+          id: string
+          owner_id: string
+          file_id: string
+          name: string
+          status: string
+          error: string | null
+          chunk_count: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          file_id: string
+          name: string
+          status?: string
+          error?: string | null
+          chunk_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['documents']['Insert']>
+        Relationships: []
+      }
+      document_chunks: {
+        Row: {
+          id: string
+          document_id: string
+          owner_id: string
+          idx: number
+          content: string
+          embedding: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          document_id: string
+          owner_id: string
+          idx: number
+          content: string
+          embedding?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['document_chunks']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: { [_ in never]: never }

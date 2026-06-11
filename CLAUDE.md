@@ -42,6 +42,13 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `PublicArtifactPage` at route `/share/a/:slug`.
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
+- **PDF knowledge (RAG):** uploading a PDF enqueues a `documents` row (trigger on
+  `files`). A `pg_cron` tick calls the `ingest` edge function, which extracts the
+  text layer (`unpdf`), chunks it, embeds each chunk **free** with the in-edge
+  `gte-small` model, and stores `document_chunks` in **pgvector**. The seeded
+  built-in `search_documents` tool (kind `builtin`) lets the assistant query them:
+  the chat function embeds the query and runs `match_document_chunks` (cosine,
+  RLS-scoped to the user). Text-layer PDFs only for now (scanned → Stage 2 vision).
 - **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
   DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
   calls). RLS: you see your own rows, admins see all. Realtime-subscribed.

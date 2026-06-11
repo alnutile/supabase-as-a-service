@@ -154,8 +154,9 @@ async function loadTools(
 ) {
   const anthropicTools: unknown[] = []
   const httpTools = new Map<string, ToolRow>()
+  const builtins = new Set<string>()
   const capabilities: string[] = []
-  if (!db) return { anthropicTools, httpTools, capabilities }
+  if (!db) return { anthropicTools, httpTools, builtins, capabilities }
   try {
     const { data } = await db.from('tools').select('*').eq('is_active', true)
     let webEnabled = false
@@ -163,6 +164,14 @@ async function loadTools(
       if (restrictIds && !restrictIds.includes(t.id)) continue
       if (t.kind === 'web') {
         webEnabled = true
+      } else if (t.kind === 'builtin' && t.name) {
+        anthropicTools.push({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema ?? { type: 'object', properties: {} },
+        })
+        builtins.add(t.name)
+        capabilities.push(`\`${t.name}\` — ${t.description}`)
       } else if (t.kind === 'http' && t.name) {
         anthropicTools.push({
           name: t.name,
@@ -181,7 +190,36 @@ async function loadTools(
   } catch {
     // tools are optional — degrade to no tools
   }
-  return { anthropicTools, httpTools, capabilities }
+  return { anthropicTools, httpTools, builtins, capabilities }
+}
+
+// Built-in tools executed in-function. `search_documents` embeds the query with
+// the free in-edge gte-small model and runs a pgvector match over the user's
+// indexed PDF chunks.
+async function runBuiltin(
+  db: ReturnType<typeof createClient> | null,
+  name: string,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (name !== 'search_documents') return `Unknown builtin: ${name}`
+  if (!db || !userId) return 'Document search is unavailable.'
+  try {
+    // deno-lint-ignore no-explicit-any
+    const model = new (globalThis as any).Supabase.ai.Session('gte-small')
+    const embedding = await model.run(String(input?.query ?? ''), { mean_pool: true, normalize: true })
+    const { data } = await db.rpc('match_document_chunks', {
+      query_embedding: embedding,
+      match_owner: userId,
+      match_count: 6,
+    })
+    if (!data || data.length === 0) return 'No matching passages found in the user’s documents.'
+    return (data as Array<{ content: string }>)
+      .map((d, i) => `[${i + 1}] ${d.content}`)
+      .join('\n\n---\n\n')
+  } catch (err) {
+    return `Document search failed: ${err instanceof Error ? err.message : 'error'}`
+  }
 }
 
 // Execute a custom http tool: POST the model's inputs to the configured URL.
@@ -236,7 +274,7 @@ Deno.serve(async (req: Request) => {
 
   const db = admin()
   const userId = userIdFromAuth(req)
-  const { anthropicTools, httpTools, capabilities } = await loadTools(db, toolIds)
+  const { anthropicTools, httpTools, builtins, capabilities } = await loadTools(db, toolIds)
 
   let system: string
   if (replaceSystem && skillSystem.trim()) {
@@ -285,12 +323,14 @@ Deno.serve(async (req: Request) => {
             const toolResults: unknown[] = []
             for (const block of final.content as Array<Record<string, unknown>>) {
               if (block.type !== 'tool_use') continue
-              const tool = httpTools.get(block.name as string)
-              const output = tool
-                ? await runHttpTool(tool, block.input)
-                : `Unknown tool: ${block.name}`
-              if (tool) {
-                await logActivity(db, 'tool.call', `Used tool: ${block.name}`, { name: block.name }, userId)
+              const name = block.name as string
+              const tool = httpTools.get(name)
+              let output: string
+              if (tool) output = await runHttpTool(tool, block.input)
+              else if (builtins.has(name)) output = await runBuiltin(db, name, (block.input as Record<string, unknown>) ?? {}, userId)
+              else output = `Unknown tool: ${name}`
+              if (tool || builtins.has(name)) {
+                await logActivity(db, 'tool.call', `Used tool: ${name}`, { name }, userId)
               }
               toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output })
             }
