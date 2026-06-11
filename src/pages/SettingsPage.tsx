@@ -212,9 +212,9 @@ function ConnectClaude() {
     <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-slate-700">Connect Claude (MCP)</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Generate a token and connect Claude Code or Claude Desktop to this workspace. Then you can
-        say “build an agent that does X on my intranet” and Claude pushes it here — it shows up under
-        Agents, Tools, and Webhooks.
+        Connect <strong>Claude Code</strong> (the CLI) to this workspace, then say
+        “build an agent that does X on my intranet” and Claude pushes it here — it shows up under
+        Agents, Tools, and Webhooks. Generate a token below and run the one-line command it gives you.
       </p>
 
       <div className="mt-3 flex items-center gap-2">
@@ -240,7 +240,7 @@ function ConnectClaude() {
 
       <div className="mt-3 space-y-3">
         {tokens.map((t) => {
-          const cmd = `claude mcp add --transport http intranet ${mcpUrl} --header "Authorization: Bearer ${t.token}"`
+          const cmd = `claude mcp add --scope user --transport http intranet ${mcpUrl} --header "Authorization: Bearer ${t.token}"`
           return (
             <div key={t.id} className="rounded-lg border border-slate-200 p-3">
               <div className="flex items-center gap-2">
@@ -255,7 +255,12 @@ function ConnectClaude() {
                   <TrashIcon className="h-4 w-4" />
                 </button>
               </div>
-              <div className="mt-2 flex items-start gap-2">
+
+              <p className="mt-2 text-xs font-medium text-slate-500">
+                1. Run this in your terminal (anywhere — <code className="rounded bg-slate-100 px-1">--scope user</code>{' '}
+                makes it available in every project):
+              </p>
+              <div className="mt-1 flex items-start gap-2">
                 <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
                   {cmd}
                 </pre>
@@ -266,6 +271,15 @@ function ConnectClaude() {
                   {copied === t.id ? 'Copied' : 'Copy'}
                 </button>
               </div>
+
+              <p className="mt-2 text-xs text-slate-500">
+                2. Start <code className="rounded bg-slate-100 px-1">claude</code> and run{' '}
+                <code className="rounded bg-slate-100 px-1">/mcp</code> — you should see{' '}
+                <strong>intranet</strong> connected. Then ask it to “list my intranet agents” to confirm.
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Treat this token like a password — anyone with it can act as you here. Revoke it (🗑) if it leaks.
+              </p>
             </div>
           )
         })}
@@ -273,6 +287,12 @@ function ConnectClaude() {
           <p className="text-xs text-slate-400">No connection tokens yet.</p>
         )}
       </div>
+
+      <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <strong>Using Claude Desktop or claude.ai?</strong> Their “Add custom connector” dialog only
+        speaks OAuth, which this token-based server doesn’t offer yet — it’ll fail to register. Use the
+        Claude Code command above for now. (OAuth sign-in is on the roadmap.)
+      </p>
     </section>
   )
 }
