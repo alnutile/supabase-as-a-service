@@ -221,13 +221,13 @@ export default function ChatPage() {
       const convId = await ensureConversation(text || atts[0]?.name || 'New chat')
       await insertMessage(convId, 'user', text, atts)
 
-      // Build the history to send to the model (current state + the new turn),
-      // carrying any file attachments so the assistant can read them.
+      // Build the history to send to the model. Attachments ride only on the
+      // turn they're added (below) — we don't re-send historical files every
+      // turn, which would re-upload and re-bill the whole document each message.
       const history: ChatMessage[] = [
         ...messages.map((m) => ({
           role: (m.role === 'assistant' ? 'assistant' : 'user') as ChatMessage['role'],
           content: m.content,
-          attachments: (m.attachments as ChatAttachment[] | null) ?? undefined,
         })),
         { role: 'user', content: text || '(see attached files)', attachments: atts },
       ]
