@@ -56,9 +56,23 @@ export default function FilesPage() {
     try {
       for (const file of Array.from(fileList)) {
         const path = `${user!.id}/${crypto.randomUUID()}/${file.name}`
+        // Read the bytes up front. Some mobile file sources hand over a virtual
+        // (cloud-backed) handle the browser can't stream — materializing it here
+        // makes the upload reliable and surfaces a real error if it can't.
+        let body: ArrayBuffer
+        try {
+          body = await file.arrayBuffer()
+        } catch {
+          throw new Error(
+            `Couldn’t read “${file.name}”. Some apps hand over files the browser can’t read directly — download it to your device first, then upload.`,
+          )
+        }
+        if (body.byteLength === 0) {
+          throw new Error(`“${file.name}” came through empty — download it to your device first, then upload.`)
+        }
         const { error: upErr } = await supabase.storage
           .from(BUCKET)
-          .upload(path, file, { upsert: false, contentType: file.type || undefined })
+          .upload(path, body, { upsert: false, contentType: file.type || 'application/octet-stream' })
         if (upErr) throw upErr
         const { error: rowErr } = await supabase.from('files').insert({
           owner_id: user!.id,
@@ -66,7 +80,7 @@ export default function FilesPage() {
           path,
           name: file.name,
           mime_type: file.type || null,
-          size_bytes: file.size,
+          size_bytes: body.byteLength,
           visibility: 'private',
         })
         if (rowErr) throw rowErr

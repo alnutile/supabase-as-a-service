@@ -180,9 +180,23 @@ export default function ChatPage() {
       const added: ChatAttachment[] = []
       for (const file of Array.from(fileList)) {
         const path = `${user.id}/${crypto.randomUUID()}/${file.name}`
+        // Read the bytes up front — some mobile file sources hand over a virtual
+        // (cloud-backed) handle the browser can't stream; materializing it makes
+        // the upload reliable and gives a real error if it can't be read.
+        let body: ArrayBuffer
+        try {
+          body = await file.arrayBuffer()
+        } catch {
+          throw new Error(
+            `Couldn’t read “${file.name}”. Download it to your device first (or pick it via Dropbox/Drive), then attach.`,
+          )
+        }
+        if (body.byteLength === 0) {
+          throw new Error(`“${file.name}” came through empty — download it to your device first, then attach.`)
+        }
         const { error: upErr } = await supabase.storage
           .from(BUCKET)
-          .upload(path, file, { upsert: false, contentType: file.type || undefined })
+          .upload(path, body, { upsert: false, contentType: file.type || 'application/octet-stream' })
         if (upErr) throw upErr
         await supabase.from('files').insert({
           owner_id: user.id,
@@ -190,7 +204,7 @@ export default function ChatPage() {
           path,
           name: file.name,
           mime_type: file.type || null,
-          size_bytes: file.size,
+          size_bytes: body.byteLength,
           visibility: 'private',
         })
         added.push({ path, name: file.name, mime: file.type || undefined })
@@ -198,12 +212,10 @@ export default function ChatPage() {
       setAttachments((prev) => [...prev, ...added])
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
-      // A network-level fetch failure here is almost always the upload request
-      // being blocked (ad/content blocker, VPN/proxy) or a dropped connection.
       setError(
         /failed to fetch|networkerror|load failed/i.test(msg)
-          ? 'Couldn’t upload that file — the request didn’t reach the server. Check your connection, and disable any VPN or ad/content blocker, then try again.'
-          : `Upload failed: ${msg}`,
+          ? 'Couldn’t upload that file — the request didn’t reach the server. If you picked it directly, try selecting it via Dropbox/Drive or download it to your device first.'
+          : msg,
       )
     } finally {
       setUploading(false)
