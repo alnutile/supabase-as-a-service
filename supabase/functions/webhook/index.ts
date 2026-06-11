@@ -6,6 +6,8 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
+import { runGuardrails } from '../_shared/guardrails.ts'
+import { runBuiltin } from '../_shared/builtins.ts'
 
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 6
@@ -46,13 +48,17 @@ function extractToken(url: URL): string | null {
 async function loadAgentTools(db: any, restrictIds: string[]) {
   const anthropicTools: unknown[] = []
   const httpTools = new Map<string, ToolRow>()
-  if (!restrictIds.length) return { anthropicTools, httpTools }
+  const builtins = new Set<string>()
+  if (!restrictIds.length) return { anthropicTools, httpTools, builtins }
   const { data } = await db.from('tools').select('*').eq('is_active', true)
   let web = false
   for (const t of (data ?? []) as ToolRow[]) {
     if (!restrictIds.includes(t.id)) continue
     if (t.kind === 'web') web = true
-    else if (t.kind === 'http' && t.name) {
+    else if (t.kind === 'builtin' && t.name) {
+      anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
+      builtins.add(t.name)
+    } else if (t.kind === 'http' && t.name) {
       anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
       httpTools.set(t.name, t)
     }
@@ -61,7 +67,7 @@ async function loadAgentTools(db: any, restrictIds: string[]) {
     anthropicTools.push({ type: 'web_search_20260209', name: 'web_search' })
     anthropicTools.push({ type: 'web_fetch_20260209', name: 'web_fetch' })
   }
-  return { anthropicTools, httpTools }
+  return { anthropicTools, httpTools, builtins }
 }
 
 async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
@@ -99,7 +105,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: webhook } = await db
     .from('webhooks')
-    .select('id, prompt, is_active, agent_id')
+    .select('id, owner_id, name, prompt, is_active, agent_id, allow_tools')
     .eq('token', token)
     .maybeSingle()
   if (!webhook || !webhook.is_active) return json({ error: 'Unknown or inactive webhook' }, 404)
@@ -126,17 +132,40 @@ Deno.serve(async (req: Request) => {
     const anthropic = new Anthropic({ apiKey })
     const MODEL = await resolveModel(db, 'orchestrator')
 
+    // Guardrails: a cheap utility-model pre-flight on the untrusted payload,
+    // enforced here in code. Webhooks fail CLOSED — unattended + attacker-facing.
+    const guard = await runGuardrails(db, anthropic, 'webhook', payloadText)
+    if (guard.ok === false && 'error' in guard) {
+      if (eventId) await db.from('webhook_events').update({ status: 'blocked', error: `Guardrail evaluator error: ${guard.error}` }).eq('id', eventId)
+      await db.from('activity_log').insert({ type: 'guardrail.error', summary: `Guardrail check errored for "${webhook.name}" — blocked`, detail: { event_id: eventId, error: guard.error }, actor_id: webhook.owner_id })
+      return json({ ok: false, event_id: eventId, blocked: true }, 403)
+    }
+    if (guard.ok === false && guard.blocked) {
+      const reasons = guard.violations.map((v) => `${v.name}: ${v.reason}`).join('; ')
+      if (eventId) await db.from('webhook_events').update({ status: 'blocked', error: reasons }).eq('id', eventId)
+      await db.from('activity_log').insert({ type: 'guardrail.blocked', summary: `Blocked "${webhook.name}" — ${guard.violations[0].name}`, detail: { event_id: eventId, violations: guard.violations }, actor_id: webhook.owner_id })
+      return json({ ok: false, event_id: eventId, blocked: true }, 403)
+    }
+    if (guard.ok === false) {
+      await db.from('activity_log').insert({ type: 'guardrail.flagged', summary: `Flagged "${webhook.name}" — ${guard.violations[0].name}`, detail: { event_id: eventId, violations: guard.violations }, actor_id: webhook.owner_id })
+    }
+
     // Resolve what runs: an attached agent (prompt + tools) or the bare prompt.
+    // Deterministic rule: the agent runs toolless unless the webhook opts in.
     let system = webhook.prompt || 'Process the incoming webhook payload and summarize what it contains.'
     let anthropicTools: unknown[] = []
     let httpTools = new Map<string, ToolRow>()
+    let builtins = new Set<string>()
     if (webhook.agent_id) {
       const { data: agent } = await db.from('agents').select('instructions, tool_ids').eq('id', webhook.agent_id).maybeSingle()
       if (agent) {
         system = agent.instructions || system
-        const loaded = await loadAgentTools(db, agent.tool_ids ?? [])
-        anthropicTools = loaded.anthropicTools
-        httpTools = loaded.httpTools
+        if (webhook.allow_tools) {
+          const loaded = await loadAgentTools(db, agent.tool_ids ?? [])
+          anthropicTools = loaded.anthropicTools
+          httpTools = loaded.httpTools
+          builtins = loaded.builtins
+        }
       }
     }
 
@@ -161,8 +190,12 @@ Deno.serve(async (req: Request) => {
         const toolResults: unknown[] = []
         for (const block of msg.content as Array<Record<string, unknown>>) {
           if (block.type !== 'tool_use') continue
-          const tool = httpTools.get(block.name as string)
-          const output = tool ? await runHttpTool(tool, block.input) : `Unknown tool: ${block.name}`
+          const name = block.name as string
+          const tool = httpTools.get(name)
+          let output: string
+          if (tool) output = await runHttpTool(tool, block.input)
+          else if (builtins.has(name)) output = await runBuiltin(db, name, (block.input as Record<string, unknown>) ?? {}, webhook.owner_id)
+          else output = `Unknown tool: ${name}`
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output })
         }
         messages.push({ role: 'user', content: toolResults })

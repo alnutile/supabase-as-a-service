@@ -123,6 +123,13 @@ export const ActivityIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3 4 6v6c0 5 3.5 7.6 8 9 4.5-1.4 8-4 8-9V6z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+)
+
 export const PlayIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M6 4.5v15l13-7.5z" />

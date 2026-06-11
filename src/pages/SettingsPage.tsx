@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Database } from '../lib/database.types'
-import { mcpUrl, supabase } from '../lib/supabase'
+import { emailInboundUrl, mcpUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
 import { CopyIcon, PlusIcon, TrashIcon } from '../components/icons'
@@ -77,6 +77,8 @@ export default function SettingsPage() {
         </section>
 
         {isAdmin && <ModelsCard />}
+
+        {isAdmin && <EmailCard />}
 
         {isAdmin && <InvitePeople />}
 
@@ -175,6 +177,197 @@ function ModelProfileRow({ profile }: { profile: ModelProfile }) {
   )
 }
 
+// Workspace email integration (admin-only). The API key is write-only: it's
+// never read back into the browser — it lives in Vault, written through the
+// set_email_integration RPC. Once configured we show the inbound endpoint to
+// paste into the provider so incoming mail flows to check_email.
+type EmailIntegration = {
+  provider: 'postmark' | 'resend'
+  from_address: string
+  inbound_token: string | null
+  allowed_recipients: string[] | null
+}
+
+function EmailCard() {
+  const [existing, setExisting] = useState<EmailIntegration | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [provider, setProvider] = useState<'postmark' | 'resend'>('postmark')
+  const [fromAddress, setFromAddress] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [recipients, setRecipients] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase
+      .from('integrations')
+      .select('provider, from_address, inbound_token, allowed_recipients')
+      .eq('kind', 'email')
+      .maybeSingle()
+    if (data) {
+      const row = data as EmailIntegration
+      setExisting(row)
+      setProvider(row.provider)
+      setFromAddress(row.from_address)
+      setRecipients((row.allowed_recipients ?? []).join('\n'))
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function save() {
+    setError(null)
+    if (!fromAddress.trim()) {
+      setError('A from-address is required.')
+      return
+    }
+    if (!existing && !apiKey.trim()) {
+      setError('An API key is required to set up email.')
+      return
+    }
+    setSaving(true)
+    const allowed = recipients
+      .split(/[\n,]/)
+      .map((r) => r.trim())
+      .filter(Boolean)
+    const { error: rpcError } = await supabase.rpc('set_email_integration', {
+      p_provider: provider,
+      p_from_address: fromAddress.trim(),
+      p_api_key: apiKey.trim() || '', // empty = keep existing key
+      p_allowed_recipients: allowed.length ? allowed : null,
+    })
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    setApiKey('')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+    load()
+  }
+
+  async function copyInbound() {
+    if (!existing?.inbound_token) return
+    await navigator.clipboard.writeText(emailInboundUrl(existing.inbound_token))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
+      <h2 className="text-sm font-semibold text-slate-700">Email</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Configure email once and any user or agent can send and check mail —{' '}
+        <em>“email me a summary every morning.”</em> The API key is stored in Supabase Vault, never in
+        the browser.
+      </p>
+
+      {loading ? (
+        <p className="mt-4 text-sm text-slate-400">Loading…</p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">Provider</span>
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value as 'postmark' | 'resend')}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            >
+              <option value="postmark">Postmark</option>
+              <option value="resend">Resend</option>
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">From address</span>
+            <input
+              value={fromAddress}
+              onChange={(e) => setFromAddress(e.target.value)}
+              placeholder="intranet@yourdomain.com"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              API key {existing && <span className="text-slate-400">— leave blank to keep the current key</span>}
+            </span>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              autoComplete="off"
+              placeholder={existing ? '••• configured' : 'Provider API key'}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Allowed recipients <span className="text-slate-400">— optional, one per line</span>
+            </span>
+            <textarea
+              value={recipients}
+              onChange={(e) => setRecipients(e.target.value)}
+              rows={2}
+              placeholder={'@yourcompany.com\nalerts@partner.com'}
+              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+            <span className="mt-1 block text-[11px] text-slate-400">
+              Blank = send anywhere. Use exact addresses or <code>@domain.com</code> suffixes to limit where mail can go.
+            </span>
+          </label>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : saved ? 'Saved!' : existing ? 'Update email' : 'Set up email'}
+          </button>
+
+          {existing?.inbound_token && (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-600">Receiving email</p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Point a <strong>dedicated</strong> address at this inbound endpoint (not a personal mailbox) —
+                everything sent to it becomes readable by <code>check_email</code>.
+              </p>
+              <div className="mt-2 flex items-start gap-2">
+                <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
+                  {emailInboundUrl(existing.inbound_token)}
+                </pre>
+                <button
+                  onClick={copyInbound}
+                  className="shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <ul className="mt-2 space-y-1 text-[11px] text-slate-500">
+                <li>
+                  <strong>Postmark:</strong> Servers → your server → <em>Inbound</em> → set the inbound webhook URL to the link above.
+                </li>
+                <li>
+                  <strong>Resend:</strong> Domains → Inbound → add an endpoint pointing at the link above.
+                </li>
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function ConnectClaude() {
   const { user } = useAuth()
   const [tokens, setTokens] = useState<McpToken[]>([])
@@ -212,9 +405,9 @@ function ConnectClaude() {
     <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-slate-700">Connect Claude (MCP)</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Generate a token and connect Claude Code or Claude Desktop to this workspace. Then you can
-        say “build an agent that does X on my intranet” and Claude pushes it here — it shows up under
-        Agents, Tools, and Webhooks.
+        Connect <strong>Claude Code</strong> (the CLI) to this workspace, then say
+        “build an agent that does X on my intranet” and Claude pushes it here — it shows up under
+        Agents, Tools, and Webhooks. Generate a token below and run the one-line command it gives you.
       </p>
 
       <div className="mt-3 flex items-center gap-2">
@@ -240,7 +433,7 @@ function ConnectClaude() {
 
       <div className="mt-3 space-y-3">
         {tokens.map((t) => {
-          const cmd = `claude mcp add --transport http intranet ${mcpUrl} --header "Authorization: Bearer ${t.token}"`
+          const cmd = `claude mcp add --scope user --transport http intranet ${mcpUrl} --header "Authorization: Bearer ${t.token}"`
           return (
             <div key={t.id} className="rounded-lg border border-slate-200 p-3">
               <div className="flex items-center gap-2">
@@ -255,7 +448,12 @@ function ConnectClaude() {
                   <TrashIcon className="h-4 w-4" />
                 </button>
               </div>
-              <div className="mt-2 flex items-start gap-2">
+
+              <p className="mt-2 text-xs font-medium text-slate-500">
+                1. Run this in your terminal (anywhere — <code className="rounded bg-slate-100 px-1">--scope user</code>{' '}
+                makes it available in every project):
+              </p>
+              <div className="mt-1 flex items-start gap-2">
                 <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
                   {cmd}
                 </pre>
@@ -266,6 +464,15 @@ function ConnectClaude() {
                   {copied === t.id ? 'Copied' : 'Copy'}
                 </button>
               </div>
+
+              <p className="mt-2 text-xs text-slate-500">
+                2. Start <code className="rounded bg-slate-100 px-1">claude</code> and run{' '}
+                <code className="rounded bg-slate-100 px-1">/mcp</code> — you should see{' '}
+                <strong>intranet</strong> connected. Then ask it to “list my intranet agents” to confirm.
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Treat this token like a password — anyone with it can act as you here. Revoke it (🗑) if it leaks.
+              </p>
             </div>
           )
         })}
@@ -273,6 +480,12 @@ function ConnectClaude() {
           <p className="text-xs text-slate-400">No connection tokens yet.</p>
         )}
       </div>
+
+      <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <strong>Using Claude Desktop or claude.ai?</strong> Their “Add custom connector” dialog only
+        speaks OAuth, which this token-based server doesn’t offer yet — it’ll fail to register. Use the
+        Claude Code command above for now. (OAuth sign-in is on the roadmap.)
+      </p>
     </section>
   )
 }

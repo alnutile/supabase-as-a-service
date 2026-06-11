@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 import {
   ActivityIcon,
   AgentIcon,
@@ -11,27 +12,42 @@ import {
   LogoutIcon,
   MenuIcon,
   SettingsIcon,
+  ShieldIcon,
   SkillIcon,
   ToolIcon,
   WebhookIcon,
 } from './icons'
 
 const navItems = [
-  { to: '/chat', label: 'Chat', icon: ChatIcon, end: false },
-  { to: '/agents', label: 'Agents', icon: AgentIcon, end: false },
-  { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon, end: false },
-  { to: '/skills', label: 'Skills', icon: SkillIcon, end: false },
-  { to: '/tools', label: 'Tools', icon: ToolIcon, end: false },
-  { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon, end: false },
-  { to: '/activity', label: 'Activity', icon: ActivityIcon, end: false },
-  { to: '/files', label: 'Files', icon: FileIcon, end: false },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false },
+  { to: '/chat', label: 'Chat', icon: ChatIcon, end: false, adminOnly: false },
+  { to: '/agents', label: 'Agents', icon: AgentIcon, end: false, adminOnly: false },
+  { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon, end: false, adminOnly: false },
+  { to: '/skills', label: 'Skills', icon: SkillIcon, end: false, adminOnly: false },
+  { to: '/tools', label: 'Tools', icon: ToolIcon, end: false, adminOnly: false },
+  { to: '/guardrails', label: 'Guardrails', icon: ShieldIcon, end: false, adminOnly: true },
+  { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon, end: false, adminOnly: false },
+  { to: '/activity', label: 'Activity', icon: ActivityIcon, end: false, adminOnly: false },
+  { to: '/files', label: 'Files', icon: FileIcon, end: false, adminOnly: false },
+  { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false, adminOnly: false },
 ]
 
 export function Layout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setIsAdmin(Boolean(data?.is_admin)))
+  }, [user])
+
+  const items = navItems.filter((i) => !i.adminOnly || isAdmin)
 
   const initial = (user?.email ?? '?').charAt(0).toUpperCase()
 
@@ -66,7 +82,7 @@ export function Layout() {
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-2">
-          {navItems.map(({ to, label, icon: Icon, end }) => (
+          {items.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}

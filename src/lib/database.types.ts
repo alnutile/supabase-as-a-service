@@ -12,7 +12,7 @@ export type Visibility = 'private' | 'unlisted' | 'public'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'
-export type WebhookEventStatus = 'received' | 'ok' | 'error'
+export type WebhookEventStatus = 'received' | 'ok' | 'error' | 'blocked'
 export type ToolKind = 'http' | 'web'
 
 export interface Database {
@@ -192,6 +192,7 @@ export interface Database {
           prompt: string
           token: string
           agent_id: string | null
+          allow_tools: boolean
           is_active: boolean
           created_at: string
           updated_at: string
@@ -203,6 +204,7 @@ export interface Database {
           prompt?: string
           token?: string
           agent_id?: string | null
+          allow_tools?: boolean
           is_active?: boolean
           created_at?: string
           updated_at?: string
@@ -430,9 +432,103 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['model_profiles']['Insert']>
         Relationships: []
       }
+      guardrails: {
+        Row: {
+          id: string
+          name: string
+          instructions: string
+          applies_to_webhooks: boolean
+          applies_to_chat: boolean
+          action: 'block' | 'flag'
+          is_active: boolean
+          is_builtin: boolean
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          instructions: string
+          applies_to_webhooks?: boolean
+          applies_to_chat?: boolean
+          action?: 'block' | 'flag'
+          is_active?: boolean
+          is_builtin?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['guardrails']['Insert']>
+        Relationships: []
+      }
+      integrations: {
+        Row: {
+          id: string
+          kind: 'email'
+          provider: 'postmark' | 'resend'
+          from_address: string
+          inbound_token: string | null
+          allowed_recipients: string[] | null
+          secret_id: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          kind: 'email'
+          provider: 'postmark' | 'resend'
+          from_address: string
+          inbound_token?: string | null
+          allowed_recipients?: string[] | null
+          secret_id: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['integrations']['Insert']>
+        Relationships: []
+      }
+      inbox_messages: {
+        Row: {
+          id: string
+          from_address: string
+          to_address: string | null
+          subject: string
+          body_text: string
+          received_at: string
+          read_at: string | null
+          raw: Json | null
+        }
+        Insert: {
+          id?: string
+          from_address: string
+          to_address?: string | null
+          subject?: string
+          body_text?: string
+          received_at?: string
+          read_at?: string | null
+          raw?: Json | null
+        }
+        Update: Partial<Database['public']['Tables']['inbox_messages']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
-    Functions: { [_ in never]: never }
+    Functions: {
+      set_email_integration: {
+        Args: {
+          p_provider: string
+          p_from_address: string
+          p_api_key: string
+          p_allowed_recipients?: string[] | null
+        }
+        Returns: undefined
+      }
+      email_is_configured: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+    }
     Enums: { [_ in never]: never }
     CompositeTypes: { [_ in never]: never }
   }

@@ -31,3 +31,6 @@ export const webhookUrl = (token: string) => `${supabaseUrl}/functions/v1/webhoo
 
 /** MCP server URL — connect an external Claude (Claude Code / Desktop) here. */
 export const mcpUrl = `${supabaseUrl}/functions/v1/mcp`
+
+/** Public inbound-email URL — point a provider's inbound webhook here. */
+export const emailInboundUrl = (token: string) => `${supabaseUrl}/functions/v1/email-inbound/${token}`

@@ -62,9 +62,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   opaque `token` and an attached `prompt`. External systems POST to the **public**
   `webhook` edge function at `/functions/v1/webhook/‹token›` (`verify_jwt: false`); it
   resolves the webhook by token (service role), runs the prompt against the payload via
-  Claude, and logs a `webhook_events` row (`received` → `ok`/`error`) with the result.
-  The page subscribes to `webhook_events` over Realtime for a live log. Routing the
-  result somewhere (artifact/chat/outbound) is a later step.
+  Claude, and logs a `webhook_events` row (`received` → `ok`/`error`/`blocked`) with the
+  result. The page subscribes to `webhook_events` over Realtime for a live log. Routing
+  the result somewhere (artifact/chat/outbound) is a later step. A webhook-targeted agent
+  runs **read-only by default** — its tools are loaded only when `webhooks.allow_tools = true`
+  (a deterministic rule, not a model decision), so an untrusted source can't make the agent act.
 - **Prompts & skills:** one `skills` table, two modes.
   - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
     seeded `is_builtin` "How this workspace works" prompt teaches the assistant the
@@ -80,6 +82,20 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   (`ToolsPage`); a seeded `is_builtin` "web_browsing" row is on by default. The chat
   function runs an **agentic loop** (model → tool_use → execute → tool_result → … →
   end_turn), preserving thinking + tool_use blocks across turns (the opus-4-8 rule).
+- **Guardrails:** the `guardrails` table holds admin-managed pre-flight checks evaluated
+  by the cheap `utility` model profile **before** the orchestrator runs. `GuardrailsPage`
+  (admin-only) manages them; each has `instructions` (what to check for), `applies_to_webhooks`
+  / `applies_to_chat`, and `action` (`block` | `flag`). `runGuardrails()` in
+  `supabase/functions/_shared/guardrails.ts` loads the active checks for the context, makes
+  **one** `utility`-model call (plain `messages.create`, no thinking; content passed as
+  untrusted data inside delimiters), and parses a strict-JSON verdict. **Enforcement is in
+  code acting on the parsed JSON — the verdict is never inserted into the orchestrator's
+  prompt.** Webhooks **fail closed** (an evaluator error blocks the run → `webhook_events`
+  status `blocked`, 403); chat **fails open** (errors let the message through). A `block`
+  verdict stops the run; `flag` only logs. Outcomes are written to `activity_log`
+  (`guardrail.blocked` / `.flagged` / `.error`). A seeded `is_builtin` "Prompt injection
+  screen" applies to webhooks and blocks. RLS mirrors `tools` (authenticated SELECT, admin
+  write, builtin not deletable).
 - **AI-created artifacts:** the assistant emits a `:::artifact {"title","type"}\n…\n:::`
   block; `materializeArtifacts()` in `ChatPage` parses it after streaming, inserts an
   `artifacts` row, and replaces the block with an `/artifacts/:id` share link.
@@ -101,6 +117,25 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   runs as the token's owner. It exposes build tools (`create_agent`, `create_http_tool`,
   `create_skill`, `create_webhook`, `create_artifact`, `list_*`) so an outside Claude can
   push agents/tools into the workspace, where they appear in the dashboard.
+- **Email:** two seeded `is_builtin` tools — `send_email` and `check_email` — let any
+  user or agent use email once an admin configures a provider in **Settings → Email**.
+  Sending goes through an HTTP provider (Postmark / Resend, not raw SMTP); receiving is
+  **inbound-parse, not IMAP** — the provider POSTs each incoming mail to the public
+  `email-inbound` edge function (`verify_jwt: false`, token-gated like `webhook`), which
+  normalizes it into `inbox_messages`; `check_email` reads that table (push, not polling).
+  **Credentials live only in Supabase Vault:** the non-secret config sits in
+  `public.integrations` with a `secret_id` pointer; the client writes the key solely
+  through the admin-gated, security-definer RPC `set_email_integration` (admin-checked in
+  the body), and edge functions read the decrypted key through the service-role-only
+  `read_email_secret`. The key is never a table column, never in a client payload, never
+  logged. `send_email` is exfiltration-capable, so it stays an ordinary tool row (admin
+  activation, agent `tool_ids` scoping, the `webhooks.allow_tools` gate all apply) and adds
+  an optional recipient allowlist (exact address or `@domain` suffix), a 20-per-hour rate
+  limit, and an `email.sent` activity-log entry per send. All three agent loops execute it
+  via the shared `supabase/functions/_shared/builtins.ts` (`runBuiltin`), which also holds
+  `search_documents` — so the "morning agent emails me" flow works through the scheduler,
+  not just chat. *Planned follow-up (not built): email-triggered agents — run an agent per
+  `inbox_messages` row.*
 
 ## Directory map
 
@@ -124,9 +159,11 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base; 0003 invite-only; 0004 prompts; 0005 webhooks; 0006 tools; 0007 activity/attachments; 0008 agents/MCP
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault
+  functions/_shared/builtins.ts  runBuiltin: search_documents, send_email, check_email (shared by all 3 loops)
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams Claude (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
+  functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
 railway.json, DEPLOY.md        Deployment config + guide
 ```
@@ -136,7 +173,8 @@ railway.json, DEPLOY.md        Deployment config + guide
 Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
 `allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
-`mcp_tokens`. Enums: `visibility`
+`mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
+config), `inbox_messages`. Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**
