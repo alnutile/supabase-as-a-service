@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { AgentIcon, ChatIcon, PlusIcon, TrashIcon } from '../components/icons'
+import { AgentIcon, ChatIcon, PlayIcon, PlusIcon, SkillIcon, TrashIcon } from '../components/icons'
 
 type Agent = Database['public']['Tables']['agents']['Row']
 type Tool = Database['public']['Tables']['tools']['Row']
 type Schedule = Database['public']['Tables']['schedules']['Row']
+type Skill = Database['public']['Tables']['skills']['Row']
 
 const INTERVALS = [
   { label: 'Every 15 minutes', minutes: 15 },
@@ -93,8 +94,16 @@ export default function AgentsPage() {
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
-                    onClick={() => navigate(`/chat?agent=${a.id}`)}
+                    onClick={() => navigate(`/chat?agent=${a.id}&run=1`)}
+                    title="Run the agent's task now"
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
+                  >
+                    <PlayIcon className="h-3.5 w-3.5" /> Run
+                  </button>
+                  <button
+                    onClick={() => navigate(`/chat?agent=${a.id}`)}
+                    title="Chat with the agent"
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                   >
                     <ChatIcon className="h-3.5 w-3.5" /> Chat
                   </button>
@@ -137,16 +146,56 @@ function AgentEditor({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { user } = useAuth()
+  const navigate = useNavigate()
   const [name, setName] = useState(agent.name)
   const [description, setDescription] = useState(agent.description)
   const [instructions, setInstructions] = useState(agent.instructions)
   const [toolIds, setToolIds] = useState<string[]>(agent.tool_ids)
   const [isActive, setIsActive] = useState(agent.is_active)
   const [saving, setSaving] = useState(false)
-  const { user } = useAuth()
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [newInterval, setNewInterval] = useState(1440)
   const [newInput, setNewInput] = useState('')
+
+  // --- "/" skill autocomplete in the instructions field ---
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [slashQuery, setSlashQuery] = useState<string | null>(null)
+  const instrRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    supabase
+      .from('skills')
+      .select('*')
+      .eq('is_builtin', false)
+      .order('name')
+      .then(({ data }) => setSkills(data ?? []))
+  }, [])
+
+  function detectSlash(el: HTMLTextAreaElement) {
+    const before = el.value.slice(0, el.selectionStart)
+    const m = before.match(/(?:^|\s)\/(\w*)$/)
+    setSlashQuery(m ? m[1].toLowerCase() : null)
+  }
+
+  function insertSkill(s: Skill) {
+    const el = instrRef.current
+    if (!el) return
+    const pos = el.selectionStart
+    const head = instructions.slice(0, pos).replace(/\/(\w*)$/, '')
+    const tail = instructions.slice(pos)
+    const next = `${head}${s.instructions}${tail}`
+    setInstructions(next)
+    setSlashQuery(null)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = head.length + s.instructions.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  const skillMatches =
+    slashQuery !== null ? skills.filter((s) => s.name.toLowerCase().includes(slashQuery)).slice(0, 6) : []
 
   const loadSchedules = useCallback(async () => {
     const { data } = await supabase
@@ -204,6 +253,11 @@ function AgentEditor({
     onSaved()
   }
 
+  async function saveAndRun() {
+    await save()
+    navigate(`/chat?agent=${agent.id}&run=1`)
+  }
+
   async function remove() {
     if (!confirm(`Delete agent “${agent.name}”?`)) return
     await supabase.from('agents').delete().eq('id', agent.id)
@@ -241,18 +295,57 @@ function AgentEditor({
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">
-              Instructions (the agent’s system prompt)
+
+          <div className="block">
+            <span className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600">
+              <span>Instructions (the agent’s system prompt)</span>
+              <span className="font-normal text-slate-400">
+                Type <code className="rounded bg-slate-100 px-1">/</code> to insert a skill
+              </span>
             </span>
-            <textarea
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={8}
-              placeholder="You are a support triage agent. For each message, classify urgency and draft a reply…"
-              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
-          </label>
+            <div className="relative">
+              <textarea
+                ref={instrRef}
+                value={instructions}
+                onChange={(e) => {
+                  setInstructions(e.target.value)
+                  detectSlash(e.target)
+                }}
+                onKeyUp={(e) => detectSlash(e.currentTarget)}
+                onClick={(e) => detectSlash(e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setSlashQuery(null)
+                }}
+                rows={8}
+                placeholder="You are a support triage agent. For each message, classify urgency and draft a reply…"
+                className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              />
+              {slashQuery !== null && skillMatches.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                  {skillMatches.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertSkill(s)
+                      }}
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50"
+                    >
+                      <SkillIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-slate-800">{s.name}</span>
+                        {s.description && (
+                          <span className="block truncate text-xs text-slate-500">{s.description}</span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div>
             <span className="mb-1 block text-xs font-medium text-slate-600">Tools it may use</span>
             {tools.length === 0 ? (
@@ -273,17 +366,23 @@ function AgentEditor({
               </div>
             )}
           </div>
+
           <div>
-            <span className="mb-1 block text-xs font-medium text-slate-600">
-              Schedules (run this agent automatically)
-            </span>
+            <span className="block text-xs font-medium text-slate-600">Schedules</span>
+            <p className="mb-2 mt-0.5 text-xs text-slate-400">
+              Run this agent on its own, on a repeat — pick how often and what it should do each time, then
+              Add. Each run shows up in Activity.
+            </p>
             <div className="space-y-1">
               {schedules.map((s) => (
-                <div key={s.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
+                <div
+                  key={s.id}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                >
                   <button
                     onClick={() => toggleSchedule(s)}
-                    title={s.is_active ? 'Active' : 'Paused'}
-                    className={`h-2 w-2 shrink-0 rounded-full ${s.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                    title={s.is_active ? 'Active — tap to pause' : 'Paused — tap to activate'}
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}
                   />
                   <span className="shrink-0 font-medium text-slate-600">{intervalLabel(s.interval_minutes)}</span>
                   <span className="min-w-0 flex-1 truncate text-slate-500">{s.input || '(no input)'}</span>
@@ -293,11 +392,11 @@ function AgentEditor({
                 </div>
               ))}
             </div>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <select
                 value={newInterval}
                 onChange={(e) => setNewInterval(Number(e.target.value))}
-                className="shrink-0 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs sm:w-auto"
               >
                 {INTERVALS.map((i) => (
                   <option key={i.minutes} value={i.minutes}>
@@ -308,14 +407,15 @@ function AgentEditor({
               <input
                 value={newInput}
                 onChange={(e) => setNewInput(e.target.value)}
-                placeholder="What the agent should do each run…"
-                className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
+                placeholder="What it should do each run, e.g. “Gather today’s AI news and save it as an artifact”"
+                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500 sm:flex-1"
               />
               <button
                 onClick={addSchedule}
-                className="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700"
+                disabled={!newInput.trim()}
+                className="w-full rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50 sm:w-auto"
               >
-                Add
+                Add schedule
               </button>
             </div>
           </div>
@@ -331,20 +431,30 @@ function AgentEditor({
           </label>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
           <button
-            onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={save}
+            onClick={saveAndRun}
             disabled={saving || !name.trim()}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            title="Save, then run the agent now"
           >
-            {saving ? 'Saving…' : 'Save'}
+            <PlayIcon className="h-4 w-4" /> Run
           </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={saving || !name.trim()}
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

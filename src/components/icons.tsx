@@ -123,6 +123,12 @@ export const ActivityIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const PlayIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M6 4.5v15l13-7.5z" />
+  </svg>
+)
+
 export const AgentIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="4" y="8" width="16" height="11" rx="2" />

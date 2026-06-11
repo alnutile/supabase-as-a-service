@@ -85,6 +85,16 @@ export default function ChatPage() {
       .then(({ data }) => setAgent(data))
   }, [agentId])
 
+  // --- Launched from Agents → Run (?run=1): kick the agent off once. ---
+  const autoRan = useRef(false)
+  useEffect(() => {
+    if (searchParams.get('run') === '1' && agent && !conversationId && !autoRan.current && !sending) {
+      autoRan.current = true
+      void submit('Run your task now — use your tools as needed, then give me the result.', [])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent, conversationId, searchParams, sending])
+
   // --- Load + subscribe to messages for the active conversation ---
   useEffect(() => {
     seen.current = new Set()
@@ -144,7 +154,8 @@ export default function ChatPage() {
       .single()
     if (insErr || !data) throw insErr ?? new Error('Could not create conversation')
     await loadConversations()
-    navigate(`/chat/${data.id}`)
+    // Preserve the agent context across the navigation to the new conversation.
+    navigate(`/chat/${data.id}${agentId ? `?agent=${agentId}` : ''}`)
     return data.id
   }
 
@@ -207,18 +218,22 @@ export default function ChatPage() {
     }
   }
 
-  async function handleSend(e: React.FormEvent) {
+  function handleSend(e: React.FormEvent) {
     e.preventDefault()
     const text = input.trim()
-    const atts = attachments
-    if ((!text && atts.length === 0) || sending) return
     // A leading "/" is a skill command, not a message — handled by the menu.
     if (text.startsWith('/')) return
-
-    setSending(true)
-    setError(null)
+    const atts = attachments
+    if ((!text && atts.length === 0) || sending) return
     setInput('')
     setAttachments([])
+    void submit(text, atts)
+  }
+
+  async function submit(text: string, atts: ChatAttachment[]) {
+    if ((!text && atts.length === 0) || sending) return
+    setSending(true)
+    setError(null)
 
     try {
       const convId = await ensureConversation(text || atts[0]?.name || 'New chat')
