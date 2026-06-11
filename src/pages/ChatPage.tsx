@@ -197,7 +197,14 @@ export default function ChatPage() {
       }
       setAttachments((prev) => [...prev, ...added])
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed')
+      const msg = err instanceof Error ? err.message : 'Upload failed'
+      // A network-level fetch failure here is almost always the upload request
+      // being blocked (ad/content blocker, VPN/proxy) or a dropped connection.
+      setError(
+        /failed to fetch|networkerror|load failed/i.test(msg)
+          ? 'Couldn’t upload that file — the request didn’t reach the server. Check your connection, and disable any VPN or ad/content blocker, then try again.'
+          : `Upload failed: ${msg}`,
+      )
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
