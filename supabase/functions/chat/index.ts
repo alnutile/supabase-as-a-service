@@ -9,10 +9,10 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
+import { resolveModel } from '../_shared/models.ts'
 
 const MAX_ATTACH_BYTES = 6_000_000 // ~6MB per file
 
-const MODEL = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-opus-4-8'
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 8
 
@@ -275,6 +275,7 @@ Deno.serve(async (req: Request) => {
 
   const db = admin()
   const userId = userIdFromAuth(req)
+  const MODEL = await resolveModel(db, 'orchestrator')
   const { anthropicTools, httpTools, builtins, capabilities } = await loadTools(db, toolIds)
 
   let system: string

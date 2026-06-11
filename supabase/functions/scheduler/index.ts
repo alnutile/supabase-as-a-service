@@ -3,8 +3,8 @@
 // pg_cron; runs any agents whose schedule is due, over the schedule's input.
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { resolveModel } from '../_shared/models.ts'
 
-const MODEL = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-opus-4-8'
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 6
 
@@ -59,7 +59,7 @@ function textOf(content: Array<Record<string, unknown>>): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string) {
+async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string) {
   const { anthropicTools, httpTools } = await loadAgentTools(db, agent.tool_ids ?? [])
   const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
     { role: 'user', content: input || '(scheduled run)' },
@@ -67,7 +67,7 @@ async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: st
   let result = ''
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
     const msg = await anthropic.messages.create({
-      model: MODEL,
+      model,
       max_tokens: 4096,
       thinking: { type: 'adaptive' },
       output_config: { effort: EFFORT },
@@ -114,6 +114,7 @@ Deno.serve(async (req: Request) => {
     .limit(20)
 
   const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY')! })
+  const model = await resolveModel(db, 'orchestrator')
   let ran = 0
 
   for (const s of due ?? []) {
@@ -121,7 +122,7 @@ Deno.serve(async (req: Request) => {
     try {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
-        const result = await runAgent(anthropic, db, agent, s.input)
+        const result = await runAgent(anthropic, db, agent, s.input, model)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,

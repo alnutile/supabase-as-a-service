@@ -159,10 +159,16 @@ If you change the schema: update the migration, apply it, run `npm run gen:types
 ## The chat edge function
 
 `supabase/functions/chat/index.ts` (Deno). Uses the official Anthropic SDK
-(`npm:@anthropic-ai/sdk`). Model defaults to **`claude-opus-4-8`** with
-`thinking: { type: 'adaptive' }` and `output_config: { effort }`. Deployed with
-`verify_jwt: true`. Reads `ANTHROPIC_API_KEY` (required), `ANTHROPIC_MODEL`,
-`ANTHROPIC_EFFORT` from edge-function secrets. It assembles the system prompt by
+(`npm:@anthropic-ai/sdk`) with `thinking: { type: 'adaptive' }` and
+`output_config: { effort }`. **Model selection — never hardcode a model id:**
+the model resolves through the `model_profiles` table via `resolveModel(db, key)`
+(`supabase/functions/_shared/models.ts`). Features bind to a profile **key**, not
+a model — `orchestrator` (the main brain: chat/agents/webhook/scheduled runs,
+seeded `claude-opus-4-8`) and `utility` (cheap + fast, seeded
+`claude-haiku-4-5-20251001`). Admins re-point a key in Settings → Models; the DB
+row is the source of truth and `ANTHROPIC_MODEL` is only a fallback when the row
+can't be loaded. Deployed with `verify_jwt: true`. Reads `ANTHROPIC_API_KEY`
+(required), `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` from edge-function secrets. It assembles the system prompt by
 reading the always-on prompts (`skills.auto_apply = true`) with the service-role key,
 then optionally appends/replaces with an invoked skill's instructions
 (`body.system` + `body.replaceSystem`). Request body: `{ messages, system?, replaceSystem? }`.

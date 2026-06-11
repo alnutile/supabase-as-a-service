@@ -404,6 +404,32 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['document_chunks']['Insert']>
         Relationships: []
       }
+      model_profiles: {
+        Row: {
+          id: string
+          key: string
+          name: string
+          description: string
+          provider: string
+          model: string
+          is_builtin: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          key: string
+          name: string
+          description?: string
+          provider?: string
+          model: string
+          is_builtin?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['model_profiles']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: { [_ in never]: never }

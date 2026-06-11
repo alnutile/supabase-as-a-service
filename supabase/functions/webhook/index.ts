@@ -5,8 +5,8 @@
 // over the payload through a non-streaming agentic loop. The event is logged.
 import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { resolveModel } from '../_shared/models.ts'
 
-const MODEL = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-opus-4-8'
 const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 6
 
@@ -124,6 +124,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const anthropic = new Anthropic({ apiKey })
+    const MODEL = await resolveModel(db, 'orchestrator')
 
     // Resolve what runs: an attached agent (prompt + tools) or the bare prompt.
     let system = webhook.prompt || 'Process the incoming webhook payload and summarize what it contains.'

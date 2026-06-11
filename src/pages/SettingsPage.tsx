@@ -7,6 +7,7 @@ import { CopyIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
 type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
+type ModelProfile = Database['public']['Tables']['model_profiles']['Row']
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -75,6 +76,8 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {isAdmin && <ModelsCard />}
+
         {isAdmin && <InvitePeople />}
 
         <ConnectClaude />
@@ -88,6 +91,85 @@ export default function SettingsPage() {
             the server.
           </p>
         </section>
+      </div>
+    </div>
+  )
+}
+
+// Model Profiles: which model powers each named job. Admins re-point a profile's
+// model id; features bind to the profile key, never a model id.
+function ModelsCard() {
+  const [profiles, setProfiles] = useState<ModelProfile[]>([])
+
+  const load = useCallback(async () => {
+    const { data } = await supabase
+      .from('model_profiles')
+      .select('*')
+      .order('is_builtin', { ascending: false })
+      .order('name')
+    setProfiles(data ?? [])
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  return (
+    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
+      <h2 className="text-sm font-semibold text-slate-700">Models</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Which model powers each job. Edit the id to re-point a profile — applied on the next message,
+        no redeploy needed.
+      </p>
+      <div className="mt-4 space-y-3">
+        {profiles.map((p) => (
+          <ModelProfileRow key={p.id} profile={p} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ModelProfileRow({ profile }: { profile: ModelProfile }) {
+  const [model, setModel] = useState(profile.model)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const dirty = model.trim() !== profile.model
+
+  async function save() {
+    setSaving(true)
+    await supabase
+      .from('model_profiles')
+      .update({ model: model.trim(), updated_at: new Date().toISOString() })
+      .eq('id', profile.id)
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-slate-800">{profile.name}</span>
+        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+          {profile.key}
+        </span>
+      </div>
+      <p className="mt-0.5 text-xs text-slate-500">{profile.description}</p>
+      <div className="mt-2 flex gap-2">
+        <input
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          spellCheck={false}
+          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        />
+        <button
+          onClick={save}
+          disabled={saving || !dirty || !model.trim()}
+          className="shrink-0 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
+        </button>
       </div>
     </div>
   )
