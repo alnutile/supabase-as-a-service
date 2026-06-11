@@ -1,9 +1,0 @@
-node_modules
-dist
-.git
-.env
-.env.*
-npm-debug.log*
-supabase/.branches
-supabase/.temp
-*.md
