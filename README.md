@@ -162,6 +162,24 @@ workflow. The full plan and reasoning live in [`ROADMAP.md`](./ROADMAP.md).
 
 Issues and PRs welcome.
 
+## Origins
+
+This is the third iteration of an idea [Alfred Nutile](https://github.com/alnutile) has
+been building and writing about since 2023 — before "agents" was a product category:
+
+- **[LaraChain → LaraLlama](https://github.com/LlmLaraHub/larallama)** (2023–2024, now
+  archived) — document collections you could chat with, email and web ingestion,
+  multi-LLM workflows, and outputs deployable as chatbots and APIs. Built in Laravel,
+  shipped before the major platforms offered these as features.
+- **[*PHP and LLMs*](https://leanpub.com/php_and_llms)** — the book written along the
+  way: patterns for building LLM applications, learned from shipping one.
+- **[The video series](https://youtube.com/playlist?list=PLL8JVuiFkO9K7oEwcQo8lzijczKm7ccuS&si=Pjitnmo5-y4v1oUT)**
+  — walkthroughs of those systems being designed and built, as it happened.
+
+The idea was early; the 2023 models weren't ready for it. They are now. This project is
+the same vision — a team's shared, tool-using AI workspace on infrastructure it owns —
+rebuilt from scratch on Supabase and current models.
+
 ## Contributing
 
 1. Fork and clone.

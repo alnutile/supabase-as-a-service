@@ -138,3 +138,14 @@ shipping them to a third party. You need one person comfortable following a depl
 
 It's not trying to replace your accounting system or CRM. It's the shared brain in the
 middle: the place where your company's knowledge accumulates and gets put to work.
+
+## Where this comes from
+
+This isn't a weekend wrapper around an API. It's the third iteration of an idea the
+author has been building since 2023: first as
+[LaraChain → LaraLlama](https://github.com/LlmLaraHub/larallama) — chat-with-your-documents,
+email ingestion, and deployable AI workflows, shipped before the big platforms offered
+them — then distilled into the book [*PHP and LLMs*](https://leanpub.com/php_and_llms)
+and a [video series](https://youtube.com/playlist?list=PLL8JVuiFkO9K7oEwcQo8lzijczKm7ccuS&si=Pjitnmo5-y4v1oUT)
+documenting the work. The early models couldn't deliver the experience the idea needed;
+today's can. This rebuild is that experience, on infrastructure you own.
