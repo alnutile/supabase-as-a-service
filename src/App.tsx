@@ -13,6 +13,7 @@ import WebhooksPage from './pages/WebhooksPage'
 import ToolsPage from './pages/ToolsPage'
 import GuardrailsPage from './pages/GuardrailsPage'
 import AgentsPage from './pages/AgentsPage'
+import PluginsPage from './pages/PluginsPage'
 import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
 
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="tools" element={<ToolsPage />} />
         <Route path="guardrails" element={<GuardrailsPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="plugins" element={<PluginsPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="settings" element={<SettingsPage />} />

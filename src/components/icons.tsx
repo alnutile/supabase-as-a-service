@@ -149,6 +149,12 @@ export const ToolIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const PluginIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M10 3v3a2 2 0 0 0 4 0V3h4v4h-3a2 2 0 0 0 0 4h3v6h-4v-3a2 2 0 0 0-4 0v3H6v-6h3a2 2 0 0 0 0-4H6V3z" />
+  </svg>
+)
+
 export const MenuIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 12h18M3 6h18M3 18h18" />

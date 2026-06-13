@@ -11,6 +11,7 @@ import {
   FileIcon,
   LogoutIcon,
   MenuIcon,
+  PluginIcon,
   SettingsIcon,
   ShieldIcon,
   SkillIcon,
@@ -28,6 +29,7 @@ const navItems = [
   { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon, end: false, adminOnly: false },
   { to: '/activity', label: 'Activity', icon: ActivityIcon, end: false, adminOnly: false },
   { to: '/files', label: 'Files', icon: FileIcon, end: false, adminOnly: false },
+  { to: '/plugins', label: 'Plugins', icon: PluginIcon, end: false, adminOnly: false },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false, adminOnly: false },
 ]
 

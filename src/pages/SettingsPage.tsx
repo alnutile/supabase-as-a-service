@@ -3,8 +3,8 @@ import type { Database } from '../lib/database.types'
 import { emailInboundUrl, mcpUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { CopyIcon, LinkIcon, PlusIcon, TrashIcon } from '../components/icons'
-import { PLUGINS, PLUGIN_CATEGORIES, PLUGINS_REPO_URL, pluginUrl, type Plugin } from '../lib/plugins'
+import { Link } from 'react-router-dom'
+import { CopyIcon, PluginIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
 type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
@@ -85,7 +85,22 @@ export default function SettingsPage() {
 
         <ConnectClaude />
 
-        <PluginsCard />
+        <Link
+          to="/plugins"
+          className="mt-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-5 transition hover:border-brand-300 hover:bg-brand-50/40"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+            <PluginIcon className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-slate-700">Plugins</span>
+            <span className="block text-sm text-slate-500">
+              Browse Supabase Edge Function examples — email, payments, bots, AI providers — and
+              track what this workspace has set up.
+            </span>
+          </span>
+          <span className="ml-auto shrink-0 text-slate-300">→</span>
+        </Link>
 
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-700">About this workspace</h2>
@@ -551,102 +566,6 @@ function ConnectClaude() {
         speaks OAuth, which this token-based server doesn’t offer yet — it’ll fail to register. Use the
         Claude Code command above for now. (OAuth sign-in is on the roadmap.)
       </p>
-    </section>
-  )
-}
-
-// Plugins: a curated index of upstream Supabase Edge Function examples that pair
-// well with this intranet. For now this is a browse-and-link catalog (the source
-// of truth is src/lib/plugins.ts); one-click install is a planned follow-up.
-function PluginsCard() {
-  const [query, setQuery] = useState('')
-
-  const q = query.trim().toLowerCase()
-  const matches = (p: Plugin) =>
-    !q ||
-    p.name.toLowerCase().includes(q) ||
-    p.description.toLowerCase().includes(q) ||
-    p.category.toLowerCase().includes(q) ||
-    p.slug.toLowerCase().includes(q) ||
-    (p.requires ?? []).some((r) => r.toLowerCase().includes(q))
-
-  const filtered = PLUGINS.filter(matches)
-  const groups = PLUGIN_CATEGORIES.map((cat) => ({
-    cat,
-    items: filtered.filter((p) => p.category === cat),
-  })).filter((g) => g.items.length > 0)
-
-  return (
-    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-700">Plugins</h2>
-        <a
-          href={PLUGINS_REPO_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
-        >
-          <LinkIcon className="h-3.5 w-3.5" /> All examples on GitHub
-        </a>
-      </div>
-      <p className="mt-1 text-sm text-slate-500">
-        Supabase ships dozens of Edge Function examples — email, payments, bots, headless
-        browsers, AI providers, and more. Browse the catalog below, open one to read its source,
-        then drop it into <code className="rounded bg-slate-100 px-1">supabase/functions</code> to
-        set it up. <span className="text-slate-400">One-click install is coming.</span>
-      </p>
-
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search plugins — e.g. email, stripe, redis, puppeteer…"
-        className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-      />
-
-      <div className="mt-4 space-y-5">
-        {groups.length === 0 && (
-          <p className="text-sm text-slate-400">No plugins match “{query}”.</p>
-        )}
-        {groups.map(({ cat, items }) => (
-          <div key={cat}>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{cat}</h3>
-            <div className="mt-2 space-y-2">
-              {items.map((p) => (
-                <a
-                  key={p.slug}
-                  href={pluginUrl(p.slug)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="group block rounded-lg border border-slate-200 p-3 transition hover:border-brand-300 hover:bg-brand-50/40"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-800 group-hover:text-brand-700">
-                      {p.name}
-                    </span>
-                    <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-                      {p.slug}
-                    </code>
-                    <LinkIcon className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-300 group-hover:text-brand-500" />
-                  </div>
-                  <p className="mt-0.5 text-xs text-slate-500">{p.description}</p>
-                  {p.requires && p.requires.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {p.requires.map((r) => (
-                        <span
-                          key={r}
-                          className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                        >
-                          needs {r}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
     </section>
   )
 }

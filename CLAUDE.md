@@ -142,6 +142,18 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `search_documents` — so the "morning agent emails me" flow works through the scheduler,
   not just chat. *Planned follow-up (not built): email-triggered agents — run an agent per
   `inbox_messages` row.*
+- **Plugins:** `PluginsPage` (route `/plugins`, in the sidebar) is a discovery + management
+  surface for upstream Supabase Edge Function examples. The **catalog** of *available* plugins
+  is a static, hand-maintained list in `src/lib/plugins.ts` (slug → name/description/category/
+  required secrets) linking to each example's folder in the `supabase/supabase` repo — kept in
+  the codebase so it's offline-readable and not subject to GitHub rate limits. The **installed**
+  list is the `plugins` table (an in-app registry): admins "Add" a catalog entry once they've
+  deployed it, can pause/enable it, keep setup notes, and remove it. The browser can't introspect
+  actually-deployed functions (that needs a Management API token), so this table is the
+  system-of-record an admin curates. RLS mirrors `tools`/`guardrails` (authenticated SELECT,
+  admin write). Settings links here. *Planned follow-up (not built): one-click install — either
+  an `install_plugin` MCP tool (Claude Code pulls the example into `supabase/functions` + deploys)
+  or a server-side deploy via the Supabase Management API.*
 
 ## Directory map
 
@@ -158,14 +170,15 @@ src/
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
                                FilesPage, SkillsPage, WebhooksPage, ToolsPage,
-                               AgentsPage, ActivityPage, SettingsPage
+                               AgentsPage, PluginsPage, ActivityPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
+    plugins.ts                 Static catalog of upstream Edge Function examples
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry
   functions/_shared/builtins.ts  runBuiltin: search_documents, send_email, check_email (shared by all 3 loops)
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams Claude (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
@@ -180,7 +193,7 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
 `allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
 `mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
-config), `inbox_messages`. Enums: `visibility`
+config), `inbox_messages`, `plugins` (installed-plugin registry). Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**
