@@ -112,11 +112,17 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   ticks every minute (via `pg_net`, authed by a `cron_config` secret). Manage schedules
   inside the agent editor.
 - **MCP server:** `supabase/functions/mcp/index.ts` is a JSON-RPC-over-HTTP MCP
-  server (`verify_jwt: false`) an **external** Claude (Claude Code / Desktop) connects
-  to. Auth is a per-user `mcp_tokens` token (Settings → Connect Claude); every action
-  runs as the token's owner. It exposes build tools (`create_agent`, `create_http_tool`,
+  server (`verify_jwt: false`) an **external** Claude connects to. Auth is a per-user
+  `mcp_tokens` token (Settings → Connect Claude); every action runs as the token's owner.
+  **Claude Code** connects directly (`claude mcp add --transport http …`); **Claude
+  Desktop** launches MCP servers as local processes, so it connects through the
+  `mcp-remote` bridge in `claude_desktop_config.json` (Settings → Connect Claude emits
+  both snippets; the `Authorization:${AUTH_HEADER}` env split avoids mcp-remote's
+  space-in-header bug). It exposes build tools (`create_agent`, `create_http_tool`,
   `create_skill`, `create_webhook`, `create_artifact`, `list_*`) so an outside Claude can
-  push agents/tools into the workspace, where they appear in the dashboard.
+  push agents/tools into the workspace, where they appear in the dashboard. *(Planned —
+  see `docs/tasks/`: `upload_file` + a signed-URL pair to push files/PDFs into Files and
+  the knowledge base, and a tabbed Code/Desktop connect UI.)*
 - **Email:** two seeded `is_builtin` tools — `send_email` and `check_email` — let any
   user or agent use email once an admin configures a provider in **Settings → Email**.
   Sending goes through an HTTP provider (Postmark / Resend, not raw SMTP); receiving is
