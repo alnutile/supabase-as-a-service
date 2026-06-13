@@ -1,6 +1,6 @@
 <div align="center">
 
-# ✺ Intranet [BETA]
+# ✺ Intranet In A Box [BETA]
 
 **A friendly, open-source intranet layer on top of [Supabase](https://supabase.com).**
 
