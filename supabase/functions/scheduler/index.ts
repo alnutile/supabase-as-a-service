@@ -63,11 +63,30 @@ function textOf(content: Array<Record<string, unknown>>): string {
   return content.filter((b) => b.type === 'text').map((b) => b.text as string).join('\n').trim()
 }
 
+// Scheduled runs are unattended: no human sees the agent's questions or answers
+// them, so an agent that pauses to ask "who should I email?" stalls forever.
+// This preamble tells the agent to decide and act, and supplies the owner's
+// email as the default recipient when the task needs one and none was given.
+function scheduledRunGuidance(ownerEmail: string | null): string {
+  return [
+    'You are running as an unattended, scheduled background job.',
+    'No human will read intermediate questions or reply to you, so do NOT ask clarifying questions or wait for confirmation — decide and act, completing the task end to end with sensible defaults.',
+    ownerEmail
+      ? `If the task involves sending email and no recipient is specified, send it to ${ownerEmail}.`
+      : 'If a task is missing information, choose a reasonable default rather than asking.',
+    'When finished, briefly summarize what you did.',
+  ].join(' ')
+}
+
 // deno-lint-ignore no-explicit-any
-async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null) {
+async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null) {
   const { anthropicTools, httpTools, builtins } = await loadAgentTools(db, agent.tool_ids ?? [])
+  const system = [agent.instructions || 'You are a scheduled agent. Do the task described.', scheduledRunGuidance(ownerEmail)].join('\n\n')
+  // The schedule's input is optional. When it's blank, drive the agent with a
+  // clear directive so it runs its own instructions (the system prompt) rather
+  // than being handed a meaningless turn.
   const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
-    { role: 'user', content: input || '(scheduled run)' },
+    { role: 'user', content: input.trim() || "It's time for your scheduled run. Carry out your task now, following your instructions." },
   ]
   let result = ''
   // web_search/web_fetch run in an Anthropic-hosted code-execution container;
@@ -79,7 +98,7 @@ async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: st
       max_tokens: 4096,
       thinking: { type: 'adaptive' },
       output_config: { effort: EFFORT },
-      system: agent.instructions || 'You are a scheduled agent. Do the task described.',
+      system,
       tools: anthropicTools.length ? (anthropicTools as never) : undefined,
       ...(containerId ? { container: containerId } : {}),
       messages: messages as never,
@@ -137,7 +156,8 @@ Deno.serve(async (req: Request) => {
     try {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
-        const result = await runAgent(anthropic, db, agent, s.input, model, s.owner_id)
+        const { data: owner } = await db.from('profiles').select('email').eq('id', s.owner_id).maybeSingle()
+        const result = await runAgent(anthropic, db, agent, s.input, model, s.owner_id, owner?.email ?? null)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,
