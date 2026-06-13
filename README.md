@@ -21,6 +21,11 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 
 ---
 
+## Why
+
+See the file [Why](WHY.md) for the details but the bottom line is Supabase (database, auth, storage, edge functions etc) is a great foundation for building Agentic memory, access rules etc. But it needs a web ui that does all the things we are use to in Claude Desktop. But in time, like my first attempt at this three years ago (https://github.com/LlmLaraHub), this open-source foundation can grow and change according to the needs of your business and go places these larger companies may never imagine.
+
+
 ## What is this?
 
 A small but complete foundation for a team workspace ("intranet") that you fully own — a shared AI assistant that learns your business from your own documents and prompts, turns conversations into shareable deliverables, and automates inbound work. **Wondering why a small business would run this? Read [WHY.md](./WHY.md).**
