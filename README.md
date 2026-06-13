@@ -23,7 +23,9 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 
 ## What is this?
 
-A small but complete foundation for a team workspace ("intranet") that you fully own. It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
+A small but complete foundation for a team workspace ("intranet") that you fully own — a shared AI assistant that learns your business from your own documents and prompts, turns conversations into shareable deliverables, and automates inbound work. **Wondering why a small business would run this? Read [WHY.md](./WHY.md).**
+
+It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
 
 - 🔐 **Auth** — email/password and magic links via Supabase Auth. A profile is created automatically on signup.
 - 💬 **AI chat** — talk to Claude to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
@@ -170,6 +172,24 @@ This is a foundation meant to grow. Conversations and artifacts are the natural 
 - 🖥️ **Local Only Version** — run locally, Tail Scale integration and more
 
 Issues and PRs welcome.
+
+## Origins
+
+This is the third iteration of an idea [Alfred Nutile](https://github.com/alnutile) has
+been building and writing about since 2023 — before "agents" was a product category:
+
+- **[LaraChain → LaraLlama](https://github.com/LlmLaraHub/larallama)** (2023–2024, now
+  archived) — document collections you could chat with, email and web ingestion,
+  multi-LLM workflows, and outputs deployable as chatbots and APIs. Built in Laravel,
+  shipped before the major platforms offered these as features.
+- **[*PHP and LLMs*](https://leanpub.com/php_and_llms)** — the book written along the
+  way: patterns for building LLM applications, learned from shipping one.
+- **[The video series](https://youtube.com/playlist?list=PLL8JVuiFkO9K7oEwcQo8lzijczKm7ccuS&si=Pjitnmo5-y4v1oUT)**
+  — walkthroughs of those systems being designed and built, as it happened.
+
+The idea was early; the 2023 models weren't ready for it. They are now. This project is
+the same vision — a team's shared, tool-using AI workspace on infrastructure it owns —
+rebuilt from scratch on Supabase and current models.
 
 ## Contributing
 
