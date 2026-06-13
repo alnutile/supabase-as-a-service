@@ -157,7 +157,10 @@ export default function ArtifactEditorPage() {
             {artifact.type === 'html' ? (
               <iframe
                 title="preview"
-                sandbox=""
+                // allow-scripts (NOT allow-same-origin) lets charts/JS render
+                // while keeping an opaque origin — no access to cookies, the
+                // Supabase session, or the parent page. Matches PublicArtifactPage.
+                sandbox="allow-scripts"
                 srcDoc={artifact.content}
                 className="h-80 w-full rounded border border-slate-200"
               />
