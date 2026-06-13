@@ -110,11 +110,64 @@ const TOOLS = [
     },
   },
   {
+    name: 'upload_file',
+    description:
+      'Upload a file (PDF, image, text, etc.) into the workspace Files area. PDFs are automatically indexed into the shared knowledge base. Provide the content base64-encoded; max 10 MB. For files larger than ~10 MB use create_file_upload + finalize_file_upload instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'File name including extension, e.g. report.pdf' },
+        mime_type: { type: 'string', description: 'MIME type, e.g. application/pdf or image/png' },
+        content_base64: { type: 'string', description: 'The file bytes, base64-encoded.' },
+      },
+      required: ['name', 'mime_type', 'content_base64'],
+    },
+  },
+  {
+    name: 'create_file_upload',
+    description:
+      'For large files (over ~10 MB): get a signed URL to PUT the file bytes directly to storage. Returns the upload URL and the storage path; afterwards call finalize_file_upload with the same path to register it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        mime_type: { type: 'string' },
+      },
+      required: ['name', 'mime_type'],
+    },
+  },
+  {
+    name: 'finalize_file_upload',
+    description:
+      'Register a file uploaded via a create_file_upload signed URL, so it appears in Files and PDFs get indexed. Use the path returned by create_file_upload.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'The storage path returned by create_file_upload.' },
+        name: { type: 'string' },
+        mime_type: { type: 'string' },
+        size_bytes: { type: 'number' },
+      },
+      required: ['path', 'name', 'mime_type'],
+    },
+  },
+  {
     name: 'list_activity',
     description: 'Recent activity on the workspace (events, tool calls, creations).',
     inputSchema: { type: 'object', properties: {} },
   },
 ]
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 // 10 MB decoded
+
+// Decode a base64 string to raw bytes (handles binary content).
+function decodeBase64(b64: string): Uint8Array {
+  const clean = b64.includes(',') ? b64.slice(b64.indexOf(',') + 1) : b64 // tolerate data: URLs
+  const bin = atob(clean.trim())
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
+}
 
 function text(t: string, isError = false) {
   return { content: [{ type: 'text', text: t }], isError }
@@ -189,6 +242,78 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       }).select('id').single()
       if (error) return text(`Error: ${error.message}`, true)
       return text(`Created artifact "${args.title}" at /artifacts/${data.id}.`)
+    }
+    case 'upload_file': {
+      if (!args.name || !args.mime_type || !args.content_base64) {
+        return text('upload_file needs name, mime_type, and content_base64.', true)
+      }
+      let bytes: Uint8Array
+      try {
+        bytes = decodeBase64(String(args.content_base64))
+      } catch {
+        return text('content_base64 is not valid base64.', true)
+      }
+      if (bytes.length === 0) return text('The file is empty.', true)
+      if (bytes.length > MAX_UPLOAD_BYTES) {
+        return text(
+          `That file is ${(bytes.length / 1024 / 1024).toFixed(1)} MB; upload_file caps at 10 MB. Use create_file_upload + finalize_file_upload for larger files.`,
+          true,
+        )
+      }
+      const path = `${owner}/${crypto.randomUUID()}/${args.name}`
+      const { error: upErr } = await db.storage
+        .from('files')
+        .upload(path, bytes, { contentType: String(args.mime_type), upsert: false })
+      if (upErr) return text(`Upload failed: ${upErr.message}`, true)
+      const { error: rowErr } = await db.from('files').insert({
+        owner_id: owner,
+        bucket: 'files',
+        path,
+        name: args.name,
+        mime_type: args.mime_type,
+        size_bytes: bytes.length,
+        visibility: 'private',
+      })
+      if (rowErr) {
+        await db.storage.from('files').remove([path])
+        return text(`Saved the blob but couldn't register it: ${rowErr.message}`, true)
+      }
+      const isPdf = String(args.mime_type).includes('pdf') || /\.pdf$/i.test(String(args.name))
+      return text(
+        `Uploaded "${args.name}" (${(bytes.length / 1024).toFixed(0)} KB) to Files.` +
+          (isPdf ? ' It will be indexed into the knowledge base shortly.' : ''),
+      )
+    }
+    case 'create_file_upload': {
+      if (!args.name || !args.mime_type) return text('create_file_upload needs name and mime_type.', true)
+      const path = `${owner}/${crypto.randomUUID()}/${args.name}`
+      const { data, error } = await db.storage.from('files').createSignedUploadUrl(path)
+      if (error || !data) return text(`Could not create upload URL: ${error?.message ?? 'unknown error'}`, true)
+      return text(
+        `Upload URL ready. PUT the raw file bytes to this URL (it expires in ~2 hours), then call finalize_file_upload with path "${path}".\n\n` +
+          `path: ${path}\nupload_url: ${data.signedUrl}\n\n` +
+          `Example: curl -X PUT "${data.signedUrl}" -H "Content-Type: ${args.mime_type}" --data-binary @yourfile`,
+      )
+    }
+    case 'finalize_file_upload': {
+      if (!args.path || !args.name || !args.mime_type) {
+        return text('finalize_file_upload needs path, name, and mime_type.', true)
+      }
+      if (!String(args.path).startsWith(`${owner}/`)) {
+        return text('That path is not in your storage folder.', true)
+      }
+      const { error } = await db.from('files').insert({
+        owner_id: owner,
+        bucket: 'files',
+        path: args.path,
+        name: args.name,
+        mime_type: args.mime_type,
+        size_bytes: typeof args.size_bytes === 'number' ? args.size_bytes : 0,
+        visibility: 'private',
+      })
+      if (error) return text(`Could not register the file: ${error.message}`, true)
+      const isPdf = String(args.mime_type).includes('pdf') || /\.pdf$/i.test(String(args.name))
+      return text(`Registered "${args.name}" in Files.` + (isPdf ? ' Indexing into the knowledge base shortly.' : ''))
     }
     case 'list_activity': {
       const { data } = await db.from('activity_log').select('type, summary, created_at').order('created_at', { ascending: false }).limit(20)
