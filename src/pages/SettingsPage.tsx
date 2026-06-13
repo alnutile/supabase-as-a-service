@@ -3,7 +3,8 @@ import type { Database } from '../lib/database.types'
 import { emailInboundUrl, mcpUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { CopyIcon, PlusIcon, TrashIcon } from '../components/icons'
+import { Link } from 'react-router-dom'
+import { CopyIcon, PluginIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
 type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
@@ -83,6 +84,23 @@ export default function SettingsPage() {
         {isAdmin && <InvitePeople />}
 
         <ConnectClaude />
+
+        <Link
+          to="/plugins"
+          className="mt-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-5 transition hover:border-brand-300 hover:bg-brand-50/40"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+            <PluginIcon className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-slate-700">Plugins</span>
+            <span className="block text-sm text-slate-500">
+              Browse Supabase Edge Function examples — email, payments, bots, AI providers — and
+              track what this workspace has set up.
+            </span>
+          </span>
+          <span className="ml-auto shrink-0 text-slate-300">→</span>
+        </Link>
 
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-700">About this workspace</h2>
