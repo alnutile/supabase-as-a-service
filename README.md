@@ -46,6 +46,13 @@ It leans on Supabase for the parts that should be boring and solid, and adds a c
 
 The Anthropic API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
 
+
+> CLUADE DESKTOP INTEGRATION
+
+![](images/claude-desktop-integration.png)
+
+
+
 ## How it fits together
 
 ```
