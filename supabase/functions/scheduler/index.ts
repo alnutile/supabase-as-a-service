@@ -70,6 +70,9 @@ async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: st
     { role: 'user', content: input || '(scheduled run)' },
   ]
   let result = ''
+  // web_search/web_fetch run in an Anthropic-hosted code-execution container;
+  // its id must be echoed on every continuation request or the API 400s.
+  let containerId: string | null = null
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
     const msg = await anthropic.messages.create({
       model,
@@ -78,8 +81,11 @@ async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: st
       output_config: { effort: EFFORT },
       system: agent.instructions || 'You are a scheduled agent. Do the task described.',
       tools: anthropicTools.length ? (anthropicTools as never) : undefined,
+      ...(containerId ? { container: containerId } : {}),
       messages: messages as never,
     })
+    const msgContainerId = (msg as { container?: { id?: string } | null }).container?.id
+    if (msgContainerId) containerId = msgContainerId
     messages.push({ role: 'assistant', content: msg.content })
     result = textOf(msg.content as Array<Record<string, unknown>>) || result
     if (msg.stop_reason === 'tool_use') {

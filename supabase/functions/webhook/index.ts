@@ -173,6 +173,9 @@ Deno.serve(async (req: Request) => {
       { role: 'user', content: payloadText || '(empty payload)' },
     ]
     let result = ''
+    // web_search/web_fetch run in an Anthropic-hosted code-execution container;
+    // its id must be echoed on every continuation request or the API 400s.
+    let containerId: string | null = null
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
       const msg = await anthropic.messages.create({
         model: MODEL,
@@ -181,8 +184,11 @@ Deno.serve(async (req: Request) => {
         output_config: { effort: EFFORT },
         system,
         tools: anthropicTools.length ? (anthropicTools as never) : undefined,
+        ...(containerId ? { container: containerId } : {}),
         messages: messages as never,
       })
+      const msgContainerId = (msg as { container?: { id?: string } | null }).container?.id
+      if (msgContainerId) containerId = msgContainerId
       messages.push({ role: 'assistant', content: msg.content })
       result = textOf(msg.content as Array<Record<string, unknown>>) || result
 

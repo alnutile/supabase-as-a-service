@@ -305,6 +305,12 @@ Deno.serve(async (req: Request) => {
   const stream = new ReadableStream({
     async start(controller) {
       try {
+        // Server-side tools (web_search/web_fetch) run their dynamic filtering
+        // inside an Anthropic-hosted code-execution container. Once one exists,
+        // every continuation request must echo its id back or the API 400s with
+        // "container_id is required when there are pending tool uses generated
+        // by code execution with tools."
+        let containerId: string | null = null
         for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
           const llm = anthropic.messages.stream({
             model: MODEL,
@@ -313,10 +319,13 @@ Deno.serve(async (req: Request) => {
             output_config: { effort: EFFORT },
             system,
             tools: anthropicTools.length ? (anthropicTools as never) : undefined,
+            ...(containerId ? { container: containerId } : {}),
             messages: messages as never,
           })
           llm.on('text', (delta: string) => controller.enqueue(sse({ delta })))
           const final = await llm.finalMessage()
+          const finalContainerId = (final as { container?: { id?: string } | null }).container?.id
+          if (finalContainerId) containerId = finalContainerId
 
           // Preserve the assistant turn verbatim (thinking + tool_use blocks
           // must be passed back on the next request).

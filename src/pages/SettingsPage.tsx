@@ -189,6 +189,7 @@ type EmailIntegration = {
 }
 
 function EmailCard() {
+  const { user } = useAuth()
   const [existing, setExisting] = useState<EmailIntegration | null>(null)
   const [loading, setLoading] = useState(true)
   const [provider, setProvider] = useState<'postmark' | 'resend'>('postmark')
@@ -199,6 +200,9 @@ function EmailCard() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [testTo, setTestTo] = useState('')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -257,6 +261,33 @@ function EmailCard() {
     await navigator.clipboard.writeText(emailInboundUrl(existing.inbound_token))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+
+  // Fires the real send_email path through the email-test edge function, so a
+  // success here proves Vault key + provider are wired up (not just saved).
+  async function sendTest() {
+    const to = (testTo.trim() || user?.email || '').trim()
+    if (!to) {
+      setTestResult({ ok: false, message: 'Enter a recipient address.' })
+      return
+    }
+    setTesting(true)
+    setTestResult(null)
+    const { data, error: invokeErr } = await supabase.functions.invoke('email-test', { body: { to } })
+    setTesting(false)
+    if (invokeErr) {
+      // Edge function returns a JSON body with `message` even on non-2xx.
+      const ctx = (invokeErr as { context?: Response }).context
+      let message = invokeErr.message
+      try {
+        if (ctx) message = (await ctx.json())?.message ?? message
+      } catch {
+        // keep the generic message
+      }
+      setTestResult({ ok: false, message })
+      return
+    }
+    setTestResult({ ok: !!data?.ok, message: data?.message ?? 'Sent.' })
   }
 
   return (
@@ -333,6 +364,37 @@ function EmailCard() {
           >
             {saving ? 'Saving…' : saved ? 'Saved!' : existing ? 'Update email' : 'Set up email'}
           </button>
+
+          {existing && (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-600">Send a test email</p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Runs the real <code>send_email</code> path (reads the Vault key, calls{' '}
+                {existing.provider === 'resend' ? 'Resend' : 'Postmark'}, logs to Activity) to prove sending works.
+              </p>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="email"
+                  value={testTo}
+                  onChange={(e) => setTestTo(e.target.value)}
+                  placeholder={user?.email ?? 'you@example.com'}
+                  className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                />
+                <button
+                  onClick={sendTest}
+                  disabled={testing}
+                  className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {testing ? 'Sending…' : 'Send test'}
+                </button>
+              </div>
+              {testResult && (
+                <p className={`mt-2 text-xs ${testResult.ok ? 'text-green-700' : 'text-red-600'}`}>
+                  {testResult.message}
+                </p>
+              )}
+            </div>
+          )}
 
           {existing?.inbound_token && (
             <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
