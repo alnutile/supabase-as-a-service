@@ -1,6 +1,6 @@
 <div align="center">
 
-# ✺ Intranet
+# ✺ Intranet [BETA]
 
 **A friendly, open-source intranet layer on top of [Supabase](https://supabase.com).**
 
@@ -16,6 +16,8 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 ![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)
 
 </div>
+
+![agents](images/agents.png)
 
 ---
 
@@ -65,6 +67,8 @@ The Anthropic API key lives **only** on the server (a Supabase Edge Function), n
                  └─────────────────────────────────────────────┘
 ```
 
+![skills](images/skills.png)
+
 ## Tech stack
 
 - **Frontend:** React 18 · TypeScript · Vite · Tailwind CSS · React Router
@@ -89,6 +93,8 @@ DEPLOY.md                      End-to-end deployment guide
 ```
 
 ## Quick start (local)
+
+![tools](images/tools.png)
 
 **Prerequisites:** Node 18+, a [Supabase](https://supabase.com) project, an [Anthropic API key](https://console.anthropic.com), and the [Supabase CLI](https://supabase.com/docs/guides/cli).
 
@@ -129,6 +135,7 @@ Then sign up, and start chatting.
 `VITE_*` vars are read at **build time** — on a host like Railway they must be set before the build runs.
 
 ## Deploying
+![](images/webhooks.png)
 
 Two pieces go live: the **Supabase backend** (schema, auth, storage, realtime, the `chat` function) and the **static frontend**. Railway is wired up out of the box:
 
@@ -156,9 +163,13 @@ npm run gen:types        # supabase gen types typescript --linked > src/lib/data
 
 ## Roadmap
 
-This is a foundation meant to grow — toward shared team knowledge, visible AI costs with
-cheaper-model routing, guardrails for unattended automation, and a finished proposal
-workflow. The full plan and reasoning live in [`ROADMAP.md`](./ROADMAP.md).
+This is a foundation meant to grow. Conversations and artifacts are the natural seeds for:
+
+- ⏱️ **Scheduled agents** — promote a useful chat/artifact into a recurring job.
+- 🪝 **Webhooks** — trigger workflows from outside, or call out when something happens.
+- 👥 **Team sharing & spaces** — shared workspaces, roles, comments.
+- 🧩 **Richer artifacts** — versions, attachments, embeds.
+- 🖥️ **Local Only Version** — run locally, Tail Scale integration and more
 
 Issues and PRs welcome.
 
