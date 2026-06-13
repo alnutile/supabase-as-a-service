@@ -6,3 +6,20 @@ verify_jwt = true
 
 [functions.email-test]
 verify_jwt = true
+
+# Public functions: gated by their own auth (a DB-stored secret / token), not a
+# JWT. They MUST be deployed verify_jwt = false or the platform gateway 401s the
+# request before the function's own check runs. (The scheduler entry was missing,
+# which silently broke all scheduled agents — the cron call carries x-cron-secret,
+# not an Authorization header.)
+[functions.scheduler]
+verify_jwt = false
+
+[functions.ingest]
+verify_jwt = false
+
+[functions.email-inbound]
+verify_jwt = false
+
+[functions.mcp]
+verify_jwt = false
