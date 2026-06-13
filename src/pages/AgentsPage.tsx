@@ -370,8 +370,9 @@ function AgentEditor({
           <div>
             <span className="block text-xs font-medium text-slate-600">Schedules</span>
             <p className="mb-2 mt-0.5 text-xs text-slate-400">
-              Run this agent on its own, on a repeat — pick how often and what it should do each time, then
-              Add. Each run shows up in Activity.
+              Run this agent on its own, on a repeat — pick how often, then Add. The input is optional:
+              leave it blank to just run the agent’s instructions, or add a one-off task for each run.
+              Each run shows up in Activity.
             </p>
             <div className="space-y-1">
               {schedules.map((s) => (
@@ -407,12 +408,11 @@ function AgentEditor({
               <input
                 value={newInput}
                 onChange={(e) => setNewInput(e.target.value)}
-                placeholder="What it should do each run, e.g. “Gather today’s AI news and save it as an artifact”"
+                placeholder="Optional — extra task for each run, e.g. “Gather today’s AI news and save it as an artifact”"
                 className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500 sm:flex-1"
               />
               <button
                 onClick={addSchedule}
-                disabled={!newInput.trim()}
                 className="w-full rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50 sm:w-auto"
               >
                 Add schedule

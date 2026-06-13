@@ -66,8 +66,11 @@ function textOf(content: Array<Record<string, unknown>>): string {
 // deno-lint-ignore no-explicit-any
 async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null) {
   const { anthropicTools, httpTools, builtins } = await loadAgentTools(db, agent.tool_ids ?? [])
+  // The schedule's input is optional. When it's blank, drive the agent with a
+  // clear directive so it runs its own instructions (the system prompt) rather
+  // than being handed a meaningless turn.
   const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
-    { role: 'user', content: input || '(scheduled run)' },
+    { role: 'user', content: input.trim() || "It's time for your scheduled run. Carry out your task now, following your instructions." },
   ]
   let result = ''
   // web_search/web_fetch run in an Anthropic-hosted code-execution container;
