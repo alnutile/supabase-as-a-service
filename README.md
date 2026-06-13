@@ -158,6 +158,47 @@ Two pieces go live: the **Supabase backend** (schema, auth, storage, realtime, t
 
 Full details — including the Site URL gotcha — are in [`DEPLOY.md`](./DEPLOY.md).
 
+## Connect Claude (MCP)
+
+The workspace exposes an **MCP server** so an external Claude can build things in it —
+agents, tools, skills, webhooks, artifacts. Generate a token in **Settings → Connect
+Claude**, then connect from whichever Claude you use:
+
+**Claude Code (CLI)** — one command (`--scope user` makes it available everywhere):
+
+```bash
+claude mcp add --scope user --transport http intranet \
+  https://‹your-project›.supabase.co/functions/v1/mcp \
+  --header "Authorization: Bearer ‹your-token›"
+```
+
+**Claude Desktop** — Desktop launches MCP servers as local processes, so a remote HTTP
+server is bridged with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote). Add this
+to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`), then
+fully quit and reopen Desktop:
+
+```json
+{
+  "mcpServers": {
+    "intranet": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "https://‹your-project›.supabase.co/functions/v1/mcp",
+        "--header", "Authorization:${AUTH_HEADER}"
+      ],
+      "env": { "AUTH_HEADER": "Bearer ‹your-token›" }
+    }
+  }
+}
+```
+
+> The header is split deliberately: `Authorization:${AUTH_HEADER}` has **no space** after
+> the colon, and the `Bearer …` value (which contains a space) lives in `env` —
+> `mcp-remote` mangles a space inside the `--header` argument otherwise. Node/`npx` must
+> be on the app's PATH. **Settings → Connect Claude** generates both snippets with your
+> URL and token filled in.
+
 ## Security model
 
 - The browser only ever holds the **anon/publishable** key. Row-level security is what protects data, not key secrecy. Every table has RLS: owners see their own rows; artifacts/files open up only when explicitly set to *unlisted* or *public*.
