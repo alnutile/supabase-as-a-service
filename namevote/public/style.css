@@ -1,0 +1,100 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-2: #1f232c;
+  --border: #2a2f3a;
+  --text: #e8eaf0;
+  --muted: #9aa3b2;
+  --accent: #6ea8fe;
+  --accent-2: #8b5cf6;
+  --good: #34d399;
+  --danger: #f87171;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: radial-gradient(1200px 600px at 70% -10%, #1b2233 0%, var(--bg) 55%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+a { color: var(--accent); }
+
+.wrap { max-width: 920px; margin: 0 auto; padding: 24px 18px 80px; }
+
+header.top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 18px;
+}
+header.top h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+header.top .who { color: var(--muted); font-size: 14px; }
+header.top .who b { color: var(--text); }
+
+button {
+  font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); padding: 8px 14px; transition: .12s;
+}
+button:hover { border-color: #3a4150; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: linear-gradient(180deg, var(--accent), #4f86f0); border: none; color: #06101f; font-weight: 600; }
+button.ghost { background: transparent; }
+button.link { background: none; border: none; color: var(--muted); padding: 4px 6px; }
+button.link:hover { color: var(--text); }
+
+input, textarea {
+  font: inherit; width: 100%; color: var(--text); background: #11141a;
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; resize: vertical;
+}
+input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.panel h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.spacer { flex: 1; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+/* login */
+.login { max-width: 380px; margin: 12vh auto 0; }
+.login h1 { font-size: 22px; margin: 0 0 4px; }
+.login p { color: var(--muted); margin: 0 0 18px; }
+.login .field { margin-bottom: 12px; }
+.error { color: var(--danger); font-size: 13px; min-height: 18px; }
+
+/* name cards */
+.cards { display: grid; gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+.card .head { display: flex; align-items: center; gap: 12px; }
+.card .name { font-size: 18px; font-weight: 650; }
+.tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.tag.ai { color: var(--accent-2); border-color: #3a2f55; }
+.card .rationale { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+
+.vote {
+  display: flex; flex-direction: column; align-items: center; min-width: 62px;
+  border: 1px solid var(--border); border-radius: 12px; padding: 6px 4px; background: var(--panel-2);
+}
+.vote.mine { border-color: var(--good); color: var(--good); background: #112019; }
+.vote .count { font-size: 20px; font-weight: 700; line-height: 1; }
+.vote .lbl { font-size: 11px; color: var(--muted); }
+.vote.mine .lbl { color: var(--good); }
+
+.fb { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.fb .item { font-size: 13px; margin: 4px 0; }
+.fb .item b { color: var(--text); }
+.fb .add { display: flex; gap: 8px; margin-top: 8px; }
+.fb .add input { flex: 1; }
+
+.toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: var(--panel-2); border: 1px solid var(--border); padding: 10px 16px;
+  border-radius: 12px; font-size: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.4);
+}
+.toast.err { border-color: var(--danger); color: #ffd9d9; }
+
+.brief-text { white-space: pre-wrap; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.gen-controls { display: flex; gap: 10px; align-items: center; }
+.gen-controls input { width: 70px; }
