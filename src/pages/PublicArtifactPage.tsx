@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
+import { standalonePageUrl, supabase } from '../lib/supabase'
 import { Markdown } from '../components/Markdown'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
@@ -63,12 +63,24 @@ export default function PublicArtifactPage() {
       <article className="mx-auto max-w-3xl px-6 py-10">
         <h1 className="mb-6 text-3xl font-bold tracking-tight text-text">{artifact.title}</h1>
         {artifact.type === 'html' ? (
-          <iframe
-            title={artifact.title}
-            sandbox="allow-scripts"
-            srcDoc={artifact.content}
-            className="h-[70vh] w-full rounded-xl border border-border"
-          />
+          <>
+            <iframe
+              title={artifact.title}
+              sandbox="allow-scripts"
+              srcDoc={artifact.content}
+              className="h-[70vh] w-full rounded-xl border border-border"
+            />
+            {artifact.public_slug && (
+              <a
+                href={standalonePageUrl(artifact.public_slug)}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                Open full screen ↗
+              </a>
+            )}
+          </>
         ) : artifact.type === 'markdown' ? (
           <Markdown>{artifact.content}</Markdown>
         ) : (

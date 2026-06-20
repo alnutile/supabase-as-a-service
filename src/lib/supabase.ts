@@ -37,3 +37,6 @@ export const emailInboundUrl = (token: string) => `${supabaseUrl}/functions/v1/e
 
 /** URL of the deployed `forge` edge function (admin-only; generates + deploys functions). */
 export const forgeFunctionUrl = `${supabaseUrl}/functions/v1/forge`
+
+/** Standalone public page for a shared HTML artifact — raw HTML, no app chrome. */
+export const standalonePageUrl = (slug: string) => `${supabaseUrl}/functions/v1/p/${slug}`
