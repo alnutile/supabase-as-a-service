@@ -47,8 +47,9 @@ team is already using one of these and has hit its wall:
 
 An open-source (MIT) team workspace — an intranet — that runs on **your own Supabase
 project** with a single AI assistant at the center. You deploy it once; your whole team
-logs into the same workspace, with the same AI, sharing the same accumulated context.
-There are no per-seat fees and no vendor holding your data.
+logs into the same workspace, with the same shared memory of how the business works.
+There are no per-seat fees, no vendor holding your data, and you're never locked to one
+AI company — you use whichever model is best (or cheapest) for the job.
 
 ## How to start: one win, then the next question
 
@@ -210,20 +211,27 @@ A small agency deploys this in an afternoon:
 
 Total infrastructure cost: roughly $0–25/month plus AI usage. No per-seat licenses.
 
-## On AI cost
+## On cost — and staying in control of it
 
-You can see exactly what the AI is costing you. Every model call's tokens and cost are
-logged, and an admin **Usage** page shows the totals, a daily chart, and a breakdown by
-model, context, and user — alongside your live OpenRouter account balance pulled straight
-from the key. (OpenRouter gives you its own spend dashboard too, so the numbers are
-verifiable on both ends.)
+Two plain promises here.
 
-The model is a one-line setting — admins re-point it in **Settings → Models** (the
-database row is the source of truth; an `OPENROUTER_MODEL` server secret is only a
-fallback), so you can run a cheaper model workspace-wide whenever you want. Document
-indexing for search is free regardless — embeddings run on Supabase's edge, not a paid
-API. On the roadmap: smarter routing so heavyweight models handle drafting and cheaper
-ones handle routine traffic.
+**Use the AI that's best — or cheapest — for the job.** You're not tied to one AI company.
+Pick a powerful model when the work matters and a cheaper, faster one for routine traffic,
+and switch any time — if a provider raises prices or retires a model, your business doesn't
+skip a beat. For an admin it's a one-line change, not a rebuild.
+
+**See exactly what it's costing you.** Every bit of AI usage is logged, and an admin
+**Usage** page shows the totals, a daily chart, and a breakdown by model, by feature, and
+by person — right next to your live account balance. No surprise bill at the end of the
+month. And the part that's free stays free: making your documents searchable doesn't cost
+a cent per file.
+
+*Under the hood:* the model resolves through a `model_profiles` table (Settings → Models is
+the source of truth; an `OPENROUTER_MODEL` secret is only a fallback), AI runs through
+[OpenRouter](https://openrouter.ai) so any provider's models are one slug away, and document
+embeddings run free on Supabase's edge rather than a metered API. On the roadmap: automatic
+routing so heavyweight models handle drafting and cheaper ones handle routine traffic,
+without anyone choosing each time.
 
 ## What it's not
 
