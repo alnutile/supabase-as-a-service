@@ -123,15 +123,15 @@ export default function FilesPage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Files</h1>
-            <p className="mt-1 text-sm text-slate-500">
+            <h1 className="text-2xl font-semibold tracking-tight text-text">Files</h1>
+            <p className="mt-1 text-sm text-muted">
               Private by default. Create a share link when you want to hand one out.
             </p>
           </div>
           <button
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
           >
             <UploadIcon className="h-4 w-4" /> {uploading ? 'Uploading…' : 'Upload'}
           </button>
@@ -149,28 +149,28 @@ export default function FilesPage() {
         )}
 
         {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
+          <p className="text-sm text-faint">Loading…</p>
         ) : files.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 py-16 text-center">
-            <FileIcon className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-            <p className="text-sm text-slate-500">No files yet. Upload one to get started.</p>
+          <div className="rounded-2xl border border-dashed border-border-strong py-16 text-center">
+            <FileIcon className="mx-auto mb-3 h-8 w-8 text-faint" />
+            <p className="text-sm text-muted">No files yet. Upload one to get started.</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
             {files.map((f) => {
               const doc = docs[f.id]
               return (
               <div key={f.id} className="flex items-center gap-3 px-4 py-3">
-                <FileIcon className="h-5 w-5 shrink-0 text-slate-400" />
+                <FileIcon className="h-5 w-5 shrink-0 text-faint" />
                 <button
                   onClick={() => download(f)}
                   className="min-w-0 flex-1 text-left"
                   title="Download"
                 >
-                  <p className="truncate text-sm font-medium text-slate-800 hover:text-brand-600">
+                  <p className="truncate text-sm font-medium text-text hover:text-primary">
                     {f.name}
                   </p>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-faint">
                     {formatBytes(f.size_bytes)} · {formatDate(f.created_at)}
                     {f.visibility !== 'private' && ' · link shared'}
                   </p>
@@ -180,14 +180,14 @@ export default function FilesPage() {
                 <button
                   onClick={() => share(f)}
                   title="Copy 7-day share link"
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-brand-600"
+                  className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-primary"
                 >
                   <LinkIcon className="h-[18px] w-[18px]" />
                 </button>
                 <button
                   onClick={() => remove(f)}
                   title="Delete"
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
                 >
                   <TrashIcon className="h-[18px] w-[18px]" />
                 </button>
@@ -221,7 +221,7 @@ function ScopeToggle({ doc, onChange }: { doc: Doc; onChange: (scope: string) =>
           : 'Only you can search this — tap to add it to the team knowledge base'
       }
       className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-        shared ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-500'
+        shared ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-muted'
       }`}
     >
       {shared ? 'Team knowledge' : 'Only me'}

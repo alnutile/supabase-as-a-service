@@ -12,10 +12,13 @@ import {
   ForgeIcon,
   LogoutIcon,
   MenuIcon,
+  MoonIcon,
   PluginIcon,
   SettingsIcon,
   ShieldIcon,
   SkillIcon,
+  SparkleIcon,
+  SunIcon,
   ToolIcon,
   UsageIcon,
   WebhookIcon,
@@ -37,11 +40,29 @@ const navItems = [
   { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false, adminOnly: false },
 ]
 
+type Theme = 'light' | 'dark'
+
+function useTheme(): [Theme, (t: Theme) => void] {
+  const [theme, setTheme] = useState<Theme>(
+    () => ((typeof localStorage !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'light',
+  )
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem('theme', theme)
+    } catch {
+      // ignore
+    }
+  }, [theme])
+  return [theme, setTheme]
+}
+
 export function Layout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [theme, setTheme] = useTheme()
 
   useEffect(() => {
     if (!user) return
@@ -54,11 +75,12 @@ export function Layout() {
   }, [user])
 
   const items = navItems.filter((i) => !i.adminOnly || isAdmin)
-
   const initial = (user?.email ?? '?').charAt(0).toUpperCase()
+  const segBase =
+    'flex h-[30px] w-[38px] items-center justify-center rounded-[9px] transition'
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-bg text-text">
       {/* Mobile overlay behind the drawer */}
       {drawerOpen && (
         <div
@@ -69,17 +91,20 @@ export function Layout() {
 
       {/* Sidebar: static on md+, slide-in drawer on mobile */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform duration-200 md:static md:w-60 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[266px] flex-col border-r border-border bg-surface transition-transform duration-200 md:static md:translate-x-0 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center gap-2 px-5 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            ✺
+        <div className="flex items-center gap-3 px-[22px] pb-[14px] pt-[22px]">
+          <div
+            className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] bg-gradient-to-br from-primary to-primary-strong text-white"
+            style={{ boxShadow: '0 4px 12px rgba(99,84,232,.35)' }}
+          >
+            <SparkleIcon className="h-[18px] w-[18px]" />
           </div>
-          <span className="text-base font-semibold tracking-tight">Intranet</span>
+          <span className="text-[20px] font-extrabold tracking-tight">Intranet</span>
           <button
-            className="ml-auto rounded-md p-1.5 text-slate-400 hover:bg-slate-100 md:hidden"
+            className="ml-auto rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text md:hidden"
             onClick={() => setDrawerOpen(false)}
             aria-label="Close menu"
           >
@@ -87,7 +112,7 @@ export function Layout() {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-2">
+        <nav className="flex-1 space-y-[3px] overflow-y-auto px-[14px] py-2">
           {items.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -95,34 +120,56 @@ export function Layout() {
               end={end}
               onClick={() => setDrawerOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                `flex w-full items-center gap-[13px] rounded-[13px] px-[13px] py-[11px] text-[15px] transition ${
                   isActive
-                    ? 'bg-brand-50 text-brand-700'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-primary-soft font-bold text-primary'
+                    : 'font-medium text-muted hover:bg-surface-hover hover:text-text'
                 }`
               }
             >
-              <Icon className="h-[18px] w-[18px]" />
+              <Icon className="h-5 w-5" />
               {label}
             </NavLink>
           ))}
         </nav>
 
-        <div className="border-t border-slate-200 p-3">
-          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-700">
+        <div className="flex flex-col gap-3 border-t border-border p-[14px]">
+          {/* Theme toggle */}
+          <div className="flex w-max items-center gap-1 rounded-[13px] bg-surface-2 p-1">
+            <button
+              onClick={() => setTheme('light')}
+              title="Light"
+              className={`${segBase} ${
+                theme === 'light' ? 'bg-surface text-primary shadow-sm' : 'text-faint hover:text-text'
+              }`}
+            >
+              <SunIcon className="h-[17px] w-[17px]" />
+            </button>
+            <button
+              onClick={() => setTheme('dark')}
+              title="Dark"
+              className={`${segBase} ${
+                theme === 'dark' ? 'bg-surface text-primary shadow-sm' : 'text-faint hover:text-text'
+              }`}
+            >
+              <MoonIcon className="h-[17px] w-[17px]" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-[11px]">
+            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-primary-soft text-[15px] font-bold text-primary">
               {initial}
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-slate-700">{user?.email}</p>
-            </div>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-muted">
+              {user?.email}
+            </span>
             <button
               title="Sign out"
               onClick={async () => {
                 await signOut()
                 navigate('/login')
               }}
-              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="flex h-8 w-8 items-center justify-center rounded-[9px] text-faint hover:bg-surface-hover hover:text-text"
             >
               <LogoutIcon className="h-[18px] w-[18px]" />
             </button>
@@ -132,23 +179,23 @@ export function Layout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar with hamburger */}
-        <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
+        <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:hidden">
           <button
             onClick={() => setDrawerOpen(true)}
-            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
+            className="rounded-md p-1.5 text-muted hover:bg-surface-hover"
             aria-label="Open menu"
           >
             <MenuIcon className="h-5 w-5" />
           </button>
-          <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-brand-600 text-xs text-white">
-              ✺
+          <span className="flex items-center gap-2 text-sm font-bold tracking-tight">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary-strong text-white">
+              <SparkleIcon className="h-3.5 w-3.5" />
             </span>
             Intranet
           </span>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-hidden bg-slate-50">
+        <main className="min-w-0 flex-1 overflow-hidden bg-bg">
           <Outlet />
         </main>
       </div>

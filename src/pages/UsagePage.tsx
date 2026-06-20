@@ -65,16 +65,16 @@ export default function UsagePage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Usage</h1>
-            <p className="mt-1 text-sm text-slate-500">Token spend and OpenRouter balance for the workspace.</p>
+            <h1 className="text-2xl font-semibold tracking-tight text-text">Usage</h1>
+            <p className="mt-1 text-sm text-muted">Token spend and OpenRouter balance for the workspace.</p>
           </div>
-          <div className="flex shrink-0 rounded-lg border border-slate-200 bg-white p-0.5">
+          <div className="flex shrink-0 rounded-lg border border-border bg-surface p-0.5">
             {RANGES.map((r) => (
               <button
                 key={r.days}
                 onClick={() => setDays(r.days)}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium ${
-                  days === r.days ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+                  days === r.days ? 'bg-primary text-white' : 'text-muted hover:bg-surface-hover'
                 }`}
               >
                 {r.label}
@@ -116,9 +116,9 @@ export default function UsagePage() {
           rows={(summary?.by_user ?? []).map((r) => ({ key: r.actor_id ?? 'unknown', label: r.email ?? '(unknown)', cost: r.cost, tokens: r.tokens, calls: r.calls }))}
         />
 
-        {loading && <p className="mt-6 text-sm text-slate-400">Loading…</p>}
+        {loading && <p className="mt-6 text-sm text-faint">Loading…</p>}
         {!loading && summary && summary.total_calls === 0 && (
-          <p className="mt-6 text-sm text-slate-400">No usage recorded in this window yet.</p>
+          <p className="mt-6 text-sm text-faint">No usage recorded in this window yet.</p>
         )}
       </div>
     </div>
@@ -129,16 +129,16 @@ function BalanceCard({ balance }: { balance: Balance | null }) {
   if (!balance) return null
   if (balance.error) {
     return (
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-slate-700">OpenRouter balance</h2>
-        <p className="mt-1 text-sm text-slate-500">Couldn't load balance: {balance.error}</p>
+      <section className="mt-6 rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">OpenRouter balance</h2>
+        <p className="mt-1 text-sm text-muted">Couldn't load balance: {balance.error}</p>
       </section>
     )
   }
   const hasLimit = balance.limit != null
   return (
-    <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-      <h2 className="text-sm font-semibold text-slate-700">OpenRouter balance</h2>
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">OpenRouter balance</h2>
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Stat label="Remaining" value={hasLimit ? usd(balance.limit_remaining) : 'No per-key limit'} />
         <Stat label="Spent on key" value={usd(balance.usage)} />
@@ -153,9 +153,9 @@ function BalanceCard({ balance }: { balance: Balance | null }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className="mt-1 text-lg font-semibold text-slate-900">{value}</div>
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <div className="text-xs font-medium text-muted">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-text">{value}</div>
     </div>
   )
 }
@@ -166,13 +166,13 @@ function DailyChart({ daily }: { daily: DailyRow[] }) {
   if (!daily.length) return null
   const max = Math.max(...daily.map((d) => d.cost), 0.0000001)
   return (
-    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
-      <h2 className="text-sm font-semibold text-slate-700">Daily spend</h2>
+    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Daily spend</h2>
       <div className="mt-4 flex h-32 items-end gap-1">
         {daily.map((d) => (
           <div key={d.day} className="group relative flex flex-1 flex-col items-center justify-end">
             <div
-              className="w-full rounded-t bg-brand-400 transition-all group-hover:bg-brand-600"
+              className="w-full rounded-t bg-brand-400 transition-all group-hover:bg-primary"
               style={{ height: `${Math.max((d.cost / max) * 100, 1)}%` }}
             />
             <div className="pointer-events-none absolute -top-8 hidden whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-white group-hover:block">
@@ -194,11 +194,11 @@ function Breakdown({
 }) {
   if (!rows.length) return null
   return (
-    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
-      <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
+    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">{title}</h2>
       <table className="mt-3 w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-slate-400">
+          <tr className="text-left text-xs text-faint">
             <th className="pb-2 font-medium"></th>
             <th className="pb-2 text-right font-medium">Cost</th>
             <th className="pb-2 text-right font-medium">Tokens</th>
@@ -207,11 +207,11 @@ function Breakdown({
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.key} className="border-t border-slate-100">
-              <td className="py-1.5 pr-2 font-mono text-xs text-slate-700">{r.label}</td>
-              <td className="py-1.5 text-right tabular-nums text-slate-900">{usd(r.cost)}</td>
-              <td className="py-1.5 text-right tabular-nums text-slate-500">{num(r.tokens)}</td>
-              <td className="py-1.5 text-right tabular-nums text-slate-500">{num(r.calls)}</td>
+            <tr key={r.key} className="border-t border-border">
+              <td className="py-1.5 pr-2 font-mono text-xs text-text">{r.label}</td>
+              <td className="py-1.5 text-right tabular-nums text-text">{usd(r.cost)}</td>
+              <td className="py-1.5 text-right tabular-nums text-muted">{num(r.tokens)}</td>
+              <td className="py-1.5 text-right tabular-nums text-muted">{num(r.calls)}</td>
             </tr>
           ))}
         </tbody>
