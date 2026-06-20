@@ -219,10 +219,17 @@ npm run gen:types        # supabase gen types typescript --linked > src/lib/data
 
 This is a foundation meant to grow. Conversations and artifacts are the natural seeds for:
 
-- ⏱️ **Scheduled agents** — promote a useful chat/artifact into a recurring job.
-- 🪝 **Webhooks** — trigger workflows from outside, or call out when something happens.
+- 🤝 **Agent-to-agent collaboration** — agents that talk to *each other*, not just to
+  people. Bob's scheduling agent negotiates a meeting time with Jan's agent and preps the
+  agenda; a shared project agent keeps the team's meeting notes and follow-ups in sync. The
+  intranet becomes the place these agents discover and message one another.
 - 👥 **Team sharing & spaces** — shared workspaces, roles, comments.
 - 🧩 **Richer artifacts** — versions, attachments, embeds.
+- 👍 **Feedback on every answer** — mark any reply (*off target* / *needs work* / *exactly
+  right*) with an optional note, so the workspace learns what "good" looks like for your
+  business and improves over time. The seed for evaluation.
+- ✅ **Output evaluation** — score an agent's output against your own standard so a proven
+  workflow can run unattended, with confidence.
 - 🖥️ **Local Only Version** — run locally, Tail Scale integration and more
 
 Issues and PRs welcome.
