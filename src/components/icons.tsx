@@ -217,3 +217,11 @@ export const CloseIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M18 6 6 18M6 6l12 12" />
   </svg>
 )
+
+export const EvalIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="4.5" />
+    <circle cx="12" cy="12" r="0.6" fill="currentColor" />
+  </svg>
+)
