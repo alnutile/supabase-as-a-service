@@ -6,6 +6,7 @@
 // shows up in the dashboard. Auth is a per-user token from `mcp_tokens`; every
 // action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { ingestText } from '../_shared/knowledge.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -149,6 +150,24 @@ const TOOLS = [
         size_bytes: { type: 'number' },
       },
       required: ['path', 'name', 'mime_type'],
+    },
+  },
+  {
+    name: 'add_note',
+    description:
+      'Add a text note — meeting notes, a transcript, a doc, any plain text — to the workspace shared knowledge base. The text is chunked, embedded, and made searchable by the whole team via the assistant\'s search_documents tool. Use this to push Granola/meeting notes or other text your client can read straight into the team knowledge base. No file is created; for binary files (PDFs, images) use upload_file instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'A short title, e.g. the meeting name + date ("Standup 2026-06-20").' },
+        content: { type: 'string', description: 'The full note / transcript text to index.' },
+        scope: {
+          type: 'string',
+          enum: ['workspace', 'private'],
+          description: 'workspace (default) = searchable by the whole team; private = only you.',
+        },
+      },
+      required: ['title', 'content'],
     },
   },
   {
@@ -314,6 +333,25 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (error) return text(`Could not register the file: ${error.message}`, true)
       const isPdf = String(args.mime_type).includes('pdf') || /\.pdf$/i.test(String(args.name))
       return text(`Registered "${args.name}" in Files.` + (isPdf ? ' Indexing into the knowledge base shortly.' : ''))
+    }
+    case 'add_note': {
+      const title = String(args.title ?? '').trim()
+      const content = String(args.content ?? '')
+      if (!title) return text('add_note needs a title.', true)
+      if (content.trim().length < 20) {
+        return text('That note is too short to index — provide at least ~20 characters of text.', true)
+      }
+      const scope = args.scope === 'private' ? 'private' : 'workspace'
+      try {
+        const { chunkCount } = await ingestText(db, { ownerId: owner, name: title, text: content, scope })
+        return text(
+          `Added "${title}" to the knowledge base (${chunkCount} chunk${chunkCount === 1 ? '' : 's'}, ${
+            scope === 'workspace' ? 'searchable by the whole team' : 'visible only to you'
+          }). The assistant can now find it via search_documents.`,
+        )
+      } catch (err) {
+        return text(`Could not add the note: ${err instanceof Error ? err.message : 'error'}`, true)
+      }
     }
     case 'list_activity': {
       const { data } = await db.from('activity_log').select('type, summary, created_at').order('created_at', { ascending: false }).limit(20)
