@@ -168,6 +168,7 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   const [editing, setEditing] = useState<Case | 'new' | null>(null)
   const [running, setRunning] = useState(false)
   const [modelOverride, setModelOverride] = useState('')
+  const [comparing, setComparing] = useState(false)
   const [error, setError] = useState('')
 
   const isJudged = targetKind === 'chat' || targetKind === 'agent'
@@ -284,10 +285,20 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
             <input value={modelOverride} onChange={(e) => setModelOverride(e.target.value)} placeholder="model override (slug) — for A/B"
               title="Run with a specific model to compare quality/cost. Blank = the orchestrator profile."
               className="w-60 rounded-lg border border-border-strong px-3 py-2 text-xs outline-none focus:border-primary" />
+            {isJudged && (
+              <button onClick={() => setComparing((v) => !v)}
+                className="rounded-lg border border-border-strong px-3 py-2 text-xs font-medium text-muted hover:bg-surface-hover">
+                {comparing ? 'Hide compare' : 'Compare models'}
+              </button>
+            )}
             <span className="text-xs text-faint">{cases.length} case{cases.length === 1 ? '' : 's'}</span>
           </div>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         </div>
+
+        {comparing && isJudged && (
+          <ModelCompare suite={suite} cases={cases} onRan={loadRuns} />
+        )}
 
         {runs.length > 0 && <TrendStrip runs={runs} activeRun={activeRun} onSelect={setActiveRun} />}
 
@@ -437,6 +448,179 @@ function ResultRow({ result }: { result: Result }) {
               <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[11px] text-muted">{result.output}</pre>
             </details>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+type CompareCol = { key: string; label: string; model: string | null }
+type CellMap = Record<string, Record<string, { passed: boolean; score: number | null }>>
+type ColSummary = Record<string, { score: number | null; cost: number | null; passed: number; total: number; error?: string }>
+
+// Run a suite once per candidate model (+ the current default), grade every run
+// with the SAME fixed judge, and show a case×model matrix with score + cost.
+// Promote the winner to repoint the live `orchestrator` profile.
+function ModelCompare({ suite, cases, onRan }: { suite: Suite; cases: Case[]; onRan: () => void }) {
+  const [slugsText, setSlugsText] = useState('anthropic/claude-haiku-4.5')
+  const [judge, setJudge] = useState(suite.judge_model || 'anthropic/claude-sonnet-4.5')
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState('')
+  const [error, setError] = useState('')
+  const [cols, setCols] = useState<CompareCol[]>([])
+  const [cells, setCells] = useState<CellMap>({})
+  const [summary, setSummary] = useState<ColSummary>({})
+
+  async function runCompare() {
+    setError('')
+    const slugs = Array.from(new Set(slugsText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)))
+    if (slugs.length === 0) { setError('Add at least one candidate model slug.'); return }
+    const columns: CompareCol[] = [
+      { key: '__default__', label: 'Default (profile)', model: null },
+      ...slugs.map((s) => ({ key: s, label: s, model: s })),
+    ]
+    setRunning(true)
+    setCols(columns)
+    setCells({})
+    setSummary({})
+    // Pin the judge once so the grading bar is held constant across every model.
+    await supabase.from('eval_suites').update({ judge_model: judge.trim() || null, updated_at: new Date().toISOString() }).eq('id', suite.id)
+
+    for (const col of columns) {
+      setProgress(`Running ${col.label}…`)
+      const body: { suite_id: string; model?: string } = { suite_id: suite.id }
+      if (col.model) body.model = col.model
+      const { data, error: invErr } = await supabase.functions.invoke('evals', { body })
+      let errMsg = ''
+      if (invErr) {
+        errMsg = invErr.message
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const j = await (invErr as any).context.json()
+          if (j?.error) errMsg = j.error
+        } catch { /* keep generic */ }
+      } else if (data?.error) errMsg = data.error
+
+      if (errMsg) {
+        setSummary((p) => ({ ...p, [col.key]: { score: null, cost: null, passed: 0, total: cases.length, error: errMsg } }))
+        continue
+      }
+      setSummary((p) => ({ ...p, [col.key]: { score: data.score ?? null, cost: data.cost ?? null, passed: data.passed ?? 0, total: data.total ?? cases.length } }))
+      const { data: res } = await supabase.from('eval_results').select('case_id, passed, score').eq('run_id', data.run_id)
+      setCells((prev) => {
+        const next: CellMap = { ...prev }
+        for (const r of res ?? []) {
+          if (!r.case_id) continue
+          next[r.case_id] = { ...(next[r.case_id] || {}), [col.key]: { passed: r.passed, score: r.score } }
+        }
+        return next
+      })
+    }
+    setRunning(false)
+    setProgress('')
+    onRan()
+  }
+
+  async function promote(slug: string) {
+    if (!confirm(`Point the orchestrator profile at "${slug}"? This changes the live model for all chat, agents, webhooks, and scheduled runs.`)) return
+    const { error: e } = await supabase.from('model_profiles').update({ model: slug, updated_at: new Date().toISOString() }).eq('key', 'orchestrator')
+    alert(e ? `Could not update: ${e.message}` : `Orchestrator now points at ${slug}. New runs use it immediately.`)
+  }
+
+  // Winner = highest overall score, tie-break by lowest cost (completed columns only).
+  let winnerKey: string | null = null
+  const ranked = cols.map((c) => ({ key: c.key, s: summary[c.key] })).filter((x) => x.s && !x.s.error && x.s.score != null)
+  if (ranked.length) {
+    ranked.sort((a, b) => (b.s!.score! - a.s!.score!) || ((a.s!.cost ?? Infinity) - (b.s!.cost ?? Infinity)))
+    winnerKey = ranked[0].key
+  }
+
+  return (
+    <div className="mb-6 rounded-xl border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold text-text">Compare models</h3>
+      <p className="mt-0.5 mb-3 text-xs text-muted">
+        Runs this suite once per model (plus the current default) and grades every run with the same fixed
+        judge — so the only thing that varies is the model under test. Promote the winner to make it live.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">Candidate models (one per line or comma-separated)</span>
+          <textarea value={slugsText} onChange={(e) => setSlugsText(e.target.value)} rows={2}
+            className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 text-xs outline-none focus:border-primary" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">Judge model (held fixed)</span>
+          <input value={judge} onChange={(e) => setJudge(e.target.value)} placeholder="anthropic/claude-sonnet-4.5"
+            className="w-full rounded-lg border border-border-strong px-3 py-2 text-xs outline-none focus:border-primary" />
+          <span className="mt-1 block text-[11px] text-faint">Use a strong model that isn't a candidate (avoids self-preference bias).</span>
+        </label>
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        <button onClick={runCompare} disabled={running || cases.length === 0}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50">
+          {running ? 'Running…' : 'Run comparison'}
+        </button>
+        {progress && <span className="text-xs text-faint">{progress}</span>}
+      </div>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+
+      {cols.length > 0 && (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr>
+                <th className="border-b border-border p-2 text-left font-medium text-muted">Case</th>
+                {cols.map((c) => {
+                  const s = summary[c.key]
+                  const win = c.key === winnerKey
+                  return (
+                    <th key={c.key} className={`border-b border-border p-2 text-left align-top ${win ? 'bg-green-50' : ''}`}>
+                      <div className="flex items-center gap-1 font-medium text-text">
+                        <span className="max-w-[150px] truncate" title={c.label}>{c.label}</span>
+                        {win && <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold text-green-700">WINNER</span>}
+                      </div>
+                      {s?.error ? (
+                        <span className="text-[11px] text-red-600" title={s.error}>errored</span>
+                      ) : s ? (
+                        <span className="text-[11px] text-muted">
+                          {s.score != null ? `${Math.round(s.score * 100)}%` : '—'} · {s.passed}/{s.total}
+                          {s.cost != null ? ` · $${s.cost.toFixed(4)}` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-faint">{running ? '…' : ''}</span>
+                      )}
+                      {c.model && (
+                        <button onClick={() => promote(c.model!)} className="mt-1 block text-[11px] font-medium text-primary hover:underline">
+                          Promote → orchestrator
+                        </button>
+                      )}
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {cases.map((cse) => (
+                <tr key={cse.id}>
+                  <td className="border-b border-border p-2 text-text">{cse.name || cse.input.slice(0, 50)}</td>
+                  {cols.map((c) => {
+                    const cell = cells[cse.id]?.[c.key]
+                    return (
+                      <td key={c.key} className="border-b border-border p-2">
+                        {cell ? (
+                          <span className={cell.passed ? 'text-green-600' : 'text-red-600'}>
+                            {cell.passed ? '✓' : '✗'}{cell.score != null ? ` ${Math.round(cell.score * 100)}%` : ''}
+                          </span>
+                        ) : (
+                          <span className="text-faint">·</span>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
