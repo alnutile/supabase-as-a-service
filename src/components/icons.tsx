@@ -1,5 +1,7 @@
 import type { SVGProps } from 'react'
 
+export type IconProps = SVGProps<SVGSVGElement>
+
 const base = (props: SVGProps<SVGSVGElement>) => ({
   width: 20,
   height: 20,
@@ -161,6 +163,20 @@ export const ToolIcon = (p: SVGProps<SVGSVGElement>) => (
 export const PluginIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M10 3v3a2 2 0 0 0 4 0V3h4v4h-3a2 2 0 0 0 0 4h3v6h-4v-3a2 2 0 0 0-4 0v3H6v-6h3a2 2 0 0 0 0-4H6V3z" />
+  </svg>
+)
+
+export const HomeIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3 11l9-8 9 8" />
+    <path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10" />
+    <path d="M9 21v-6h6v6" />
+  </svg>
+)
+
+export const ArrowRightIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
   </svg>
 )
 

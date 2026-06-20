@@ -3,6 +3,7 @@ import { useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
+import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
 import ArtifactsPage from './pages/ArtifactsPage'
 import ArtifactEditorPage from './pages/ArtifactEditorPage'
@@ -44,7 +45,8 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<ChatPage />} />
+        <Route index element={<Navigate to="/home" replace />} />
+        <Route path="home" element={<HomePage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:conversationId" element={<ChatPage />} />
         <Route path="artifacts" element={<ArtifactsPage />} />
