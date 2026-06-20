@@ -10,6 +10,7 @@ import {
   CloseIcon,
   FileIcon,
   ForgeIcon,
+  HomeIcon,
   LogoutIcon,
   MenuIcon,
   MoonIcon,
@@ -25,6 +26,7 @@ import {
 } from './icons'
 
 const navItems = [
+  { to: '/home', label: 'Home', icon: HomeIcon, end: false, adminOnly: false },
   { to: '/chat', label: 'Chat', icon: ChatIcon, end: false, adminOnly: false },
   { to: '/agents', label: 'Agents', icon: AgentIcon, end: false, adminOnly: false },
   { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon, end: false, adminOnly: false },
