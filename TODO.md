@@ -1,5 +1,7 @@
 ## TODO
 
+### Better Artifact Hosting
+
 ### Imagegen and openrouter
 
 ### Reindex Function
