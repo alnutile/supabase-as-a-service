@@ -56,3 +56,37 @@ $$;
 
 revoke all on function public.feedback_summary(integer) from public, anon;
 grant execute on function public.feedback_summary(integer) to authenticated;
+
+-- Surface feedback on the live Activity feed, like artifacts/files/webhooks do.
+-- Logs on a new rating (INSERT) or a flip (UPDATE) — NOT on every note/category
+-- edit, so re-editing detail doesn't spam the log. actor_id = the rater, so it
+-- respects activity_log RLS (own-or-admin).
+create or replace function public.log_message_feedback()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' or (tg_op = 'UPDATE' and new.rating is distinct from old.rating) then
+    insert into public.activity_log (type, summary, detail, actor_id)
+    values (
+      'feedback.' || new.rating,
+      (case when new.rating = 'down' then 'Needs-work feedback on an answer'
+            else 'Positive feedback on an answer' end)
+        || coalesce(' (' || new.category || ')', ''),
+      jsonb_build_object(
+        'message_id', new.message_id,
+        'conversation_id', new.conversation_id,
+        'category', new.category,
+        'note', new.note,
+        'agent_id', new.agent_id
+      ),
+      new.owner_id
+    );
+  end if;
+  return new;
+end; $$;
+
+create trigger trg_log_message_feedback
+  after insert or update on public.message_feedback
+  for each row execute function public.log_message_feedback();
+
+revoke execute on function public.log_message_feedback() from anon, authenticated, public;
+
