@@ -4,22 +4,9 @@
 // model, and stores the chunks in pgvector. Text-layer PDFs only (Stage 1).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { extractText, getDocumentProxy } from 'npm:unpdf@0.11.0'
+import { chunkText, embedAndStore } from '../_shared/knowledge.ts'
 
-const CHUNK_SIZE = 1500
-const CHUNK_OVERLAP = 200
-const MAX_CHUNKS = 200
 const DOCS_PER_RUN = 3
-
-function chunkText(text: string): string[] {
-  const clean = text.replace(/\s+/g, ' ').trim()
-  const out: string[] = []
-  let i = 0
-  while (i < clean.length && out.length < MAX_CHUNKS) {
-    out.push(clean.slice(i, i + CHUNK_SIZE))
-    i += CHUNK_SIZE - CHUNK_OVERLAP
-  }
-  return out.filter((c) => c.trim().length > 20)
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return new Response('POST only', { status: 405 })
@@ -35,8 +22,6 @@ Deno.serve(async (req: Request) => {
     .eq('status', 'pending')
     .limit(DOCS_PER_RUN)
 
-  // deno-lint-ignore no-explicit-any
-  const model = new (globalThis as any).Supabase.ai.Session('gte-small')
   let indexed = 0
 
   for (const doc of pending ?? []) {
@@ -62,20 +47,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const chunks = chunkText(full)
-      await db.from('document_chunks').delete().eq('document_id', doc.id)
-
-      let idx = 0
-      for (const content of chunks) {
-        const embedding = await model.run(content, { mean_pool: true, normalize: true })
-        await db.from('document_chunks').insert({
-          document_id: doc.id,
-          owner_id: doc.owner_id,
-          idx,
-          content,
-          embedding,
-        })
-        idx++
-      }
+      await embedAndStore(db, doc.id, doc.owner_id, chunks)
 
       await db.from('documents').update({
         status: 'done',

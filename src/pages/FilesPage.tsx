@@ -33,7 +33,9 @@ export default function FilesPage() {
   const loadDocs = useCallback(async () => {
     const { data } = await supabase.from('documents').select('*')
     const map: Record<string, Doc> = {}
-    for (const d of data ?? []) map[d.file_id] = d
+    // Notes pushed via MCP have no backing file (file_id null); they aren't
+    // shown in Files, so only index file-backed documents here.
+    for (const d of data ?? []) if (d.file_id) map[d.file_id] = d
     setDocs(map)
   }, [])
 
@@ -53,7 +55,7 @@ export default function FilesPage() {
   // Share an indexed document with the workspace, or keep it private. (Separate
   // from files.visibility, which controls signed-link sharing of the raw blob.)
   async function setScope(doc: Doc, scope: string) {
-    setDocs((prev) => ({ ...prev, [doc.file_id]: { ...doc, scope } }))
+    if (doc.file_id) setDocs((prev) => ({ ...prev, [doc.file_id!]: { ...doc, scope } }))
     await supabase.from('documents').update({ scope }).eq('id', doc.id)
   }
 

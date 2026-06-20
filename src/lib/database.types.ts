@@ -434,10 +434,11 @@ export interface Database {
         Row: {
           id: string
           owner_id: string
-          file_id: string
+          file_id: string | null
           name: string
           status: string
           scope: string
+          source: string
           error: string | null
           chunk_count: number
           created_at: string
@@ -446,10 +447,11 @@ export interface Database {
         Insert: {
           id?: string
           owner_id: string
-          file_id: string
+          file_id?: string | null
           name: string
           status?: string
           scope?: string
+          source?: string
           error?: string | null
           chunk_count?: number
           created_at?: string
