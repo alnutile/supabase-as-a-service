@@ -34,3 +34,6 @@ export const mcpUrl = `${supabaseUrl}/functions/v1/mcp`
 
 /** Public inbound-email URL — point a provider's inbound webhook here. */
 export const emailInboundUrl = (token: string) => `${supabaseUrl}/functions/v1/email-inbound/${token}`
+
+/** URL of the deployed `forge` edge function (admin-only; generates + deploys functions). */
+export const forgeFunctionUrl = `${supabaseUrl}/functions/v1/forge`

@@ -8,3 +8,9 @@ I couldn't typecheck the edge functions — Deno isn't installed locally, and th
 gen:types not run — it needs a linked project, but provider is already typed as string, so the build stays green without it. Run it after applying the migration if you want to be thorough.
 ```
 
+### Prompts that get passed in the chat 
+Business prompts
+Personal Prompts
+
+
+### Manage Supabase vault in the UI

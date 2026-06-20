@@ -137,7 +137,7 @@ Deno.serve(async (req: Request) => {
   // --- deploy: validate + deploy caller-provided (possibly edited) code ---
   if (action === 'deploy') {
     if (!managementConfigured()) {
-      return json({ error: 'Deploy is not configured: set SUPABASE_PAT and SUPABASE_PROJECT_REF edge secrets.' }, 500)
+      return json({ error: 'Deploy is not configured: set the FORGE_PAT edge secret (project ref auto-derives from SUPABASE_URL).' }, 500)
     }
     const slug = String(body.slug ?? '').trim()
     const name = String(body.name ?? slug).trim()

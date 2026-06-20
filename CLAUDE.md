@@ -156,6 +156,32 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   admin write). Settings links here. *Planned follow-up (not built): one-click install — either
   an `install_plugin` MCP tool (Claude Code pulls the example into `supabase/functions` + deploys)
   or a server-side deploy via the Supabase Management API.*
+- **Forge (vibe-coded functions):** `ForgePage` (route `/forge`, admin-only) closes the
+  "configuration-as-data can't deploy new code" gap. An admin describes a capability in
+  natural language; the admin-only `forge` edge function (`verify_jwt: true`) generates a
+  Deno function (orchestrator model), then **deploys it to the live project via the Supabase
+  Management API** and registers it as a `kind='http'` tool — so chat/agents/webhooks/scheduler
+  can call it like any custom tool. Use it for deterministic work the LLM can't do reliably
+  (a calculator, a unit converter, a precise transform, a validate-then-call API). The
+  generated code is just `async function handler(input)`; a **fixed harness** (`forge/template.ts`,
+  `buildModule`) owns request handling, CORS, and a per-function `x-forge-token` check (baked
+  into the deployed source, sent by the tool's `config.headers`), so the security-critical
+  plumbing is never the model's to write. **Security:** admin-only at every entry; the
+  Management API PAT lives ONLY in `supabase/functions/_shared/management.ts` (reads
+  `FORGE_PAT`; the project ref auto-derives from `SUPABASE_URL`, override with `FORGE_PROJECT_REF`
+  — note secrets cannot use the reserved `SUPABASE_` prefix); a static deny-list lint (`lintSource`) rejects
+  generated code that touches `Deno.env`, the service-role key, the PAT, `mcp_tokens`,
+  subprocesses, the filesystem, or `eval`; a `runGuardrails` pre-flight screens the code;
+  forge **fails closed** (any lint hit, guardrail block/error, or `bundleOnly=1` dry-run
+  failure aborts before the real deploy). Generated functions get **no DB/secret access** —
+  pure compute + `fetch()` only. The `forged_functions` table (migration 0021) is the
+  audit/redeploy system-of-record (spec, generated `source`, slug, model, status, invoke
+  token, linked `tool_id`); RLS mirrors `tools` (migration 0020). Note: API-deployed functions
+  don't live in the repo, so `forged_functions.source` is the redeploy source of truth and
+  ToolsPage shows a "Forged" badge on the linked tool. Outcomes log to `activity_log` (`forge.deployed` /
+  `.failed` / `.deleted`). *Planned follow-up (not built): DB-writing forged functions via
+  admin-authored `security definer` RPCs; an `applies_to_forge` guardrail context; a
+  `forge_tool` MCP action so Claude Code can forge tools too.*
 
 ## Directory map
 

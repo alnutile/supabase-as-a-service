@@ -17,17 +17,22 @@ const SCHEMA_TEMPLATE = `{
 export default function ToolsPage() {
   const { user } = useAuth()
   const [tools, setTools] = useState<Tool[]>([])
+  const [forgedIds, setForgedIds] = useState<Set<string>>(new Set())
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Tool | null>(null)
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('tools')
-      .select('*')
-      .order('is_builtin', { ascending: false })
-      .order('updated_at', { ascending: false })
+    const [{ data }, { data: forged }] = await Promise.all([
+      supabase
+        .from('tools')
+        .select('*')
+        .order('is_builtin', { ascending: false })
+        .order('updated_at', { ascending: false }),
+      supabase.from('forged_functions').select('tool_id'),
+    ])
     setTools(data ?? [])
+    setForgedIds(new Set((forged ?? []).map((f) => f.tool_id).filter((id): id is string => Boolean(id))))
     setLoading(false)
   }, [])
 
@@ -121,6 +126,11 @@ export default function ToolsPage() {
                     {t.is_builtin && (
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
                         Built-in
+                      </span>
+                    )}
+                    {forgedIds.has(t.id) && (
+                      <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] uppercase tracking-wide text-brand-700">
+                        Forged
                       </span>
                     )}
                   </div>

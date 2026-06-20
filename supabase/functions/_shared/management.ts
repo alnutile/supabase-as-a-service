@@ -14,14 +14,17 @@
 
 const API_BASE = 'https://api.supabase.com/v1'
 
+// NOTE: secret names must NOT start with `SUPABASE_` — that prefix is reserved by
+// the platform for its own auto-injected secrets and cannot be set via
+// `supabase secrets set`. So the PAT lives under FORGE_PAT.
 function pat(): string | undefined {
-  return Deno.env.get('SUPABASE_PAT') ?? undefined
+  return Deno.env.get('FORGE_PAT') ?? undefined
 }
 
 function projectRef(): string | undefined {
-  // Explicit ref preferred; otherwise derive from the project URL host
-  // (https://<ref>.supabase.co).
-  const explicit = Deno.env.get('SUPABASE_PROJECT_REF')
+  // Explicit ref preferred; otherwise derive from the auto-injected project URL
+  // host (https://<ref>.supabase.co) — so usually no ref secret is needed.
+  const explicit = Deno.env.get('FORGE_PROJECT_REF')
   if (explicit) return explicit
   const url = Deno.env.get('SUPABASE_URL') ?? ''
   const m = url.match(/^https?:\/\/([a-z0-9]+)\.supabase\./i)
