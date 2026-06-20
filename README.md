@@ -45,6 +45,7 @@ It leans on Supabase for the parts that should be boring and solid, and adds a c
 - 📎 **Chat with files** — attach files in chat; they land in your Files area and the assistant reads them (images, PDFs, and text) to answer questions or parse them.
 - 📚 **Team knowledge base** — uploaded PDFs are auto-indexed into pgvector (free, in-edge embeddings) and become **shared workspace knowledge by default** — anyone's chat can search them and cite the source. Flip any document to **"Only me"** for privacy. Only the extracted text is shared; the raw file stays private.
 - 📊 **Activity** — a live, real-time feed of what's happening across the workspace: webhook events, tool calls, artifacts, and uploads, all in one place.
+- 💸 **Usage & cost** — every model call's tokens and cost are logged; an admin **Usage** page shows spend (totals, daily chart, by model / context / user) plus your live OpenRouter account balance.
 - 🤖 **Agents** — a deployable unit: a system prompt + the tools it may use, managed in a dashboard and runnable from chat.
 - 🔌 **MCP server** — connect **Claude Code / Desktop** to your workspace with a token (Settings → Connect Claude), then say *"build an agent that does X on my intranet"* — Claude authors it and **pushes it in over MCP**, where it shows up in the dashboard. Your app is one way to build these; it isn't the only way.
 - 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).

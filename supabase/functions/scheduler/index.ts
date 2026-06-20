@@ -4,6 +4,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import { recordUsage } from '../_shared/usage.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -81,7 +82,7 @@ function scheduledRunGuidance(ownerEmail: string | null): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null) {
+async function runAgent(db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null) {
   const { tools, httpTools, builtins, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   const system = [agent.instructions || 'You are a scheduled agent. Do the task described.', scheduledRunGuidance(ownerEmail)].join('\n\n')
   // The schedule's input is optional. When it's blank, drive the agent with a
@@ -104,6 +105,7 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
       maxTokens: 4096,
     })
     result = out.content || result
+    await recordUsage(db, { context: 'scheduler', model, actorId: ownerId, agentId, usage: out.usage })
     if (out.toolCalls.length) {
       messages.push(assistantToolCallMsg(out.content, out.toolCalls))
       for (const call of out.toolCalls) {
@@ -152,7 +154,7 @@ Deno.serve(async (req: Request) => {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
         const { data: owner } = await db.from('profiles').select('email').eq('id', s.owner_id).maybeSingle()
-        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null)
+        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,

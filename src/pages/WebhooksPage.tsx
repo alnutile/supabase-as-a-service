@@ -8,6 +8,7 @@ import { CopyIcon, PlusIcon, TrashIcon, WebhookIcon } from '../components/icons'
 type Webhook = Database['public']['Tables']['webhooks']['Row']
 type WebhookEvent = Database['public']['Tables']['webhook_events']['Row']
 type Agent = Database['public']['Tables']['agents']['Row']
+type Tool = Database['public']['Tables']['tools']['Row']
 
 export default function WebhooksPage() {
   const { user } = useAuth()
@@ -115,8 +116,11 @@ function WebhookDetail({
   const [prompt, setPrompt] = useState(webhook.prompt)
   const [isActive, setIsActive] = useState(webhook.is_active)
   const [agentId, setAgentId] = useState(webhook.agent_id ?? '')
+  const [toolId, setToolId] = useState(webhook.tool_id ?? '')
+  const [secret, setSecret] = useState(webhook.secret ?? '')
   const [allowTools, setAllowTools] = useState(webhook.allow_tools)
   const [agents, setAgents] = useState<Agent[]>([])
+  const [tools, setTools] = useState<Tool[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -129,14 +133,25 @@ function WebhookDetail({
       .eq('is_active', true)
       .order('name')
       .then(({ data }) => setAgents(data ?? []))
+    // Only http tools (forged functions + custom HTTP tools) can be called directly.
+    supabase
+      .from('tools')
+      .select('*')
+      .eq('is_active', true)
+      .eq('kind', 'http')
+      .order('name')
+      .then(({ data }) => setTools(data ?? []))
   }, [])
 
+  const selectedTool = tools.find((t) => t.id === toolId) ?? null
   const url = webhookUrl(webhook.token)
   const dirty =
     name !== webhook.name ||
     prompt !== webhook.prompt ||
     isActive !== webhook.is_active ||
     agentId !== (webhook.agent_id ?? '') ||
+    toolId !== (webhook.tool_id ?? '') ||
+    secret !== (webhook.secret ?? '') ||
     allowTools !== webhook.allow_tools
 
   const loadEvents = useCallback(async () => {
@@ -174,6 +189,8 @@ function WebhookDetail({
         prompt,
         is_active: isActive,
         agent_id: agentId || null,
+        tool_id: toolId || null,
+        secret: secret.trim() || null,
         allow_tools: allowTools,
         updated_at: new Date().toISOString(),
       })
@@ -235,14 +252,86 @@ function WebhookDetail({
           <summary className="cursor-pointer text-xs text-slate-400">Test with curl</summary>
           <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">
 {`curl -X POST ${url} \\
-  -H 'Content-Type: application/json' \\
-  -d '{"hello":"world"}'`}
+  -H 'Content-Type: application/json' \\${
+  secret.trim() ? `\n  -H 'Authorization: Bearer ${secret.trim()}' \\` : ''
+}
+  -d '${selectedTool ? JSON.stringify(samplePayload(selectedTool.input_schema)) : '{"hello":"world"}'}'`}
           </pre>
         </details>
       </div>
 
-      {/* Agent (optional) */}
+      {/* Shared secret (optional auth) */}
+      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-slate-600">
+            Require a secret (optional)
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSecret(crypto.randomUUID().replace(/-/g, ''))}
+              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Generate
+            </button>
+            {secret && (
+              <button
+                onClick={() => setSecret('')}
+                className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+        <input
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
+          placeholder="Leave blank for none — anyone with the URL can call it"
+          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        />
+        <p className="mt-1.5 text-xs text-slate-500">
+          When set, callers must send it as{' '}
+          <code className="font-mono">Authorization: Bearer …</code> or{' '}
+          <code className="font-mono">X-Webhook-Secret: …</code>. Requests without it get a 401.
+        </p>
+      </div>
+
+      {/* Call a function directly (deterministic) */}
       <div className="mt-4">
+        <label className="mb-1 block text-xs font-medium text-slate-600">
+          Call a function directly (optional, deterministic)
+        </label>
+        <select
+          value={toolId}
+          onChange={(e) => setToolId(e.target.value)}
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        >
+          <option value="">No function — use the AI options below</option>
+          {tools.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        {selectedTool && (
+          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-emerald-700">
+              Deterministic: each payload is validated against these fields and sent straight to{' '}
+              <code className="font-mono">{selectedTool.name}</code> — no AI, no agent/prompt.
+            </p>
+            <SchemaFields schema={selectedTool.input_schema} />
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-slate-400">Sample payload</summary>
+              <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
+                {JSON.stringify(samplePayload(selectedTool.input_schema), null, 2)}
+              </pre>
+            </details>
+          </div>
+        )}
+      </div>
+
+      {/* Agent (optional) */}
+      <div className={`mt-4 ${toolId ? 'pointer-events-none opacity-40' : ''}`}>
         <label className="mb-1 block text-xs font-medium text-slate-600">
           Run an agent (optional)
         </label>
@@ -283,7 +372,7 @@ function WebhookDetail({
       </div>
 
       {/* Prompt */}
-      <div className="mt-4">
+      <div className={`mt-4 ${toolId ? 'pointer-events-none opacity-40' : ''}`}>
         <label className="mb-1 block text-xs font-medium text-slate-600">
           Prompt — what to do with each incoming payload
         </label>
@@ -337,6 +426,60 @@ const STATUS_STYLES: Record<WebhookEventStatus, string> = {
   ok: 'bg-emerald-100 text-emerald-700',
   error: 'bg-red-100 text-red-700',
   blocked: 'bg-red-100 text-red-700',
+}
+
+type SchemaShape = {
+  properties?: Record<string, { type?: string; description?: string }>
+  required?: string[]
+}
+
+// Render the declared fields + types of a tool's input_schema.
+function SchemaFields({ schema }: { schema: unknown }) {
+  const s = (schema ?? {}) as SchemaShape
+  const props = s.properties ?? {}
+  const required = new Set(s.required ?? [])
+  const entries = Object.entries(props)
+  if (entries.length === 0) {
+    return <p className="mt-2 text-xs text-slate-400">This function takes no defined fields.</p>
+  }
+  return (
+    <ul className="mt-2 space-y-1">
+      {entries.map(([key, spec]) => (
+        <li key={key} className="flex items-baseline gap-2 text-xs">
+          <code className="font-mono text-slate-700">{key}</code>
+          <span className="text-slate-400">{spec?.type ?? 'any'}</span>
+          {required.has(key) && <span className="text-[10px] uppercase text-amber-600">required</span>}
+          {spec?.description && <span className="truncate text-slate-400">— {spec.description}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Build an example payload from an input_schema for the "Sample payload" preview.
+function samplePayload(schema: unknown): Record<string, unknown> {
+  const s = (schema ?? {}) as SchemaShape
+  const out: Record<string, unknown> = {}
+  for (const [key, spec] of Object.entries(s.properties ?? {})) {
+    switch (spec?.type) {
+      case 'number':
+      case 'integer':
+        out[key] = 0
+        break
+      case 'boolean':
+        out[key] = false
+        break
+      case 'array':
+        out[key] = []
+        break
+      case 'object':
+        out[key] = {}
+        break
+      default:
+        out[key] = 'example'
+    }
+  }
+  return out
 }
 
 function EventRow({ event }: { event: WebhookEvent }) {

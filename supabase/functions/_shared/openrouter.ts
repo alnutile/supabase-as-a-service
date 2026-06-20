@@ -81,10 +81,38 @@ function buildBody(req: ORRequest, stream: boolean): Record<string, unknown> {
   return body
 }
 
+// Token + cost accounting. OpenRouter returns this automatically on every
+// response (last SSE chunk when streaming). `cost` is in USD credits; it can be
+// null for providers/models that don't report a price.
+export interface ORUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cost: number | null
+  reasoningTokens: number
+  cachedTokens: number
+  raw: Record<string, unknown>
+}
+
+// deno-lint-ignore no-explicit-any
+function mapUsage(raw: any): ORUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  return {
+    promptTokens: Number(raw.prompt_tokens ?? 0),
+    completionTokens: Number(raw.completion_tokens ?? 0),
+    totalTokens: Number(raw.total_tokens ?? 0),
+    cost: typeof raw.cost === 'number' ? raw.cost : null,
+    reasoningTokens: Number(raw.completion_tokens_details?.reasoning_tokens ?? 0),
+    cachedTokens: Number(raw.prompt_tokens_details?.cached_tokens ?? 0),
+    raw,
+  }
+}
+
 export interface ORResult {
   content: string
   toolCalls: ORToolCall[]
   finishReason: string
+  usage?: ORUsage
 }
 
 function textOfContent(content: unknown): string {
@@ -111,6 +139,7 @@ export async function orComplete(req: ORRequest): Promise<ORResult> {
     content: textOfContent(msg.content),
     toolCalls: Array.isArray(msg.tool_calls) ? (msg.tool_calls as ORToolCall[]) : [],
     finishReason: choice.finish_reason ?? 'stop',
+    usage: mapUsage(data?.usage),
   }
 }
 
@@ -127,6 +156,7 @@ export async function orStream(req: ORRequest, onText: (delta: string) => void):
   let buffer = ''
   let content = ''
   let finishReason = 'stop'
+  let usage: ORUsage | undefined
   const toolAcc = new Map<number, { id: string; name: string; args: string }>()
 
   for (;;) {
@@ -148,6 +178,9 @@ export async function orStream(req: ORRequest, onText: (delta: string) => void):
       } catch {
         continue // partial — should not happen on line boundaries, but be safe
       }
+      // The final chunk carries usage and usually has no choices — capture it
+      // before the choice guard.
+      if (json?.usage) usage = mapUsage(json.usage)
       const choice = json?.choices?.[0]
       if (!choice) continue
       if (choice.finish_reason) finishReason = choice.finish_reason
@@ -172,7 +205,7 @@ export async function orStream(req: ORRequest, onText: (delta: string) => void):
   const toolCalls: ORToolCall[] = [...toolAcc.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([, v]) => ({ id: v.id, type: 'function', function: { name: v.name, arguments: v.args || '{}' } }))
-  return { content, toolCalls, finishReason }
+  return { content, toolCalls, finishReason, usage }
 }
 
 // --- helpers shared by the call sites -------------------------------------

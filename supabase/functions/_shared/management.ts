@@ -9,7 +9,7 @@
 //     Content-Type: multipart/form-data
 //       part "metadata" = JSON { name, entrypoint_path: "index.ts", verify_jwt }
 //       part "file"     = the index.ts source (one or more file parts allowed)
-//   ?bundleOnly=1 validates/bundles WITHOUT persisting — our dry-run gate.
+//   ?bundleOnly=true validates/bundles WITHOUT persisting — our dry-run gate.
 //   DELETE https://api.supabase.com/v1/projects/{ref}/functions/{slug} tears it down.
 
 const API_BASE = 'https://api.supabase.com/v1'
@@ -58,7 +58,8 @@ export async function deployFunction(opts: DeployOptions): Promise<DeployResult>
   }
 
   const params = new URLSearchParams({ slug: opts.slug })
-  if (opts.bundleOnly) params.set('bundleOnly', '1')
+  // The Management API expects a boolean string ("true"/"false"), not "1".
+  if (opts.bundleOnly) params.set('bundleOnly', 'true')
 
   const metadata = {
     name: opts.name || opts.slug,

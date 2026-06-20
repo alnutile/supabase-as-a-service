@@ -9,3 +9,24 @@ verify_jwt = true
 
 [functions.forge]
 verify_jwt = true
+
+# Public / token-gated functions — must stay verify_jwt = false so external
+# callers (and pg_cron via pg_net) reach them without a Supabase JWT. They are
+# gated instead by an unguessable token in the URL (webhook / email-inbound), a
+# per-user token (mcp), or the cron secret (scheduler / ingest). Declaring them
+# here keeps a plain `supabase functions deploy <name>` from flipping them back
+# to the verify_jwt=true default.
+[functions.webhook]
+verify_jwt = false
+
+[functions.mcp]
+verify_jwt = false
+
+[functions.email-inbound]
+verify_jwt = false
+
+[functions.scheduler]
+verify_jwt = false
+
+[functions.ingest]
+verify_jwt = false

@@ -5,6 +5,7 @@
 // evaluator as untrusted data to be judged, not followed.
 import { resolveModel } from './models.ts'
 import { orComplete, systemMsg } from './openrouter.ts'
+import { recordUsage } from './usage.ts'
 
 type Action = 'block' | 'flag'
 type Violation = { name: string; reason: string; action: Action }
@@ -36,6 +37,7 @@ export async function runGuardrails(
   db: any,
   context: 'webhook' | 'chat',
   content: string,
+  actorId: string | null = null,
 ): Promise<GuardrailResult> {
   const column = context === 'webhook' ? 'applies_to_webhooks' : 'applies_to_chat'
   let rules: Array<{ name: string; instructions: string; action: Action }> = []
@@ -68,6 +70,7 @@ export async function runGuardrails(
       ],
     })
     text = out.content
+    await recordUsage(db, { context: 'guardrail', model, actorId, usage: out.usage })
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'evaluator call failed' }
   }

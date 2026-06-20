@@ -67,6 +67,22 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   the result somewhere (artifact/chat/outbound) is a later step. A webhook-targeted agent
   runs **read-only by default** — its tools are loaded only when `webhooks.allow_tools = true`
   (a deterministic rule, not a model decision), so an untrusted source can't make the agent act.
+  **Deterministic mode (n8n "function node"):** a webhook can instead set `webhooks.tool_id`
+  (migration 0021) to call an `http` tool **directly** — no model. The webhook function
+  validates the inbound payload against the tool's `input_schema` (required fields + top-level
+  types via `validatePayload`), then POSTs it straight to the tool's `config.url` and logs the
+  result; a bad payload returns a 400 listing the offending fields (`webhook_events` status
+  `error`). No guardrail runs on this path because nothing reaches an LLM — schema validation
+  *is* the gate. Mode precedence in the webhook function: `tool_id` (direct) → `agent_id`
+  (agent loop) → `prompt`. This pairs with Forge: forged functions are `http` tools, so the
+  editor's "Call a function directly" picker lists them, shows their fields/types, and renders
+  a sample payload. Outcome logs as `activity_log` type `webhook.function`.
+  **Optional shared secret (`webhooks.secret`, migration 0022):** the URL token is "secret-URL"
+  security; setting a secret adds real auth — callers must present it as `Authorization: Bearer
+  <secret>` or `X-Webhook-Secret: <secret>`, else the function returns 401 **before** logging an
+  event (so a wrong/missing secret can't spam the event log). Null = no secret (unchanged). Set
+  it per-webhook in the editor ("Require a secret"); it's a plaintext shared secret on the row,
+  same trust model as `token`.
 - **Prompts & skills:** one `skills` table, two modes.
   - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
     seeded `is_builtin` "How this workspace works" prompt teaches the assistant the
@@ -156,6 +172,16 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   admin write). Settings links here. *Planned follow-up (not built): one-click install — either
   an `install_plugin` MCP tool (Claude Code pulls the example into `supabase/functions` + deploys)
   or a server-side deploy via the Supabase Management API.*
+- **Usage tracking:** every OpenRouter call returns a `usage` object (tokens + `cost`);
+  the shared client surfaces it on `ORResult.usage` and `recordUsage()`
+  (`supabase/functions/_shared/usage.ts`) writes one `usage_events` row per call from
+  all four loops (chat/webhook/scheduler/guardrail). `UsagePage` (route `/usage`,
+  admin-only) shows spend (totals, daily chart, by model/context/user via the
+  `usage_summary(p_days)` security-definer RPC) and the OpenRouter account balance
+  (the admin-only `openrouter-balance` edge function proxies `GET /api/v1/key`, since
+  the key is server-side). RLS on `usage_events` mirrors `activity_log` (own-or-admin
+  SELECT, service-role writes only). Visibility only — budgets/enforcement are a
+  follow-up (ROADMAP items 2–3).
 - **Forge (vibe-coded functions):** `ForgePage` (route `/forge`, admin-only) closes the
   "configuration-as-data can't deploy new code" gap. An admin describes a capability in
   natural language; the admin-only `forge` edge function (`verify_jwt: true`) generates a
@@ -206,8 +232,10 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider
-  functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers) shared by all 3 loops + guardrails
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking
+  functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
+  functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
+  functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
   functions/_shared/builtins.ts  runBuiltin: search_documents, send_email, check_email (shared by all 3 loops)
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams the model via OpenRouter (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
@@ -222,7 +250,8 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
 `allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
 `mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
-config), `inbox_messages`, `plugins` (installed-plugin registry). Enums: `visibility`
+config), `inbox_messages`, `plugins` (installed-plugin registry), `usage_events`
+(per-call token/cost accounting). Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**

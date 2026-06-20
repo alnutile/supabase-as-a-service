@@ -16,6 +16,7 @@ import GuardrailsPage from './pages/GuardrailsPage'
 import AgentsPage from './pages/AgentsPage'
 import PluginsPage from './pages/PluginsPage'
 import ActivityPage from './pages/ActivityPage'
+import UsagePage from './pages/UsagePage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="agents" element={<AgentsPage />} />
         <Route path="plugins" element={<PluginsPage />} />
         <Route path="activity" element={<ActivityPage />} />
+        <Route path="usage" element={<UsagePage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

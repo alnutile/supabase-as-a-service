@@ -12,6 +12,7 @@ import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
 import { resolveModel } from '../_shared/models.ts'
 import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import { recordUsage } from '../_shared/usage.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -279,7 +280,7 @@ Deno.serve(async (req: Request) => {
   // fails OPEN — a signed-in human is present, availability beats a flaky gate.
   const lastUser = inMessages[inMessages.length - 1]
   const lastText = lastUser && lastUser.role === 'user' ? lastUser.content : ''
-  const guard = await runGuardrails(db, 'chat', lastText)
+  const guard = await runGuardrails(db, 'chat', lastText, userId)
   if (guard.ok === false && 'error' in guard) {
     await logActivity(db, 'guardrail.error', 'Guardrail check errored (chat — proceeding)', { error: guard.error }, userId)
   } else if (guard.ok === false && guard.blocked) {
@@ -324,6 +325,7 @@ Deno.serve(async (req: Request) => {
             },
             (delta) => controller.enqueue(sse({ delta })),
           )
+          await recordUsage(db, { context: 'chat', model: MODEL, actorId: userId, usage: result.usage })
 
           if (result.toolCalls.length) {
             // Preserve the assistant turn (content + tool_calls) before results.

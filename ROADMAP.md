@@ -37,10 +37,11 @@ job slots (`orchestrator`, `utility`) the workspace assigns models to, managed i
 Settings. Features bind to the slot, never to a model id, so swapping in a cheaper
 model is one admin edit, not a code change.
 
-1. **Token & cost tracking.** Log input/output tokens for every model call — chat,
-   webhook runs, scheduled agents, MCP — into the activity feed, with a simple spend
-   view in Settings (by workspace, user, and agent). "It cost us $11 last month, here's
-   the meter" should be a screenshot, not a guess.
+1. **Token & cost tracking.** ✅ Shipped — every model call (chat, webhook,
+   scheduled agents, guardrails) writes a `usage_events` row with tokens + cost, and
+   the admin-only **/usage** page shows spend (totals, daily chart, by model / context
+   / user) plus the live OpenRouter account balance. "It cost us $11, here's the meter"
+   is now a screenshot. (Next: per-agent attribution for chat + MCP, and CSV export.)
 2. **Budgets.** A soft monthly cap per workspace: warn the admins as it approaches,
    require an admin nod to blow past it. No surprise bills.
 3. **Model routing.** Opus stays as the orchestrator for interactive, high-stakes work;

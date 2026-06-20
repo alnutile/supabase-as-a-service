@@ -192,8 +192,10 @@ export interface Database {
           prompt: string
           token: string
           agent_id: string | null
+          tool_id: string | null
           allow_tools: boolean
           is_active: boolean
+          secret: string | null
           created_at: string
           updated_at: string
         }
@@ -204,8 +206,10 @@ export interface Database {
           prompt?: string
           token?: string
           agent_id?: string | null
+          tool_id?: string | null
           allow_tools?: boolean
           is_active?: boolean
+          secret?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -318,6 +322,40 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['activity_log']['Insert']>
+        Relationships: []
+      }
+      usage_events: {
+        Row: {
+          id: string
+          context: string
+          model: string
+          prompt_tokens: number
+          completion_tokens: number
+          total_tokens: number
+          cost: number | null
+          reasoning_tokens: number
+          cached_tokens: number
+          actor_id: string | null
+          agent_id: string | null
+          detail: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          context: string
+          model: string
+          prompt_tokens?: number
+          completion_tokens?: number
+          total_tokens?: number
+          cost?: number | null
+          reasoning_tokens?: number
+          cached_tokens?: number
+          actor_id?: string | null
+          agent_id?: string | null
+          detail?: Json | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['usage_events']['Insert']>
         Relationships: []
       }
       agents: {
@@ -593,6 +631,10 @@ export interface Database {
       email_is_configured: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      usage_summary: {
+        Args: { p_days?: number }
+        Returns: Json
       }
     }
     Enums: { [_ in never]: never }

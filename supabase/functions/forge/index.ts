@@ -16,6 +16,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
 import { runGuardrails } from '../_shared/guardrails.ts'
 import { orApiKey, orComplete, systemMsg } from '../_shared/openrouter.ts'
+import { recordUsage } from '../_shared/usage.ts'
 import { deleteFunction, deployFunction, managementConfigured } from '../_shared/management.ts'
 import { buildModule, generatorSystem, lintSource, validateSlug } from './template.ts'
 
@@ -71,12 +72,14 @@ interface Generated {
 }
 
 // Ask the orchestrator model to write the handler module from a spec.
-async function generate(model: string, spec: string): Promise<Generated> {
+// deno-lint-ignore no-explicit-any
+async function generate(db: any, model: string, spec: string, actorId: string | null): Promise<Generated> {
   const out = await orComplete({
     model,
     maxTokens: 8000,
     messages: [systemMsg(generatorSystem()), { role: 'user', content: spec }],
   })
+  await recordUsage(db, { context: 'forge', model, actorId, usage: out.usage })
   const start = out.content.indexOf('{')
   const end = out.content.lastIndexOf('}')
   if (start === -1 || end === -1 || end < start) throw new Error('Model did not return JSON.')
@@ -125,7 +128,7 @@ Deno.serve(async (req: Request) => {
     if (!spec) return json({ error: 'Describe the capability first.' }, 400)
     try {
       const model = await resolveModel(db, 'orchestrator')
-      const gen = await generate(model, spec)
+      const gen = await generate(db, model, spec, userId)
       const warnings = lintSource(gen.code)
       const slugError = gen.slug ? validateSlug(gen.slug) : 'Model did not propose a slug.'
       return json({ ...gen, model, warnings, slug_error: slugError })
@@ -158,7 +161,7 @@ Deno.serve(async (req: Request) => {
     if (lint.length) return json({ error: `Code rejected: ${lint.join('; ')}.` }, 400)
 
     // Guardrail pre-flight over the code (fail closed for an admin write action).
-    const guard = await runGuardrails(db, 'chat', code)
+    const guard = await runGuardrails(db, 'chat', code, userId)
     if (guard.ok === false && 'error' in guard) {
       await db.from('activity_log').insert({ type: 'forge.failed', summary: `Forge guardrail errored for "${slug}"`, detail: { error: guard.error }, actor_id: userId })
       return json({ error: `Guardrail evaluator error: ${guard.error}` }, 502)
