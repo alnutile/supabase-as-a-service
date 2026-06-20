@@ -206,6 +206,25 @@ export const ForgeIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const ThumbsUpIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M7 10v11M3 14v5a2 2 0 0 0 2 2h12.3a2 2 0 0 0 2-1.7l1.2-7a2 2 0 0 0-2-2.3H14V4.5A2.5 2.5 0 0 0 11.5 2L7 10v0" />
+  </svg>
+)
+
+export const ThumbsDownIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M17 14V3M21 10V5a2 2 0 0 0-2-2H6.7a2 2 0 0 0-2 1.7l-1.2 7A2 2 0 0 0 5.5 14H10v5.5A2.5 2.5 0 0 0 12.5 22L17 14v0" />
+  </svg>
+)
+
+export const FeedbackIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <path d="m9 10 2 2 4-4" />
+  </svg>
+)
+
 export const MenuIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 12h18M3 6h18M3 18h18" />

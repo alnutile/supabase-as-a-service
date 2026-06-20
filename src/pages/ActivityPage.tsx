@@ -17,6 +17,7 @@ const FILTERS = [
   { key: 'file', label: 'Files' },
   { key: 'guardrail', label: 'Guardrails' },
   { key: 'email', label: 'Email' },
+  { key: 'feedback', label: 'Feedback' },
 ] as const
 
 type FilterKey = (typeof FILTERS)[number]['key']
@@ -24,6 +25,7 @@ type FilterKey = (typeof FILTERS)[number]['key']
 // Colour each event family so the feed is scannable at a glance.
 function badgeStyle(type: string): string {
   if (type.startsWith('guardrail')) return type.endsWith('.flagged') ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+  if (type.startsWith('feedback')) return type.endsWith('.down') ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
   if (type.endsWith('.error')) return 'bg-red-100 text-red-700'
   if (type.startsWith('schedule')) return 'bg-violet-100 text-violet-700'
   if (type.startsWith('webhook')) return 'bg-amber-100 text-amber-700'
@@ -82,7 +84,7 @@ export default function ActivityPage() {
         <h1 className="text-2xl font-semibold tracking-tight text-text">Activity</h1>
         <p className="mt-1 text-sm text-muted">
           A live feed of what’s happening across the workspace — scheduled runs, webhook events,
-          tool calls, artifacts, and uploads. Updates in real time.
+          tool calls, artifacts, uploads, and feedback. Updates in real time.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-1.5">

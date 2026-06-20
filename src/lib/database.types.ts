@@ -358,6 +358,36 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['usage_events']['Insert']>
         Relationships: []
       }
+      message_feedback: {
+        Row: {
+          id: string
+          message_id: string
+          conversation_id: string | null
+          owner_id: string
+          rating: 'up' | 'down'
+          category: string | null
+          note: string | null
+          agent_id: string | null
+          context: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          message_id: string
+          conversation_id?: string | null
+          owner_id: string
+          rating: 'up' | 'down'
+          category?: string | null
+          note?: string | null
+          agent_id?: string | null
+          context?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['message_feedback']['Insert']>
+        Relationships: []
+      }
       agents: {
         Row: {
           id: string
@@ -745,6 +775,10 @@ export interface Database {
         Returns: boolean
       }
       usage_summary: {
+        Args: { p_days?: number }
+        Returns: Json
+      }
+      feedback_summary: {
         Args: { p_days?: number }
         Returns: Json
       }

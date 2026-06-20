@@ -16,8 +16,19 @@ import {
   PlusIcon,
   SendIcon,
   SkillIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
   TrashIcon,
 } from '../components/icons'
+
+type FeedbackRow = { rating: 'up' | 'down'; category: string | null; note: string | null }
+type FeedbackPatch = { rating?: 'up' | 'down'; category?: string | null; note?: string | null }
+
+const FEEDBACK_CATEGORIES = [
+  { value: 'off_target', label: 'Off target' },
+  { value: 'needs_work', label: 'Needs work' },
+  { value: 'exactly_right', label: 'Exactly right' },
+] as const
 
 const BUCKET = 'files'
 
@@ -44,6 +55,7 @@ export default function ChatPage() {
   const [showSkills, setShowSkills] = useState(false)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
+  const [feedback, setFeedback] = useState<Record<string, FeedbackRow>>({})
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -152,6 +164,59 @@ export default function ChatPage() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, streaming])
+
+  // --- Load this user's feedback for the conversation (one query) ---
+  useEffect(() => {
+    if (!conversationId || !user) {
+      setFeedback({})
+      return
+    }
+    let active = true
+    supabase
+      .from('message_feedback')
+      .select('message_id, rating, category, note')
+      .eq('conversation_id', conversationId)
+      .eq('owner_id', user.id)
+      .then(({ data }) => {
+        if (!active) return
+        const map: Record<string, FeedbackRow> = {}
+        for (const r of data ?? []) {
+          map[r.message_id] = { rating: r.rating, category: r.category, note: r.note }
+        }
+        setFeedback(map)
+      })
+    return () => {
+      active = false
+    }
+  }, [conversationId, user])
+
+  // Rate an assistant answer. Upserts (one verdict per user per message) and
+  // snapshots what produced it (agent/source) so feedback can be attributed later.
+  async function saveFeedback(messageId: string, patch: FeedbackPatch) {
+    if (!user) return
+    const existing = feedback[messageId]
+    const next: FeedbackRow = {
+      rating: patch.rating ?? existing?.rating ?? 'up',
+      category: patch.category !== undefined ? patch.category : existing?.category ?? null,
+      note: patch.note !== undefined ? patch.note : existing?.note ?? null,
+    }
+    setFeedback((prev) => ({ ...prev, [messageId]: next })) // optimistic
+    const { error: fbErr } = await supabase.from('message_feedback').upsert(
+      {
+        message_id: messageId,
+        conversation_id: conversationId ?? null,
+        owner_id: user.id,
+        rating: next.rating,
+        category: next.category,
+        note: next.note,
+        agent_id: agent?.id ?? null,
+        context: { source: agent ? 'agent' : 'chat', agent_name: agent?.name ?? null },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'message_id,owner_id' },
+    )
+    if (fbErr) setError(fbErr.message)
+  }
 
   async function ensureConversation(firstMessage: string): Promise<string> {
     if (conversationId) return conversationId
@@ -546,6 +611,10 @@ export default function ChatPage() {
                   onSaveArtifact={
                     m.role === 'assistant' ? () => saveAsArtifact(m.content) : undefined
                   }
+                  feedback={m.role === 'assistant' ? feedback[m.id] : undefined}
+                  onFeedback={
+                    m.role === 'assistant' ? (patch) => saveFeedback(m.id, patch) : undefined
+                  }
                 />
               ))}
               {streaming !== null && (
@@ -702,12 +771,16 @@ function MessageBubble({
   streaming,
   attachments,
   onSaveArtifact,
+  feedback,
+  onFeedback,
 }: {
   role: string
   content: string
   streaming?: boolean
   attachments?: ChatAttachment[]
   onSaveArtifact?: () => void
+  feedback?: FeedbackRow
+  onFeedback?: (patch: FeedbackPatch) => void
 }) {
   const isUser = role === 'user'
   // Long pasted context collapses so it doesn't dominate the thread.
@@ -757,15 +830,109 @@ function MessageBubble({
           )}
           {streaming && <span className="ml-0.5 inline-block animate-pulse">▋</span>}
         </div>
-        {onSaveArtifact && !streaming && (
+        {!streaming && (onSaveArtifact || onFeedback) && (
+          <div className="mt-1 space-y-1">
+            {onSaveArtifact && (
+              <button
+                onClick={onSaveArtifact}
+                className="flex items-center gap-1 text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-primary"
+              >
+                <ArtifactIcon className="h-3.5 w-3.5" /> Save as artifact
+              </button>
+            )}
+            {onFeedback && <MessageFeedback feedback={feedback} onFeedback={onFeedback} />}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Thumbs up/down + optional category and note on an assistant answer. Writes
+// through onFeedback (an upsert), so re-rating just overwrites.
+function MessageFeedback({
+  feedback,
+  onFeedback,
+}: {
+  feedback?: FeedbackRow
+  onFeedback: (patch: FeedbackPatch) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState(feedback?.note ?? '')
+  const rated = feedback?.rating
+
+  return (
+    <div>
+      <div
+        className={`flex items-center gap-1 text-faint transition ${
+          rated ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <button
+          title="Good answer"
+          onClick={() => {
+            onFeedback({ rating: 'up' })
+            setOpen(true)
+          }}
+          className={`rounded-md p-1 transition hover:text-primary ${
+            rated === 'up' ? 'text-primary' : ''
+          }`}
+        >
+          <ThumbsUpIcon className="h-3.5 w-3.5" />
+        </button>
+        <button
+          title="Needs work"
+          onClick={() => {
+            onFeedback({ rating: 'down' })
+            setOpen(true)
+          }}
+          className={`rounded-md p-1 transition hover:text-red-600 ${
+            rated === 'down' ? 'text-red-600' : ''
+          }`}
+        >
+          <ThumbsDownIcon className="h-3.5 w-3.5" />
+        </button>
+        {rated && (
           <button
-            onClick={onSaveArtifact}
-            className="mt-1 flex items-center gap-1 text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-primary"
+            onClick={() => setOpen((v) => !v)}
+            className="ml-1 text-[11px] transition hover:text-text"
           >
-            <ArtifactIcon className="h-3.5 w-3.5" /> Save as artifact
+            {open ? 'Close' : 'Add detail'}
           </button>
         )}
       </div>
+
+      {open && rated && (
+        <div className="mt-1.5 w-full max-w-sm rounded-lg border border-border bg-surface p-2">
+          <div className="flex flex-wrap gap-1">
+            {FEEDBACK_CATEGORIES.map((c) => (
+              <button
+                key={c.value}
+                onClick={() =>
+                  onFeedback({ category: feedback?.category === c.value ? null : c.value })
+                }
+                className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
+                  feedback?.category === c.value
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-border text-muted hover:bg-surface-hover'
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onBlur={() => {
+              if (note !== (feedback?.note ?? '')) onFeedback({ note: note || null })
+            }}
+            rows={2}
+            placeholder="What was off, or what was great? (optional)"
+            className="mt-2 w-full resize-none rounded-md border border-border-strong px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+          />
+        </div>
+      )}
     </div>
   )
 }
