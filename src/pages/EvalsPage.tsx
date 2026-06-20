@@ -56,6 +56,7 @@ export default function EvalsPage() {
   const { user } = useAuth()
   const [isAdmin, setIsAdmin] = useState(false)
   const [suites, setSuites] = useState<Suite[]>([])
+  const [latest, setLatest] = useState<Record<string, Run>>({})
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Suite | null>(null)
 
@@ -63,6 +64,15 @@ export default function EvalsPage() {
     const { data } = await supabase.from('eval_suites').select('*').order('updated_at', { ascending: false })
     setSuites(data ?? [])
     setLoading(false)
+    // Latest run per suite (for the scorecard badges) — reduce recent runs client-side.
+    const { data: runs } = await supabase
+      .from('eval_runs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(300)
+    const bySuite: Record<string, Run> = {}
+    for (const r of runs ?? []) if (!bySuite[r.suite_id]) bySuite[r.suite_id] = r
+    setLatest(bySuite)
   }, [])
 
   useEffect(() => {
@@ -129,6 +139,11 @@ export default function EvalsPage() {
                   </div>
                   <p className="mt-0.5 line-clamp-1 text-xs text-muted">{s.description || 'No description'} · {formatDate(s.updated_at)}</p>
                 </div>
+                {latest[s.id] ? (
+                  <SuiteScorePill run={latest[s.id]} />
+                ) : (
+                  <span className="shrink-0 text-[11px] text-faint">not run</span>
+                )}
               </button>
             ))}
           </div>
@@ -274,6 +289,8 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         </div>
 
+        {runs.length > 0 && <TrendStrip runs={runs} activeRun={activeRun} onSelect={setActiveRun} />}
+
         {current && (
           <div className="mb-6">
             <div className="mb-2 flex flex-wrap items-center gap-3">
@@ -341,6 +358,51 @@ function ScoreBadge({ run }: { run: Run }) {
   const pct = run.score != null ? Math.round(run.score * 100) : null
   const tone = pct == null ? 'bg-surface-2 text-muted' : pct >= 80 ? 'bg-green-100 text-green-700' : pct >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
   return <span className={`rounded-full px-3 py-1 text-sm font-semibold ${tone}`}>{pct == null ? '—' : `${pct}%`} · {run.passed}/{run.total} passed</span>
+}
+
+// Compact latest-score badge on each suite card (the at-a-glance scorecard).
+function SuiteScorePill({ run }: { run: Run }) {
+  const pct = run.score != null ? Math.round(run.score * 100) : null
+  const tone = pct == null ? 'bg-surface-2 text-muted' : pct >= 80 ? 'bg-green-100 text-green-700' : pct >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}
+      title={`${run.passed}/${run.total} passed · ${formatDate(run.created_at)}`}
+    >
+      {run.status === 'running' ? '…' : pct == null ? '—' : `${pct}%`}
+    </span>
+  )
+}
+
+// A compact run-history sparkline: each bar is a run (oldest left → newest right),
+// height + colour by score%. Click a bar to inspect that run. Surfaces drift over
+// time and model A/B (hover shows the `model` tag + cost) at a glance.
+function TrendStrip({ runs, activeRun, onSelect }: { runs: Run[]; activeRun: string | null; onSelect: (id: string) => void }) {
+  const ordered = [...runs].reverse()
+  return (
+    <div className="mb-6 rounded-xl border border-border bg-surface p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-text">Score trend</span>
+        <span className="text-[11px] text-faint">last {ordered.length} run{ordered.length === 1 ? '' : 's'} · click a bar</span>
+      </div>
+      <div className="flex items-end gap-1" style={{ height: 64 }}>
+        {ordered.map((r) => {
+          const pct = r.score != null ? Math.round(r.score * 100) : 0
+          const active = r.id === activeRun
+          const tone = pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500'
+          return (
+            <button
+              key={r.id}
+              onClick={() => onSelect(r.id)}
+              title={`${pct}% (${r.passed}/${r.total})${r.model ? ` · ${r.model}` : ''}${r.cost != null ? ` · $${r.cost.toFixed(4)}` : ''} · ${formatDate(r.created_at)}`}
+              className={`min-w-[8px] flex-1 rounded-t transition ${tone} ${active ? 'ring-2 ring-primary ring-offset-1' : 'opacity-60 hover:opacity-100'}`}
+              style={{ height: `${Math.max(6, pct)}%` }}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function ResultRow({ result }: { result: Result }) {
