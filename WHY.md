@@ -135,6 +135,13 @@ out.
   recurring check.
 - **Custom tools:** the assistant can call your other systems. Adding a capability is
   adding a row in a dashboard (name, description, URL) — not deploying code.
+- **Forge — deploy real, deterministic functions:** when a job needs to be *exact* — a
+  calculator, a unit or currency converter, a precise data transform, a
+  validate-then-call-an-API step — an admin describes it in plain language and the system
+  **generates a real edge function, deploys it to your project, and registers it as a
+  tool**. The AI decides *when* to call it; deterministic code does the *work*, so the
+  parts that must be right every time aren't left to the model's guesswork. Those
+  functions plug into the same chat, agents, and webhooks as everything else.
 - **MCP:** connect Claude Code or Claude Desktop to the workspace and say *"build me an
   agent that does X"* — it gets authored and pushed into your dashboard from outside. This
   is also how you bring your company's existing history and connections in: the personal
@@ -144,10 +151,15 @@ out.
 
 This is the pillar that separates a team's working tool from a personal toy. The moment
 automation matters, the question stops being "can it write this?" and becomes "can I
-trust it enough to stop checking?" The project is built toward making that answer *yes* —
-**evaluation** of the assistant's output, so a proven workflow can be promoted to run on
-its own and a skill can be shared across the team with a track record behind it, not just
-a hope. *(In progress — see the roadmap.)*
+trust it enough to stop checking?"
+
+Part of the answer already ships. The exact work can be handed to **deterministic
+functions** (see Forge above) instead of the model's best guess, and **guardrails** —
+cheap, fast pre-flight checks an admin defines — screen inputs *before* the main model
+runs, blocking a bad or hostile request rather than acting on it. The other half is on the
+way: **evaluation** of the assistant's *output*, so a proven workflow can be promoted to
+run on its own and a skill can be shared across the team with a track record behind it,
+not just a hope. *(Output evaluation is in progress — see the roadmap.)*
 
 ### 5. You actually own it
 
@@ -198,6 +210,12 @@ A small agency deploys this in an afternoon:
 Total infrastructure cost: roughly $0–25/month plus AI usage. No per-seat licenses.
 
 ## On AI cost
+
+You can see exactly what the AI is costing you. Every model call's tokens and cost are
+logged, and an admin **Usage** page shows the totals, a daily chart, and a breakdown by
+model, context, and user — alongside your live OpenRouter account balance pulled straight
+from the key. (OpenRouter gives you its own spend dashboard too, so the numbers are
+verifiable on both ends.)
 
 The model is a one-line setting — admins re-point it in **Settings → Models** (the
 database row is the source of truth; an `OPENROUTER_MODEL` server secret is only a
