@@ -625,6 +625,8 @@ export interface Database {
           description: string
           target_kind: string
           agent_id: string | null
+          rubric: string
+          judge_model: string | null
           created_by: string | null
           created_at: string
           updated_at: string
@@ -635,6 +637,8 @@ export interface Database {
           description?: string
           target_kind?: string
           agent_id?: string | null
+          rubric?: string
+          judge_model?: string | null
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -648,6 +652,7 @@ export interface Database {
           suite_id: string
           name: string
           input: string
+          expected: string | null
           assertions: Json
           created_at: string
         }
@@ -656,6 +661,7 @@ export interface Database {
           suite_id: string
           name?: string
           input: string
+          expected?: string | null
           assertions?: Json
           created_at?: string
         }
