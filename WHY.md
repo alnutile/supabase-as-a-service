@@ -2,6 +2,23 @@
 
 *The pitch, in plain language. For what the system is technically, see the [README](./README.md).*
 
+## Who this is for
+
+A **5–50 person services business** — an agency, consultancy, accounting or law
+practice, a trades company — that produces documents and proposals, answers the same
+client questions over and over, and wants AI working from *its own* materials without
+shipping them to a third party.
+
+But the real buyer is a **person** inside that business: the manager or owner who has
+discovered that, thanks to AI, they can now do work that used to require hiring a
+developer. They can pull a report from the ticket system every morning. They can turn a
+messy RFP into a clean first draft. They can wire up the lead form to triage itself.
+What they *can't* do is make any of that **hosted, shared with their team, and
+remembered** — because the tools they're using (Claude Desktop, ChatGPT) are personal
+accounts that forget everything the moment the window closes.
+
+That's the gap this fills.
+
 ## The problem
 
 Most small businesses today have the same three problems with AI:
@@ -9,21 +26,69 @@ Most small businesses today have the same three problems with AI:
 1. **Their knowledge is scattered.** Past proposals, rate cards, contracts, how-we-do-things
    docs — they live in email threads, someone's Drive, and a few people's heads. Every new
    proposal, quote, or client answer starts from a blank page.
-2. **AI doesn't know their business.** ChatGPT-style tools are per-person accounts with no
-   shared memory. Everyone pastes company context in by hand, every time, and pastes company
-   data *out* to a vendor while doing it.
+2. **AI doesn't know their business — and it's personal, not shared.** ChatGPT- and
+   Claude-Desktop-style tools are per-person accounts with no shared memory. Everyone pastes
+   company context in by hand, every time, and pastes company data *out* to a vendor while
+   doing it. Nothing one person teaches the AI carries over to anyone else.
 3. **Automation is out of reach.** "When a lead form comes in, summarize it and draft a
    reply" is a Zapier-plus-engineer project, priced per seat, per task, per month.
 
-## What this is
+## What it is, by contrast
+
+The fastest way to understand this is by what it's *not*. Chances are someone on your
+team is already using one of these and has hit its wall:
+
+| You're probably using… | The wall you hit | What this is instead |
+| --- | --- | --- |
+| **Claude Desktop / ChatGPT** | Personal, on one laptop. No team. No history that compounds. You re-paste company context every time. | The same power, but **hosted, shared, and remembered** — a team account, not a personal one. |
+| **Obsidian** (the "second brain" instinct) | Too hard for most people, and it's *notes* — it stores knowledge, it doesn't act on it. | A second brain that **acts**, and that a non-technical person can actually run and share. |
+| **Zapier + a developer** | Per-seat, per-task, and you need an engineer to build and babysit it. | Automation built as a **conversation**, on infrastructure you own. |
 
 An open-source (MIT) team workspace — an intranet — that runs on **your own Supabase
 project** with a single AI assistant at the center. You deploy it once; your whole team
 logs into the same workspace, with the same AI, sharing the same accumulated context.
+There are no per-seat fees and no vendor holding your data.
 
-There are no per-seat fees and no vendor holding your data. The infrastructure is a
-Supabase project (free tier to start) plus a static site host; the only metered cost is
-the AI usage itself.
+## How to start: one win, then the next question
+
+You don't need all of this on day one. The point is to start with **one repetitive job
+you already owe someone**, and let each capability answer the next question it raises.
+
+### Step 1 — Land one quick win
+
+Pick the boring, weekly thing. The classic:
+
+> *"Every morning, pull our ticket system and write the leadership report — the one I
+> currently spend 40 minutes on by hand."*
+
+Connect the assistant to your other systems (via custom tools or MCP — covered below),
+describe the report you want, and it drafts it. That's the hook: a real chunk of your
+week, handed back to you.
+
+### Step 2 — "…but can I trust it enough to stop checking?"
+
+A draft you have to re-read every time isn't automation — it's a second job. The
+direction this project is built toward is **confidence through evaluation**: being able
+to score and check the assistant's output against your own standard, so a proven
+workflow can run *without* you hovering over it. The goal isn't "AI that writes a
+report." It's "a report I trust enough to forward." *(This is where the project is
+headed; see the roadmap — it's the difference between a toy and something a business
+actually runs on.)*
+
+### Step 3 — "…and my team needs this too"
+
+The win that lives on one person's laptop is a party trick. Here it's a **shared
+workspace**: the context you teach the AI, the documents you upload, and the skills you
+build are available to everyone, and the things you make become **links you hand out** —
+internally, to a client, or on the open web. Knowledge and automation compound across the
+team instead of restarting with each person.
+
+### Step 4 — "…now the bigger jobs"
+
+Once the routine work is trustworthy and shared, the same machinery handles the
+high-value work: drop in an RFP PDF and get a structured kickoff or a first-draft reply
+in your house format; turn a spec into a quote priced like your past projects. The
+staircase keeps going — you're not learning a new tool, you're asking the next question.
 
 ## What it does, from the buyer's side
 
@@ -66,13 +131,25 @@ out.
   log.
 - **Agents:** a named assistant with its own instructions and its own allowed tools
   ("the proposal drafter", "the lead triager"). Built in a dashboard, not in code.
-- **Schedules:** run an agent every N minutes — a morning digest, a recurring check.
+- **Schedules:** run an agent every N minutes — the morning ticket digest from Step 1, a
+  recurring check.
 - **Custom tools:** the assistant can call your other systems. Adding a capability is
   adding a row in a dashboard (name, description, URL) — not deploying code.
 - **MCP:** connect Claude Code or Claude Desktop to the workspace and say *"build me an
-  agent that does X"* — it gets authored and pushed into your dashboard from outside.
+  agent that does X"* — it gets authored and pushed into your dashboard from outside. This
+  is also how you bring your company's existing history and connections in: the personal
+  Claude you already use becomes a way to *populate* the shared workspace.
 
-### 4. You actually own it
+### 4. Confidence, not just output
+
+This is the pillar that separates a team's working tool from a personal toy. The moment
+automation matters, the question stops being "can it write this?" and becomes "can I
+trust it enough to stop checking?" The project is built toward making that answer *yes* —
+**evaluation** of the assistant's output, so a proven workflow can be promoted to run on
+its own and a skill can be shared across the team with a track record behind it, not just
+a hope. *(In progress — see the roadmap.)*
+
+### 5. You actually own it
 
 - **Your data stays in your Postgres database**, protected by row-level security —
   the same boundary banks use, enforced in the database, not in app code. Private means
@@ -82,7 +159,7 @@ out.
   sitting in a standard Postgres database you control — not in an export queue at a SaaS
   vendor.
 
-### 5. Hosting is hard — this makes it someone else's job (for free)
+### 6. Hosting is hard — this makes it someone else's job (for free)
 
 Getting an internal app *hosted* — with login, HTTPS, backups, and security patches —
 is normally where small businesses give up or start paying: a consultant, a DevOps
@@ -122,22 +199,21 @@ Total infrastructure cost: roughly $0–25/month plus AI usage. No per-seat lice
 
 ## On AI cost
 
-The model is a one-line server setting (`ANTHROPIC_MODEL`), so you can already run a
-cheaper Claude model workspace-wide. Document indexing for search is free regardless —
-embeddings run on Supabase's edge, not a paid API. On the roadmap: smarter routing so
-heavyweight models handle drafting and cheaper ones handle routine traffic, plus support
-for additional providers.
+The model is a one-line setting — admins re-point it in **Settings → Models** (the
+database row is the source of truth; an `OPENROUTER_MODEL` server secret is only a
+fallback), so you can run a cheaper model workspace-wide whenever you want. Document
+indexing for search is free regardless — embeddings run on Supabase's edge, not a paid
+API. On the roadmap: smarter routing so heavyweight models handle drafting and cheaper
+ones handle routine traffic.
 
-## Who it's for
+## What it's not
 
-A good fit if you're a **5–50 person services business** — agency, consultancy,
-accounting/law practice, trades company — that produces documents and proposals, answers
-the same client questions repeatedly, and wants AI working from *your* materials without
-shipping them to a third party. You need one person comfortable following a deploy guide
-(or an afternoon with an AI coding assistant) to set it up.
-
-It's not trying to replace your accounting system or CRM. It's the shared brain in the
-middle: the place where your company's knowledge accumulates and gets put to work.
+It's not trying to replace your accounting system or CRM, and it's not a developer tool —
+if you live in Claude Code all day, you already have what you need. This is the **shared
+brain in the middle**: the place where a non-technical team's knowledge accumulates and
+gets put to work, hosted and owned by you. The "second brain" people reach for Obsidian
+to build — except this one is easy enough for the whole team and it *acts* on what it
+knows.
 
 ## Where this comes from
 
