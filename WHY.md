@@ -31,7 +31,8 @@ Most small businesses today have the same three problems with AI:
    company context in by hand, every time, and pastes company data *out* to a vendor while
    doing it. Nothing one person teaches the AI carries over to anyone else.
 3. **Automation is out of reach.** "When a lead form comes in, summarize it and draft a
-   reply" is a Zapier-plus-engineer project, priced per seat, per task, per month.
+   reply" normally means hiring a developer, or stitching together per-seat, per-task
+   subscriptions whose logic lives outside your business — not in it.
 
 ## What it is, by contrast
 
@@ -42,7 +43,7 @@ team is already using one of these and has hit its wall:
 | --- | --- | --- |
 | **Claude Desktop / ChatGPT** | Personal, on one laptop. No team. No history that compounds. You re-paste company context every time. | The same power, but **hosted, shared, and remembered** — a team account, not a personal one. |
 | **Obsidian** (the "second brain" instinct) | Too hard for most people, and it's *notes* — it stores knowledge, it doesn't act on it. | A second brain that **acts**, and that a non-technical person can actually run and share. |
-| **Zapier + a developer** | Per-seat, per-task, and you need an engineer to build and babysit it. | Automation built as a **conversation**, on infrastructure you own. |
+| **A custom internal build / per-seat SaaS** | Either an engineering project to build and maintain, or a subscription that holds your data and charges per head. | Automation built as a **conversation**, on a foundation you own outright. |
 
 An open-source (MIT) team workspace — an intranet — that runs on **your own Supabase
 project** with a single AI assistant at the center. You deploy it once; your whole team
@@ -232,6 +233,24 @@ brain in the middle**: the place where a non-technical team's knowledge accumula
 gets put to work, hosted and owned by you. The "second brain" people reach for Obsidian
 to build — except this one is easy enough for the whole team and it *acts* on what it
 knows.
+
+## The bigger idea
+
+This is open source the way **WordPress** is open source: download it, run it, change it,
+build your whole business on top of it — no permission to ask, no per-seat fee, no vendor
+sitting between you and your own data. The foundation is deliberately *friendly* — a clean
+UI, sensible defaults, an afternoon to deploy — because the point is for a normal team to
+actually run it, not just admire the architecture.
+
+It's also a demonstration of how far that kind of owned, open foundation can go. Built on
+managed infrastructure (Supabase for the database, auth, storage, realtime, and the
+server-side AI functions) plus a focused layer of UI on top, it does things that usually
+take a platform team — and all of it is readable, forkable, and yours.
+
+And if running it yourself isn't your thing, the intent is to make it **hostable for you**:
+the same project, run as a managed service, so you get the owned-data, no-lock-in
+foundation with none of the setup. Use it, fork it, or have it hosted — either way the
+workspace and the data are yours.
 
 ## Where this comes from
 
