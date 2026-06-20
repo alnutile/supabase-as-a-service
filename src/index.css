@@ -2,8 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* Theme tokens — light is the default; [data-theme="dark"] flips them. Consumed
+   both via the Tailwind semantic colors (bg/surface/text/primary/…) and directly. */
+:root,
+[data-theme='light'] {
   color-scheme: light;
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #f1efe9;
+  --surface-hover: #f2f0ea;
+  --border: #e8e4db;
+  --border-strong: #d9d4c8;
+  --text: #221f2b;
+  --muted: #6f6b7c;
+  --faint: #a39fae;
+  --primary: #6354e8;
+  --primary-strong: #5443d8;
+  --primary-soft: #eeebfc;
+  --primary-soft-border: #ddd6fb;
+  --on-primary: #ffffff;
+  --success: #1f9d6b;
+  --success-soft: #e3f5ec;
+  --warn: #c1820f;
+  --warn-soft: #faf0d8;
+  --info: #3b74d6;
+  --info-soft: #e7eefb;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #141319;
+  --surface: #1d1c25;
+  --surface-2: #26242f;
+  --surface-hover: #2a2834;
+  --border: #2d2b38;
+  --border-strong: #3b3848;
+  --text: #ece9f4;
+  --muted: #a39fb2;
+  --faint: #6f6b80;
+  --primary: #8a7dff;
+  --primary-strong: #9b8fff;
+  --primary-soft: #262338;
+  --primary-soft-border: #3a3360;
+  --on-primary: #ffffff;
+  --success: #3fc78f;
+  --success-soft: #16312a;
+  --warn: #e0a93a;
+  --warn-soft: #352c17;
+  --info: #6fa0f0;
+  --info-soft: #1b2740;
 }
 
 html,
@@ -13,22 +60,26 @@ body,
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-bg text-text antialiased;
   margin: 0;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  transition: background 0.25s, color 0.25s;
 }
 
 /* Thin, unobtrusive scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
+  background-color: var(--border-strong);
   border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 /* Markdown rendering inside chat + artifacts */
@@ -57,21 +108,21 @@ body {
   @apply my-3 overflow-x-auto rounded-lg bg-slate-900 p-3 text-sm text-slate-100;
 }
 .prose-chat code {
-  @apply rounded bg-slate-200 px-1 py-0.5 text-[13px];
+  @apply rounded bg-surface-2 px-1 py-0.5 font-mono text-[13px];
 }
 .prose-chat pre code {
   @apply bg-transparent p-0 text-inherit;
 }
 .prose-chat a {
-  @apply text-brand-600 underline;
+  @apply text-primary underline;
 }
 .prose-chat blockquote {
-  @apply my-2 border-l-4 border-slate-300 pl-3 text-slate-600;
+  @apply my-2 border-l-4 border-border-strong pl-3 text-muted;
 }
 .prose-chat table {
   @apply my-3 w-full border-collapse text-sm;
 }
 .prose-chat th,
 .prose-chat td {
-  @apply border border-slate-300 px-2 py-1;
+  @apply border border-border-strong px-2 py-1;
 }

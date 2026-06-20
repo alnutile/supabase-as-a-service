@@ -16,7 +16,7 @@ type Forged = Database['public']['Tables']['forged_functions']['Row']
 const STATUS_STYLE: Record<string, string> = {
   deployed: 'bg-emerald-100 text-emerald-700',
   failed: 'bg-red-100 text-red-700',
-  disabled: 'bg-slate-100 text-slate-500',
+  disabled: 'bg-surface-2 text-muted',
   draft: 'bg-amber-100 text-amber-700',
 }
 
@@ -79,54 +79,54 @@ export default function ForgePage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="mb-1 flex items-center justify-between">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900">
-            <ForgeIcon className="h-6 w-6 text-brand-600" /> Forge
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-text">
+            <ForgeIcon className="h-6 w-6 text-primary" /> Forge
           </h1>
           {isAdmin && (
             <button
               onClick={() => setCreating(true)}
-              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong"
             >
               <PlusIcon className="h-4 w-4" /> Forge a tool
             </button>
           )}
         </div>
-        <p className="mb-6 text-sm text-slate-500">
+        <p className="mb-6 text-sm text-muted">
           Describe a capability and Forge writes a real edge function, deploys it to this project,
           and registers it as a tool any agent can call — a calculator, a custom API, a precise
           transform the model can’t reliably do itself.
         </p>
 
         {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
+          <p className="text-sm text-faint">Loading…</p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-faint">
             {isAdmin ? 'No forged functions yet. Forge your first tool.' : 'No forged functions yet.'}
           </p>
         ) : (
           <div className="space-y-3">
             {rows.map((r) => (
-              <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div key={r.id} className="rounded-xl border border-border bg-surface p-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
                     <ForgeIcon className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="truncate font-mono text-sm font-medium text-slate-800">{r.slug}</span>
+                      <span className="truncate font-mono text-sm font-medium text-text">{r.slug}</span>
                       <span
                         className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
-                          STATUS_STYLE[r.status] ?? 'bg-slate-100 text-slate-500'
+                          STATUS_STYLE[r.status] ?? 'bg-surface-2 text-muted'
                         }`}
                       >
                         {r.status}
                       </span>
                     </div>
-                    <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{r.spec || r.name}</p>
+                    <p className="mt-0.5 line-clamp-1 text-xs text-muted">{r.spec || r.name}</p>
                   </div>
                   <button
                     onClick={() => setViewing(r)}
-                    className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                    className="rounded-md px-2 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
                   >
                     Source
                   </button>
@@ -136,7 +136,7 @@ export default function ForgePage() {
                         onClick={() => redeploy(r)}
                         disabled={busyId === r.id}
                         title="Redeploy stored source"
-                        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                        className="rounded-md p-1.5 text-muted hover:bg-surface-hover disabled:opacity-50"
                       >
                         <PlayIcon className="h-[18px] w-[18px]" />
                       </button>
@@ -144,7 +144,7 @@ export default function ForgePage() {
                         onClick={() => remove(r)}
                         disabled={busyId === r.id}
                         title="Delete + undeploy"
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                       >
                         <TrashIcon className="h-[18px] w-[18px]" />
                       </button>
@@ -159,7 +159,7 @@ export default function ForgePage() {
           </div>
         )}
         {!isAdmin && !loading && (
-          <p className="mt-4 text-xs text-slate-400">Only an admin can forge or change functions.</p>
+          <p className="mt-4 text-xs text-faint">Only an admin can forge or change functions.</p>
         )}
       </div>
 
@@ -216,20 +216,20 @@ function ForgeCreator({ onClose, onDone }: { onClose: () => void; onDone: () => 
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-700">Forge a tool</h2>
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-text">Forge a tool</h2>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Describe the capability</span>
+            <span className="mb-1 block text-xs font-medium text-muted">Describe the capability</span>
             <textarea
               value={spec}
               onChange={(e) => setSpec(e.target.value)}
               rows={3}
               placeholder="e.g. Compute a mortgage amortization schedule from principal, annual rate, and term in years."
-              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </label>
           <button
@@ -241,23 +241,23 @@ function ForgeCreator({ onClose, onDone }: { onClose: () => void; onDone: () => 
           </button>
 
           {preview && (
-            <div className="space-y-4 border-t border-slate-200 pt-4">
-              {preview.summary && <p className="text-sm text-slate-600">{preview.summary}</p>}
+            <div className="space-y-4 border-t border-border pt-4">
+              {preview.summary && <p className="text-sm text-muted">{preview.summary}</p>}
               <div className="flex gap-3">
                 <label className="block flex-1">
-                  <span className="mb-1 block text-xs font-medium text-slate-600">Slug (function + tool name)</span>
+                  <span className="mb-1 block text-xs font-medium text-muted">Slug (function + tool name)</span>
                   <input
                     value={slug}
                     onChange={(e) => setSlug(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
                   />
                 </label>
                 <label className="block flex-1">
-                  <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+                  <span className="mb-1 block text-xs font-medium text-muted">Name</span>
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
                   />
                 </label>
               </div>
@@ -268,7 +268,7 @@ function ForgeCreator({ onClose, onDone }: { onClose: () => void; onDone: () => 
                 </div>
               )}
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-600">
+                <span className="mb-1 block text-xs font-medium text-muted">
                   Generated code — defines <code>handler(input)</code>. A fixed harness adds request handling.
                 </span>
                 <textarea
@@ -276,7 +276,7 @@ function ForgeCreator({ onClose, onDone }: { onClose: () => void; onDone: () => 
                   onChange={(e) => setCode(e.target.value)}
                   rows={14}
                   spellCheck={false}
-                  className="w-full resize-y rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                  className="w-full resize-y rounded-lg border border-border-strong bg-surface-2 px-3 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
                 />
               </label>
             </div>
@@ -285,14 +285,14 @@ function ForgeCreator({ onClose, onDone }: { onClose: () => void; onDone: () => 
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
-          <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover">
             Cancel
           </button>
           <button
             onClick={deploy}
             disabled={!preview || deploying || !slug.trim() || !code.trim()}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
           >
             {deploying ? 'Deploying…' : 'Deploy'}
           </button>
@@ -305,10 +305,10 @@ function ForgeCreator({ onClose, onDone }: { onClose: () => void; onDone: () => 
 function SourceViewer({ row, onClose }: { row: Forged; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="font-mono text-sm font-semibold text-slate-700">{row.slug}</h2>
-          <button onClick={onClose} className="rounded-md px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100">
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="font-mono text-sm font-semibold text-text">{row.slug}</h2>
+          <button onClick={onClose} className="rounded-md px-3 py-1 text-sm font-medium text-muted hover:bg-surface-hover">
             Close
           </button>
         </div>

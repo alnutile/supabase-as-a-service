@@ -428,7 +428,7 @@ export default function ChatPage() {
         />
       )}
       <div
-        className={`absolute inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform md:static md:translate-x-0 ${
+        className={`absolute inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-border bg-surface transition-transform md:static md:translate-x-0 ${
           showConvos ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -438,7 +438,7 @@ export default function ChatPage() {
               navigate('/chat')
               setShowConvos(false)
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text transition hover:bg-surface-hover"
           >
             <PlusIcon className="h-4 w-4" /> New chat
           </button>
@@ -453,15 +453,15 @@ export default function ChatPage() {
               }}
               className={`block w-full truncate rounded-lg px-3 py-2 text-left text-sm transition ${
                 c.id === conversationId
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'bg-primary-soft text-primary'
+                  : 'text-muted hover:bg-surface-hover'
               }`}
             >
               {c.title}
             </button>
           ))}
           {conversations.length === 0 && (
-            <p className="px-3 py-6 text-center text-xs text-slate-400">
+            <p className="px-3 py-6 text-center text-xs text-faint">
               No conversations yet
             </p>
           )}
@@ -471,16 +471,16 @@ export default function ChatPage() {
       {/* Message panel */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Mobile: open the conversation list */}
-        <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
+        <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2 md:hidden">
           <button
             onClick={() => setShowConvos(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted"
           >
             <ChatIcon className="h-4 w-4" /> Conversations
           </button>
           <button
             onClick={() => navigate('/chat')}
-            className="ml-auto flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white"
+            className="ml-auto flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white"
           >
             <PlusIcon className="h-4 w-4" /> New
           </button>
@@ -497,15 +497,20 @@ export default function ChatPage() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-4 py-6">
             {messages.length === 0 && !streaming && (
-              <div className="mt-20 text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-2xl text-white">
+              <div className="mt-24 flex flex-col items-center text-center">
+                <div
+                  className="mb-6 flex h-[74px] w-[74px] items-center justify-center rounded-[22px] bg-gradient-to-br from-primary to-primary-strong text-4xl text-white"
+                  style={{ boxShadow: '0 12px 34px rgba(99,84,232,.40)' }}
+                >
                   ✺
                 </div>
-                <h2 className="text-lg font-semibold text-slate-800">
+                <h2 className="text-[34px] font-extrabold tracking-tight text-text">
                   What do you want to build?
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Paste context, ask anything, or type <code className="rounded bg-slate-100 px-1">/</code> to run a saved skill.
+                <p className="mt-3 max-w-md text-[17px] leading-relaxed text-muted">
+                  Paste context, ask anything, or type{' '}
+                  <code className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-sm text-text">/</code> to run a saved
+                  skill.
                 </p>
               </div>
             )}
@@ -535,25 +540,25 @@ export default function ChatPage() {
           </div>
         )}
 
-        <form onSubmit={handleSend} className="border-t border-slate-200 bg-white p-4">
+        <form onSubmit={handleSend} className="border-t border-border bg-surface p-4">
           <div className="relative mx-auto max-w-3xl">
             {/* Skill menu (slash command or the ⚡ button) */}
             {skillMenuOpen && (
-              <div className="absolute bottom-full mb-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="absolute bottom-full mb-2 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted">
                     Run a skill
                   </span>
                   <button
                     type="button"
                     onClick={() => navigate('/skills')}
-                    className="text-xs font-medium text-brand-600 hover:underline"
+                    className="text-xs font-medium text-primary hover:underline"
                   >
                     Manage
                   </button>
                 </div>
                 {filteredSkills.length === 0 ? (
-                  <p className="px-3 py-4 text-center text-sm text-slate-400">
+                  <p className="px-3 py-4 text-center text-sm text-faint">
                     {onDemandSkills.length === 0 ? 'No skills yet — create one' : 'No match'}
                   </p>
                 ) : (
@@ -562,18 +567,18 @@ export default function ChatPage() {
                       type="button"
                       key={s.id}
                       onClick={() => runSkill(s)}
-                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50"
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-hover"
                     >
-                      <SkillIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                      <SkillIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-slate-800">
+                        <span className="block truncate text-sm font-medium text-text">
                           {s.name}
-                          <span className="ml-2 text-[11px] font-normal text-slate-400">
+                          <span className="ml-2 text-[11px] font-normal text-faint">
                             {s.output_mode === 'artifact' ? `→ ${s.artifact_type} artifact` : '→ reply'}
                           </span>
                         </span>
                         {s.description && (
-                          <span className="block truncate text-xs text-slate-500">{s.description}</span>
+                          <span className="block truncate text-xs text-muted">{s.description}</span>
                         )}
                       </span>
                     </button>
@@ -588,14 +593,14 @@ export default function ChatPage() {
                 {attachments.map((a, i) => (
                   <span
                     key={a.path}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600"
+                    className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-2 py-1 text-xs text-muted"
                   >
-                    <FileIcon className="h-3.5 w-3.5 text-slate-400" />
+                    <FileIcon className="h-3.5 w-3.5 text-faint" />
                     <span className="max-w-[160px] truncate">{a.name}</span>
                     <button
                       type="button"
                       onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                      className="text-slate-400 hover:text-red-600"
+                      className="text-faint hover:text-red-600"
                     >
                       <CloseIcon className="h-3.5 w-3.5" />
                     </button>
@@ -611,8 +616,8 @@ export default function ChatPage() {
                 title="Run a skill"
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${
                   skillMenuOpen
-                    ? 'border-brand-300 bg-brand-50 text-brand-600'
-                    : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                    ? 'border-brand-300 bg-primary-soft text-primary'
+                    : 'border-border-strong text-muted hover:bg-surface-hover'
                 }`}
               >
                 <SkillIcon className="h-5 w-5" />
@@ -622,7 +627,7 @@ export default function ChatPage() {
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
                 title="Attach a file"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border-strong text-muted transition hover:bg-surface-hover disabled:opacity-50"
               >
                 <PaperclipIcon className="h-5 w-5" />
               </button>
@@ -648,7 +653,7 @@ export default function ChatPage() {
                 }}
                 rows={1}
                 placeholder="Message the assistant…  (type / to run a skill)"
-                className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-border-strong px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
               <button
                 type="submit"
@@ -658,7 +663,7 @@ export default function ChatPage() {
                   (!input.trim() && attachments.length === 0) ||
                   input.startsWith('/')
                 }
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-50"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-strong disabled:opacity-50"
               >
                 <SendIcon className="h-5 w-5" />
               </button>
@@ -694,8 +699,8 @@ function MessageBubble({
         <div
           className={`rounded-2xl px-4 py-2.5 ${
             isUser
-              ? 'bg-brand-600 text-white'
-              : 'border border-slate-200 bg-white text-slate-800'
+              ? 'bg-primary text-white'
+              : 'border border-border bg-surface text-text'
           }`}
         >
           {isUser ? (
@@ -720,7 +725,7 @@ function MessageBubble({
                 <span
                   key={a.path}
                   className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] ${
-                    isUser ? 'bg-brand-500/40 text-white' : 'bg-slate-100 text-slate-500'
+                    isUser ? 'bg-brand-500/40 text-white' : 'bg-surface-2 text-muted'
                   }`}
                 >
                   <FileIcon className="h-3 w-3" />
@@ -734,7 +739,7 @@ function MessageBubble({
         {onSaveArtifact && !streaming && (
           <button
             onClick={onSaveArtifact}
-            className="mt-1 flex items-center gap-1 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100 hover:text-brand-600"
+            className="mt-1 flex items-center gap-1 text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-primary"
           >
             <ArtifactIcon className="h-3.5 w-3.5" /> Save as artifact
           </button>

@@ -30,15 +30,15 @@ export default function PublicArtifactPage() {
   }, [slug])
 
   if (status === 'loading') {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>
+    return <div className="flex h-full items-center justify-center text-sm text-faint">Loading…</div>
   }
 
   if (status === 'missing' || !artifact) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-        <p className="text-lg font-semibold text-slate-700">This artifact isn’t available</p>
-        <p className="text-sm text-slate-500">It may be private or the link is incorrect.</p>
-        <Link to="/" className="text-sm font-medium text-brand-600 hover:underline">
+        <p className="text-lg font-semibold text-text">This artifact isn’t available</p>
+        <p className="text-sm text-muted">It may be private or the link is incorrect.</p>
+        <Link to="/" className="text-sm font-medium text-primary hover:underline">
           Go to the intranet
         </Link>
       </div>
@@ -46,28 +46,28 @@ export default function PublicArtifactPage() {
   }
 
   return (
-    <div className="min-h-full bg-white">
-      <header className="border-b border-slate-200">
+    <div className="min-h-full bg-surface">
+      <header className="border-b border-border">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <Link to="/" className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-600 text-white">
+          <Link to="/" className="flex items-center gap-2 text-sm font-semibold text-text">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-white">
               ✺
             </span>
             Intranet
           </Link>
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+          <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">
             Shared {artifact.visibility === 'public' ? 'publicly' : 'via link'}
           </span>
         </div>
       </header>
       <article className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="mb-6 text-3xl font-bold tracking-tight text-slate-900">{artifact.title}</h1>
+        <h1 className="mb-6 text-3xl font-bold tracking-tight text-text">{artifact.title}</h1>
         {artifact.type === 'html' ? (
           <iframe
             title={artifact.title}
             sandbox="allow-scripts"
             srcDoc={artifact.content}
-            className="h-[70vh] w-full rounded-xl border border-slate-200"
+            className="h-[70vh] w-full rounded-xl border border-border"
           />
         ) : artifact.type === 'markdown' ? (
           <Markdown>{artifact.content}</Markdown>

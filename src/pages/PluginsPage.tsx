@@ -104,8 +104,8 @@ export default function PluginsPage() {
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Plugins</h1>
-            <p className="mt-1 text-sm text-slate-500">
+            <h1 className="text-2xl font-semibold tracking-tight text-text">Plugins</h1>
+            <p className="mt-1 text-sm text-muted">
               Set up Supabase Edge Function examples — email, payments, bots, headless browsers,
               AI providers, and more. Track what this workspace has installed, then browse the
               catalog to add more.
@@ -115,7 +115,7 @@ export default function PluginsPage() {
             href={PLUGINS_REPO_URL}
             target="_blank"
             rel="noreferrer"
-            className="mt-1 flex shrink-0 items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
+            className="mt-1 flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:text-primary"
           >
             <LinkIcon className="h-3.5 w-3.5" /> All examples on GitHub
           </a>
@@ -123,13 +123,13 @@ export default function PluginsPage() {
 
         {/* Installed */}
         <section className="mt-6">
-          <h2 className="text-sm font-semibold text-slate-700">
-            Installed{installed.length > 0 && <span className="ml-1 text-slate-400">· {installed.length}</span>}
+          <h2 className="text-sm font-semibold text-text">
+            Installed{installed.length > 0 && <span className="ml-1 text-faint">· {installed.length}</span>}
           </h2>
           {loading ? (
-            <p className="mt-3 text-sm text-slate-400">Loading…</p>
+            <p className="mt-3 text-sm text-faint">Loading…</p>
           ) : installed.length === 0 ? (
-            <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-400">
+            <p className="mt-3 rounded-xl border border-dashed border-border bg-surface px-4 py-6 text-center text-sm text-faint">
               Nothing installed yet. {isAdmin ? 'Add one from the catalog below.' : 'An admin can add plugins from the catalog below.'}
             </p>
           ) : (
@@ -150,10 +150,10 @@ export default function PluginsPage() {
 
         {/* Available catalog */}
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-slate-700">Available</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <h2 className="text-sm font-semibold text-text">Available</h2>
+          <p className="mt-1 text-sm text-muted">
             Open one to read its source, then drop it into{' '}
-            <code className="rounded bg-slate-100 px-1">supabase/functions</code> to deploy it.
+            <code className="rounded bg-surface-2 px-1">supabase/functions</code> to deploy it.
             {isAdmin && ' Use “Add” to track it here once it’s set up.'}
           </p>
 
@@ -161,18 +161,18 @@ export default function PluginsPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search plugins — e.g. email, stripe, redis, puppeteer…"
-            className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            className="mt-4 w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
           />
 
           <div className="mt-4 space-y-5">
             {groups.length === 0 && (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-faint">
                 {q ? `No plugins match “${query}”.` : 'Everything in the catalog is installed.'}
               </p>
             )}
             {groups.map(({ cat, items }) => (
               <div key={cat}>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{cat}</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-faint">{cat}</h3>
                 <div className="mt-2 space-y-2">
                   {items.map((p) => (
                     <CatalogRow key={p.slug} plugin={p} isAdmin={isAdmin} onInstall={() => install(p)} />
@@ -207,14 +207,14 @@ function InstalledRow({
   }, [row.notes])
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
+    <div className="rounded-lg border border-border bg-surface p-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-slate-800">{row.name}</span>
-        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+        <span className="text-sm font-medium text-text">{row.name}</span>
+        <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-muted">
           {row.slug}
         </code>
         {!row.enabled && (
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
             paused
           </span>
         )}
@@ -225,7 +225,7 @@ function InstalledRow({
               target="_blank"
               rel="noreferrer"
               title="View source"
-              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text"
             >
               <LinkIcon className="h-4 w-4" />
             </a>
@@ -234,14 +234,14 @@ function InstalledRow({
             <>
               <button
                 onClick={onToggle}
-                className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-md border border-border-strong px-2 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
               >
                 {row.enabled ? 'Pause' : 'Enable'}
               </button>
               <button
                 onClick={onRemove}
                 title="Remove"
-                className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
               >
                 <TrashIcon className="h-4 w-4" />
               </button>
@@ -249,7 +249,7 @@ function InstalledRow({
           )}
         </div>
       </div>
-      {row.description && <p className="mt-0.5 text-xs text-slate-500">{row.description}</p>}
+      {row.description && <p className="mt-0.5 text-xs text-muted">{row.description}</p>}
       {isAdmin ? (
         <textarea
           value={notes}
@@ -257,12 +257,12 @@ function InstalledRow({
           onBlur={() => onSaveNotes(notes)}
           rows={2}
           placeholder="Setup notes — secrets set, provider wired up, endpoint URL…"
-          className="mt-2 w-full resize-y rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          className="mt-2 w-full resize-y rounded-lg border border-border px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
         />
       ) : (
-        row.notes && <p className="mt-2 whitespace-pre-wrap text-xs text-slate-500">{row.notes}</p>
+        row.notes && <p className="mt-2 whitespace-pre-wrap text-xs text-muted">{row.notes}</p>
       )}
-      <p className="mt-1 text-[11px] text-slate-400">Added {formatDate(row.created_at)}</p>
+      <p className="mt-1 text-[11px] text-faint">Added {formatDate(row.created_at)}</p>
     </div>
   )
 }
@@ -277,17 +277,17 @@ function CatalogRow({
   onInstall: () => void
 }) {
   return (
-    <div className="group rounded-lg border border-slate-200 bg-white p-3 transition hover:border-brand-300">
+    <div className="group rounded-lg border border-border bg-surface p-3 transition hover:border-brand-300">
       <div className="flex items-center gap-2">
         <a
           href={pluginUrl(plugin.slug)}
           target="_blank"
           rel="noreferrer"
-          className="text-sm font-medium text-slate-800 hover:text-brand-700"
+          className="text-sm font-medium text-text hover:text-primary"
         >
           {plugin.name}
         </a>
-        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+        <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-muted">
           {plugin.slug}
         </code>
         <div className="ml-auto flex items-center gap-1">
@@ -296,21 +296,21 @@ function CatalogRow({
             target="_blank"
             rel="noreferrer"
             title="View source"
-            className="rounded-md p-1.5 text-slate-300 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text"
           >
             <LinkIcon className="h-4 w-4" />
           </a>
           {isAdmin && (
             <button
               onClick={onInstall}
-              className="flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              className="flex items-center gap-1 rounded-md border border-border-strong px-2 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
             >
               <PlusIcon className="h-3.5 w-3.5" /> Add
             </button>
           )}
         </div>
       </div>
-      <p className="mt-0.5 text-xs text-slate-500">{plugin.description}</p>
+      <p className="mt-0.5 text-xs text-muted">{plugin.description}</p>
       {plugin.requires && plugin.requires.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {plugin.requires.map((r) => (

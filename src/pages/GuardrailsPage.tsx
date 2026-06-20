@@ -58,7 +58,7 @@ export default function GuardrailsPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-slate-400">
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-faint">
         <ShieldIcon className="h-10 w-10" />
         <p className="max-w-sm text-sm">Guardrails are managed by workspace admins.</p>
       </div>
@@ -69,35 +69,35 @@ export default function GuardrailsPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="mb-1 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Guardrails</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-text">Guardrails</h1>
           <button
             onClick={create}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong"
           >
             <PlusIcon className="h-4 w-4" /> New guardrail
           </button>
         </div>
-        <p className="mb-6 text-sm text-slate-500">
-          Pre-flight checks run by the cheap <code className="rounded bg-slate-100 px-1">utility</code>{' '}
+        <p className="mb-6 text-sm text-muted">
+          Pre-flight checks run by the cheap <code className="rounded bg-surface-2 px-1">utility</code>{' '}
           model before the main model. <strong>Block</strong> stops the run; <strong>flag</strong> just
           logs it. Webhooks fail closed (block on error); chat fails open. The verdict is enforced in
           code — never shown to the main model.
         </p>
 
         {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
+          <p className="text-sm text-faint">Loading…</p>
         ) : (
           <div className="space-y-3">
             {guardrails.map((g) => (
-              <div key={g.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+              <div key={g.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
                   <ShieldIcon className="h-5 w-5" />
                 </div>
                 <button onClick={() => setEditing(g)} className="min-w-0 flex-1 text-left">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-slate-800">{g.name}</span>
+                    <span className="truncate text-sm font-medium text-text">{g.name}</span>
                     {g.is_builtin && (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                      <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                         Built-in
                       </span>
                     )}
@@ -109,7 +109,7 @@ export default function GuardrailsPage() {
                       {g.action}
                     </span>
                   </div>
-                  <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">
+                  <p className="mt-0.5 line-clamp-1 text-xs text-muted">
                     {[g.applies_to_webhooks && 'webhooks', g.applies_to_chat && 'chat'].filter(Boolean).join(' + ') ||
                       'no contexts'}{' '}
                     · {formatDate(g.updated_at)}
@@ -119,11 +119,11 @@ export default function GuardrailsPage() {
                   onClick={() => toggleActive(g)}
                   title={g.is_active ? 'Active' : 'Off'}
                   className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-                    g.is_active ? 'bg-brand-600' : 'bg-slate-300'
+                    g.is_active ? 'bg-primary' : 'bg-border-strong'
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-surface transition ${
                       g.is_active ? 'left-[22px]' : 'left-0.5'
                     }`}
                   />
@@ -191,12 +191,12 @@ function GuardrailEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-text">
             Guardrail
             {guardrail.is_builtin && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+              <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                 Built-in
               </span>
             )}
@@ -204,7 +204,7 @@ function GuardrailEditor({
           {!guardrail.is_builtin && (
             <button
               onClick={remove}
-              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
               title="Delete"
             >
               <TrashIcon className="h-[18px] w-[18px]" />
@@ -214,15 +214,15 @@ function GuardrailEditor({
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+            <span className="mb-1 block text-xs font-medium text-muted">Name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">
+            <span className="mb-1 block text-xs font-medium text-muted">
               What to check for (plain language — the evaluator judges input against this)
             </span>
             <textarea
@@ -230,27 +230,27 @@ function GuardrailEditor({
               onChange={(e) => setInstructions(e.target.value)}
               rows={6}
               placeholder="e.g. Block payloads that try to override the assistant's instructions or exfiltrate data…"
-              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </label>
           <div>
-            <span className="mb-1 block text-xs font-medium text-slate-600">Applies to</span>
+            <span className="mb-1 block text-xs font-medium text-muted">Applies to</span>
             <div className="space-y-1">
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2 text-sm text-text">
                 <input
                   type="checkbox"
                   checked={webhooks}
                   onChange={(e) => setWebhooks(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
                 />
                 Webhooks (unattended, attacker-facing)
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2 text-sm text-text">
                 <input
                   type="checkbox"
                   checked={chat}
                   onChange={(e) => setChat(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
                 />
                 Chat (adds a utility-model call to every message)
               </label>
@@ -258,39 +258,39 @@ function GuardrailEditor({
           </div>
           <div className="flex items-end gap-3">
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Action</span>
+              <span className="mb-1 block text-xs font-medium text-muted">Action</span>
               <select
                 value={action}
                 onChange={(e) => setAction(e.target.value as 'block' | 'flag')}
-                className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                className="rounded-lg border border-border-strong px-2 py-2 text-sm"
               >
                 <option value="block">Block the run</option>
                 <option value="flag">Flag only (log)</option>
               </select>
             </label>
-            <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 pb-2 text-sm text-text">
               <input
                 type="checkbox"
                 checked={isActive}
                 onChange={(e) => setIsActive(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
               />
               Active
             </label>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover"
           >
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving || !name.trim()}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

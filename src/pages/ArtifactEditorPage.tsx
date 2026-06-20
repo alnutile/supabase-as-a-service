@@ -78,13 +78,13 @@ export default function ArtifactEditorPage() {
 
   if (notFound) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-slate-500">
+      <div className="flex h-full items-center justify-center text-sm text-muted">
         Artifact not found.
       </div>
     )
   }
   if (!artifact) {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>
+    return <div className="flex h-full items-center justify-center text-sm text-faint">Loading…</div>
   }
 
   const shareUrl =
@@ -93,18 +93,18 @@ export default function ArtifactEditorPage() {
   return (
     <div className="flex h-full flex-col overflow-y-auto md:flex-row md:overflow-hidden">
       {/* Editor */}
-      <div className="flex min-w-0 flex-1 flex-col border-b border-slate-200 md:border-b-0 md:border-r">
-        <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:px-5">
+      <div className="flex min-w-0 flex-1 flex-col border-b border-border md:border-b-0 md:border-r">
+        <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:px-5">
           <input
             value={artifact.title}
             onChange={(e) => patch({ title: e.target.value })}
             placeholder="Untitled"
-            className="min-w-0 flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-slate-300"
+            className="min-w-0 flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-faint"
           />
           <select
             value={artifact.type}
             onChange={(e) => patch({ type: e.target.value as ArtifactType })}
-            className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600"
+            className="rounded-md border border-border px-2 py-1 text-xs text-muted"
           >
             {TYPES.map((t) => (
               <option key={t} value={t}>
@@ -115,14 +115,14 @@ export default function ArtifactEditorPage() {
           <button
             onClick={() => save()}
             disabled={!dirty || saving}
-            className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition hover:bg-primary-strong disabled:opacity-50"
           >
             {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
           </button>
           <button
             onClick={remove}
             title="Delete"
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            className="rounded-lg p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
           >
             <TrashIcon className="h-[18px] w-[18px]" />
           </button>
@@ -132,15 +132,15 @@ export default function ArtifactEditorPage() {
           value={artifact.content}
           onChange={(e) => patch({ content: e.target.value })}
           spellCheck={false}
-          className="min-h-[45vh] flex-1 resize-none bg-white p-4 font-mono text-sm leading-relaxed text-slate-800 outline-none md:min-h-0 md:p-5"
+          className="min-h-[45vh] flex-1 resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
           placeholder="Write here…"
         />
       </div>
 
       {/* Side panel: sharing + preview */}
-      <div className="flex w-full flex-col bg-slate-50 md:w-96 md:overflow-y-auto">
-        <div className="border-b border-slate-200 p-4">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div className="flex w-full flex-col bg-surface-2 md:w-96 md:overflow-y-auto">
+        <div className="border-b border-border p-4">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             Sharing
           </h3>
           <VisibilityControl
@@ -150,10 +150,10 @@ export default function ArtifactEditorPage() {
           />
         </div>
         <div className="p-4">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             Preview
           </h3>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="rounded-xl border border-border bg-surface p-4">
             {artifact.type === 'html' ? (
               <iframe
                 title="preview"
@@ -162,12 +162,12 @@ export default function ArtifactEditorPage() {
                 // Supabase session, or the parent page. Matches PublicArtifactPage.
                 sandbox="allow-scripts"
                 srcDoc={artifact.content}
-                className="h-80 w-full rounded border border-slate-200"
+                className="h-80 w-full rounded border border-border"
               />
             ) : artifact.type === 'markdown' ? (
               <Markdown>{artifact.content || '_Nothing to preview_'}</Markdown>
             ) : (
-              <pre className="overflow-x-auto whitespace-pre-wrap text-sm text-slate-700">
+              <pre className="overflow-x-auto whitespace-pre-wrap text-sm text-text">
                 {artifact.content}
               </pre>
             )}

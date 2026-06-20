@@ -67,41 +67,41 @@ export default function SkillsPage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Prompts &amp; skills</h1>
-            <p className="mt-1 text-sm text-slate-500">
+            <h1 className="text-2xl font-semibold tracking-tight text-text">Prompts &amp; skills</h1>
+            <p className="mt-1 text-sm text-muted">
               Always-on prompts shape every chat. On-demand skills run when you type{' '}
-              <code className="rounded bg-slate-100 px-1">/</code>.
+              <code className="rounded bg-surface-2 px-1">/</code>.
             </p>
           </div>
           <button
             onClick={() => create(false)}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
           >
             <PlusIcon className="h-4 w-4" /> New skill
           </button>
         </div>
 
         {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
+          <p className="text-sm text-faint">Loading…</p>
         ) : (
           <div className="space-y-8">
             {/* Always-on */}
             <section>
               <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
                   Always on · applied to every chat
                 </h2>
                 {isAdmin && (
                   <button
                     onClick={() => create(true)}
-                    className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"
+                    className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"
                   >
                     <PlusIcon className="h-3.5 w-3.5" /> Add
                   </button>
                 )}
               </div>
               {alwaysOn.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-400">
+                <p className="rounded-xl border border-dashed border-border-strong py-8 text-center text-sm text-faint">
                   No always-on prompts yet.
                 </p>
               ) : (
@@ -112,7 +112,7 @@ export default function SkillsPage() {
                 </div>
               )}
               {!isAdmin && (
-                <p className="mt-2 text-xs text-slate-400">
+                <p className="mt-2 text-xs text-faint">
                   Only an admin can edit always-on prompts.
                 </p>
               )}
@@ -120,11 +120,11 @@ export default function SkillsPage() {
 
             {/* On-demand */}
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
                 On demand · run with /
               </h2>
               {onDemand.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-400">
+                <p className="rounded-xl border border-dashed border-border-strong py-8 text-center text-sm text-faint">
                   No skills yet. Create one to run it from chat.
                 </p>
               ) : (
@@ -167,18 +167,18 @@ function SkillCard({
   return (
     <button
       onClick={onClick}
-      className="group rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-brand-300 hover:shadow-sm"
+      className="group rounded-xl border border-border bg-surface p-4 text-left transition hover:border-brand-300 hover:shadow-sm"
     >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="truncate font-medium text-slate-800 group-hover:text-brand-700">
+        <h3 className="truncate font-medium text-text group-hover:text-primary">
           {skill.name}
         </h3>
         {skill.is_builtin ? (
-          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
             Built-in
           </span>
         ) : alwaysOn ? null : (
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-400">
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-faint">
             {skill.output_mode === 'artifact' ? (
               <>
                 <ArtifactIcon className="h-3.5 w-3.5" /> {skill.artifact_type}
@@ -191,10 +191,10 @@ function SkillCard({
           </span>
         )}
       </div>
-      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+      <p className="mt-1 line-clamp-2 text-xs text-muted">
         {skill.description || skill.instructions.slice(0, 120) || 'No description'}
       </p>
-      <p className="mt-3 text-[11px] uppercase tracking-wide text-slate-400">
+      <p className="mt-3 text-[11px] uppercase tracking-wide text-faint">
         Updated {formatDate(skill.updated_at)}
       </p>
     </button>
@@ -249,12 +249,12 @@ function SkillEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-text">
             {draft.auto_apply ? 'Always-on prompt' : 'Skill'}
             {draft.is_builtin && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+              <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                 Built-in
               </span>
             )}
@@ -262,7 +262,7 @@ function SkillEditor({
           {canEdit && (
             <button
               onClick={remove}
-              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
               title="Delete"
             >
               <TrashIcon className="h-[18px] w-[18px]" />
@@ -282,7 +282,7 @@ function SkillEditor({
               value={draft.name}
               disabled={!canEdit}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft disabled:bg-surface-2"
             />
           </Field>
           <Field label="Description (optional)">
@@ -290,7 +290,7 @@ function SkillEditor({
               value={draft.description ?? ''}
               disabled={!canEdit}
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft disabled:bg-surface-2"
             />
           </Field>
           <Field label={draft.auto_apply ? 'Prompt (added to every chat)' : 'Instructions'}>
@@ -304,7 +304,7 @@ function SkillEditor({
                   ? 'e.g. This is Acme Co.’s intranet. We make widgets. Keep a friendly, professional tone…'
                   : 'Tell the model exactly what to do with the conversation context…'
               }
-              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
+              className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft disabled:bg-surface-2"
             />
           </Field>
 
@@ -315,10 +315,10 @@ function SkillEditor({
               checked={draft.auto_apply}
               disabled={!isAdmin || !canEdit}
               onChange={(e) => setDraft({ ...draft, auto_apply: e.target.checked })}
-              className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
             />
-            <span className="text-slate-700">Always on — apply to every chat</span>
-            {!isAdmin && <span className="text-xs text-slate-400">(admin only)</span>}
+            <span className="text-text">Always on — apply to every chat</span>
+            {!isAdmin && <span className="text-xs text-faint">(admin only)</span>}
           </label>
 
           {!draft.auto_apply && (
@@ -330,7 +330,7 @@ function SkillEditor({
                   onChange={(e) =>
                     setDraft({ ...draft, output_mode: e.target.value as SkillOutputMode })
                   }
-                  className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm disabled:bg-slate-50"
+                  className="w-full rounded-lg border border-border-strong px-2 py-2 text-sm disabled:bg-surface-2"
                 >
                   <option value="artifact">Create artifact</option>
                   <option value="reply">Reply in chat</option>
@@ -344,7 +344,7 @@ function SkillEditor({
                     onChange={(e) =>
                       setDraft({ ...draft, artifact_type: e.target.value as ArtifactType })
                     }
-                    className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm disabled:bg-slate-50"
+                    className="w-full rounded-lg border border-border-strong px-2 py-2 text-sm disabled:bg-surface-2"
                   >
                     {ARTIFACT_TYPES.map((t) => (
                       <option key={t} value={t}>
@@ -360,10 +360,10 @@ function SkillEditor({
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover"
           >
             {canEdit ? 'Cancel' : 'Close'}
           </button>
@@ -371,7 +371,7 @@ function SkillEditor({
             <button
               onClick={save}
               disabled={saving || !draft.name.trim()}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
@@ -385,7 +385,7 @@ function SkillEditor({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block flex-1">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
       {children}
     </label>
   )

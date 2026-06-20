@@ -21,7 +21,7 @@ export function VisibilityControl({
 
   return (
     <div className="space-y-2">
-      <div className="flex rounded-lg bg-slate-100 p-1 text-sm">
+      <div className="flex rounded-lg bg-surface-2 p-1 text-sm">
         {OPTIONS.map(({ value, label, Icon }) => (
           <button
             key={value}
@@ -29,8 +29,8 @@ export function VisibilityControl({
             title={OPTIONS.find((o) => o.value === value)?.hint}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 font-medium transition ${
               visibility === value
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'bg-surface text-text shadow-sm'
+                : 'text-muted hover:text-text'
             }`}
           >
             <Icon className="h-4 w-4" />
@@ -40,12 +40,12 @@ export function VisibilityControl({
       </div>
 
       {visibility !== 'private' && shareUrl && (
-        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-2 py-1.5">
           <input
             readOnly
             value={shareUrl}
             onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 bg-transparent text-xs text-slate-600 outline-none"
+            className="min-w-0 flex-1 bg-transparent text-xs text-muted outline-none"
           />
           <button
             onClick={async () => {
@@ -53,7 +53,7 @@ export function VisibilityControl({
               setCopied(true)
               setTimeout(() => setCopied(false), 1500)
             }}
-            className="shrink-0 rounded-md bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700"
+            className="shrink-0 rounded-md bg-primary px-2 py-1 text-xs font-medium text-white hover:bg-primary-strong"
           >
             {copied ? 'Copied!' : 'Copy'}
           </button>

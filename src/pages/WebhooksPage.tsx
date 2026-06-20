@@ -44,33 +44,33 @@ export default function WebhooksPage() {
   return (
     <div className="flex h-full flex-col md:flex-row">
       {/* List */}
-      <div className="flex max-h-56 shrink-0 flex-col border-b border-slate-200 bg-white md:max-h-none md:w-72 md:border-b-0 md:border-r">
+      <div className="flex max-h-56 shrink-0 flex-col border-b border-border bg-surface md:max-h-none md:w-72 md:border-b-0 md:border-r">
         <div className="flex items-center justify-between px-4 py-3">
-          <h1 className="text-sm font-semibold text-slate-700">Webhooks</h1>
+          <h1 className="text-sm font-semibold text-text">Webhooks</h1>
           <button
             onClick={create}
-            className="flex items-center gap-1 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
+            className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong"
           >
             <PlusIcon className="h-3.5 w-3.5" /> New
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-2">
           {loading ? (
-            <p className="px-2 py-3 text-sm text-slate-400">Loading…</p>
+            <p className="px-2 py-3 text-sm text-faint">Loading…</p>
           ) : webhooks.length === 0 ? (
-            <p className="px-2 py-3 text-sm text-slate-400">No webhooks yet.</p>
+            <p className="px-2 py-3 text-sm text-faint">No webhooks yet.</p>
           ) : (
             webhooks.map((w) => (
               <button
                 key={w.id}
                 onClick={() => setSelectedId(w.id)}
                 className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
-                  w.id === selectedId ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100'
+                  w.id === selectedId ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
                 }`}
               >
                 <WebhookIcon className="h-4 w-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate font-medium">{w.name}</span>
-                {!w.is_active && <span className="text-[10px] uppercase text-slate-400">off</span>}
+                {!w.is_active && <span className="text-[10px] uppercase text-faint">off</span>}
               </button>
             ))
           )}
@@ -90,7 +90,7 @@ export default function WebhooksPage() {
             }}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-slate-400">
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-faint">
             <WebhookIcon className="h-10 w-10" />
             <p className="max-w-sm text-sm">
               Create a webhook to get a URL. Point any external system at it, attach a prompt, and
@@ -223,33 +223,33 @@ function WebhookDetail({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 text-xl font-semibold text-slate-900 outline-none hover:border-slate-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 text-xl font-semibold text-text outline-none hover:border-border focus:border-primary focus:ring-2 focus:ring-primary-soft"
         />
         <button
           onClick={remove}
           title="Delete webhook"
-          className="mt-1 rounded-md p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
+          className="mt-1 rounded-md p-2 text-faint hover:bg-red-50 hover:text-red-600"
         >
           <TrashIcon className="h-[18px] w-[18px]" />
         </button>
       </div>
 
       {/* Endpoint */}
-      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-        <span className="text-xs font-medium text-slate-600">Endpoint URL — POST your data here</span>
+      <div className="mt-4 rounded-xl border border-border bg-surface p-4">
+        <span className="text-xs font-medium text-muted">Endpoint URL — POST your data here</span>
         <div className="mt-2 flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+          <code className="min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-3 py-2 text-xs text-text">
             {url}
           </code>
           <button
             onClick={copy}
-            className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-border-strong px-2.5 py-2 text-xs font-medium text-muted hover:bg-surface-hover"
           >
             <CopyIcon className="h-3.5 w-3.5" /> {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
         <details className="mt-2">
-          <summary className="cursor-pointer text-xs text-slate-400">Test with curl</summary>
+          <summary className="cursor-pointer text-xs text-faint">Test with curl</summary>
           <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">
 {`curl -X POST ${url} \\
   -H 'Content-Type: application/json' \\${
@@ -261,22 +261,22 @@ function WebhookDetail({
       </div>
 
       {/* Shared secret (optional auth) */}
-      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mt-4 rounded-xl border border-border bg-surface p-4">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-600">
+          <span className="text-xs font-medium text-muted">
             Require a secret (optional)
           </span>
           <div className="flex gap-2">
             <button
               onClick={() => setSecret(crypto.randomUUID().replace(/-/g, ''))}
-              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-lg border border-border-strong px-2.5 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
             >
               Generate
             </button>
             {secret && (
               <button
                 onClick={() => setSecret('')}
-                className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-border-strong px-2.5 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
               >
                 Clear
               </button>
@@ -287,9 +287,9 @@ function WebhookDetail({
           value={secret}
           onChange={(e) => setSecret(e.target.value)}
           placeholder="Leave blank for none — anyone with the URL can call it"
-          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          className="mt-2 w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
         />
-        <p className="mt-1.5 text-xs text-slate-500">
+        <p className="mt-1.5 text-xs text-muted">
           When set, callers must send it as{' '}
           <code className="font-mono">Authorization: Bearer …</code> or{' '}
           <code className="font-mono">X-Webhook-Secret: …</code>. Requests without it get a 401.
@@ -298,13 +298,13 @@ function WebhookDetail({
 
       {/* Call a function directly (deterministic) */}
       <div className="mt-4">
-        <label className="mb-1 block text-xs font-medium text-slate-600">
+        <label className="mb-1 block text-xs font-medium text-muted">
           Call a function directly (optional, deterministic)
         </label>
         <select
           value={toolId}
           onChange={(e) => setToolId(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
         >
           <option value="">No function — use the AI options below</option>
           {tools.map((t) => (
@@ -314,14 +314,14 @@ function WebhookDetail({
           ))}
         </select>
         {selectedTool && (
-          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
             <p className="text-xs text-emerald-700">
               Deterministic: each payload is validated against these fields and sent straight to{' '}
               <code className="font-mono">{selectedTool.name}</code> — no AI, no agent/prompt.
             </p>
             <SchemaFields schema={selectedTool.input_schema} />
             <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-slate-400">Sample payload</summary>
+              <summary className="cursor-pointer text-xs text-faint">Sample payload</summary>
               <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
                 {JSON.stringify(samplePayload(selectedTool.input_schema), null, 2)}
               </pre>
@@ -332,13 +332,13 @@ function WebhookDetail({
 
       {/* Agent (optional) */}
       <div className={`mt-4 ${toolId ? 'pointer-events-none opacity-40' : ''}`}>
-        <label className="mb-1 block text-xs font-medium text-slate-600">
+        <label className="mb-1 block text-xs font-medium text-muted">
           Run an agent (optional)
         </label>
         <select
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
         >
           <option value="">No agent — use the prompt below</option>
           {agents.map((a) => (
@@ -352,16 +352,16 @@ function WebhookDetail({
             <p className="mt-1 text-xs text-amber-600">
               This webhook runs the agent on each payload. The prompt below is ignored.
             </p>
-            <label className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-700">
+            <label className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-surface-2 p-2.5 text-sm text-text">
               <input
                 type="checkbox"
                 checked={allowTools}
                 onChange={(e) => setAllowTools(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                className="mt-0.5 h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
               />
               <span>
                 Allow agent tools
-                <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                <span className="mt-0.5 block text-xs font-normal text-muted">
                   Tools let the agent act on whatever this webhook receives. Leave off unless the
                   source is trusted — otherwise the agent runs read-only.
                 </span>
@@ -373,7 +373,7 @@ function WebhookDetail({
 
       {/* Prompt */}
       <div className={`mt-4 ${toolId ? 'pointer-events-none opacity-40' : ''}`}>
-        <label className="mb-1 block text-xs font-medium text-slate-600">
+        <label className="mb-1 block text-xs font-medium text-muted">
           Prompt — what to do with each incoming payload
         </label>
         <textarea
@@ -381,36 +381,36 @@ function WebhookDetail({
           onChange={(e) => setPrompt(e.target.value)}
           rows={6}
           placeholder="e.g. You receive form submissions. Summarize each one in two sentences and flag anything urgent."
-          className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
         />
       </div>
 
       <div className="mt-3 flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-text">
           <input
             type="checkbox"
             checked={isActive}
             onChange={(e) => setIsActive(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
           />
           Active {isActive ? '' : '(paused — requests are rejected)'}
         </label>
         <button
           onClick={save}
           disabled={saving || !dirty || !name.trim()}
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
         >
           {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
         </button>
       </div>
 
       {/* Events */}
-      <h2 className="mt-8 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <h2 className="mt-8 text-xs font-semibold uppercase tracking-wide text-muted">
         Recent events
       </h2>
       <div className="mt-2 space-y-2 pb-8">
         {events.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-400">
+          <p className="rounded-xl border border-dashed border-border-strong py-8 text-center text-sm text-faint">
             No events yet. POST to the URL above to see them here live.
           </p>
         ) : (
@@ -440,16 +440,16 @@ function SchemaFields({ schema }: { schema: unknown }) {
   const required = new Set(s.required ?? [])
   const entries = Object.entries(props)
   if (entries.length === 0) {
-    return <p className="mt-2 text-xs text-slate-400">This function takes no defined fields.</p>
+    return <p className="mt-2 text-xs text-faint">This function takes no defined fields.</p>
   }
   return (
     <ul className="mt-2 space-y-1">
       {entries.map(([key, spec]) => (
         <li key={key} className="flex items-baseline gap-2 text-xs">
-          <code className="font-mono text-slate-700">{key}</code>
-          <span className="text-slate-400">{spec?.type ?? 'any'}</span>
+          <code className="font-mono text-text">{key}</code>
+          <span className="text-faint">{spec?.type ?? 'any'}</span>
           {required.has(key) && <span className="text-[10px] uppercase text-amber-600">required</span>}
-          {spec?.description && <span className="truncate text-slate-400">— {spec.description}</span>}
+          {spec?.description && <span className="truncate text-faint">— {spec.description}</span>}
         </li>
       ))}
     </ul>
@@ -484,21 +484,21 @@ function samplePayload(schema: unknown): Record<string, unknown> {
 
 function EventRow({ event }: { event: WebhookEvent }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
+    <div className="rounded-xl border border-border bg-surface p-3">
       <div className="flex items-center gap-2">
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${STATUS_STYLES[event.status]}`}>
           {event.status}
         </span>
-        <span className="text-xs text-slate-400">{formatDate(event.created_at)}</span>
+        <span className="text-xs text-faint">{formatDate(event.created_at)}</span>
       </div>
       {event.result && (
-        <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{event.result}</p>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-text">{event.result}</p>
       )}
       {event.error && <p className="mt-2 text-sm text-red-600">{event.error}</p>}
       {event.payload != null && (
         <details className="mt-2">
-          <summary className="cursor-pointer text-xs text-slate-400">Payload</summary>
-          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-slate-50 p-2 text-[11px] text-slate-600">
+          <summary className="cursor-pointer text-xs text-faint">Payload</summary>
+          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-surface-2 p-2 text-[11px] text-muted">
             {JSON.stringify(event.payload, null, 2)}
           </pre>
         </details>

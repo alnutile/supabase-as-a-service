@@ -83,31 +83,31 @@ export default function ToolsPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="mb-1 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tools</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-text">Tools</h1>
           {isAdmin && (
             <button
               onClick={create}
-              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong"
             >
               <PlusIcon className="h-4 w-4" /> New tool
             </button>
           )}
         </div>
-        <p className="mb-6 text-sm text-slate-500">
+        <p className="mb-6 text-sm text-muted">
           Capabilities the assistant can call during chat. Each tool becomes a real function the
           AI can use. Custom tools POST the AI’s inputs to a URL you choose.
         </p>
 
         {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
+          <p className="text-sm text-faint">Loading…</p>
         ) : (
           <div className="space-y-3">
             {tools.map((t) => (
               <div
                 key={t.id}
-                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4"
+                className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
                   {t.kind === 'web' ? (
                     <GlobeIcon className="h-5 w-5" />
                   ) : (
@@ -120,21 +120,21 @@ export default function ToolsPage() {
                   disabled={t.kind !== 'http' || !isAdmin}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-mono text-sm font-medium text-slate-800">
+                    <span className="truncate font-mono text-sm font-medium text-text">
                       {t.kind === 'web' ? 'Web browsing' : t.name}
                     </span>
                     {t.is_builtin && (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                      <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                         Built-in
                       </span>
                     )}
                     {forgedIds.has(t.id) && (
-                      <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] uppercase tracking-wide text-brand-700">
+                      <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-primary">
                         Forged
                       </span>
                     )}
                   </div>
-                  <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">
+                  <p className="mt-0.5 line-clamp-1 text-xs text-muted">
                     {t.description || (t.kind === 'http' ? (t.config as { url?: string })?.url || 'No endpoint set' : '')}
                   </p>
                 </button>
@@ -145,11 +145,11 @@ export default function ToolsPage() {
                   disabled={!isAdmin}
                   title={t.is_active ? 'Enabled' : 'Disabled'}
                   className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-                    t.is_active ? 'bg-brand-600' : 'bg-slate-300'
+                    t.is_active ? 'bg-primary' : 'bg-border-strong'
                   } ${isAdmin ? '' : 'opacity-60'}`}
                 >
                   <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-surface transition ${
                       t.is_active ? 'left-[22px]' : 'left-0.5'
                     }`}
                   />
@@ -157,7 +157,7 @@ export default function ToolsPage() {
               </div>
             ))}
             {!isAdmin && (
-              <p className="text-xs text-slate-400">Only an admin can add or change tools.</p>
+              <p className="text-xs text-faint">Only an admin can add or change tools.</p>
             )}
           </div>
         )}
@@ -235,12 +235,12 @@ function ToolEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-700">Custom tool</h2>
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-text">Custom tool</h2>
           <button
             onClick={remove}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
             title="Delete"
           >
             <TrashIcon className="h-[18px] w-[18px]" />
@@ -252,7 +252,7 @@ function ToolEditor({
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </Field>
           <Field label="Description — tell the AI when to use it">
@@ -261,7 +261,7 @@ function ToolEditor({
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
               placeholder="e.g. Look up an order by id in our fulfillment system."
-              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </Field>
           <div className="flex gap-3">
@@ -270,15 +270,15 @@ function ToolEditor({
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://api.example.com/lookup"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
             </Field>
             <label className="block w-24 shrink-0">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Method</span>
+              <span className="mb-1 block text-xs font-medium text-muted">Method</span>
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                className="w-full rounded-lg border border-border-strong px-2 py-2 text-sm"
               >
                 <option>POST</option>
                 <option>GET</option>
@@ -291,27 +291,27 @@ function ToolEditor({
               onChange={(e) => setSchema(e.target.value)}
               rows={10}
               spellCheck={false}
-              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </Field>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-faint">
             When the AI calls this tool, the app POSTs the arguments as JSON to your endpoint and
             feeds the response back to the AI. Enable it with the toggle once saved.
           </p>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover"
           >
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving || !name.trim()}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -324,7 +324,7 @@ function ToolEditor({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block flex-1">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
       {children}
     </label>
   )

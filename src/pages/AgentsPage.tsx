@@ -57,59 +57,59 @@ export default function AgentsPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="mb-1 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Agents</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-text">Agents</h1>
           <button
             onClick={create}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong"
           >
             <PlusIcon className="h-4 w-4" /> New agent
           </button>
         </div>
-        <p className="mb-6 text-sm text-slate-500">
+        <p className="mb-6 text-sm text-muted">
           An agent bundles a system prompt with the tools it may use. Build them here, or have an
           external Claude build them over MCP (Settings → Connect Claude).
         </p>
 
         {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
+          <p className="text-sm text-faint">Loading…</p>
         ) : agents.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 py-16 text-center">
-            <AgentIcon className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-            <p className="text-sm text-slate-500">No agents yet. Create one, or build one from Claude over MCP.</p>
+          <div className="rounded-2xl border border-dashed border-border-strong py-16 text-center">
+            <AgentIcon className="mx-auto mb-3 h-8 w-8 text-faint" />
+            <p className="text-sm text-muted">No agents yet. Create one, or build one from Claude over MCP.</p>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {agents.map((a) => (
-              <div key={a.id} className="flex flex-col rounded-xl border border-slate-200 bg-white p-4">
+              <div key={a.id} className="flex flex-col rounded-xl border border-border bg-surface p-4">
                 <div className="flex items-center gap-2">
-                  <AgentIcon className="h-5 w-5 shrink-0 text-brand-500" />
-                  <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{a.name}</span>
-                  {!a.is_active && <span className="text-[10px] uppercase text-slate-400">off</span>}
+                  <AgentIcon className="h-5 w-5 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1 truncate font-medium text-text">{a.name}</span>
+                  {!a.is_active && <span className="text-[10px] uppercase text-faint">off</span>}
                 </div>
-                <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                <p className="mt-1 line-clamp-2 text-xs text-muted">
                   {a.description || a.instructions.slice(0, 100) || 'No description'}
                 </p>
-                <p className="mt-2 text-[11px] text-slate-400">
+                <p className="mt-2 text-[11px] text-faint">
                   {a.tool_ids.length} tool{a.tool_ids.length === 1 ? '' : 's'} · {formatDate(a.updated_at)}
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => navigate(`/chat?agent=${a.id}&run=1`)}
                     title="Run the agent's task now"
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong"
                   >
                     <PlayIcon className="h-3.5 w-3.5" /> Run
                   </button>
                   <button
                     onClick={() => navigate(`/chat?agent=${a.id}`)}
                     title="Chat with the agent"
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    className="flex items-center gap-1.5 rounded-lg border border-border-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
                   >
                     <ChatIcon className="h-3.5 w-3.5" /> Chat
                   </button>
                   <button
                     onClick={() => setEditing(a)}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    className="rounded-lg border border-border-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
                   >
                     Edit
                   </button>
@@ -266,12 +266,12 @@ function AgentEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-700">Agent</h2>
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-text">Agent</h2>
           <button
             onClick={remove}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
             title="Delete"
           >
             <TrashIcon className="h-[18px] w-[18px]" />
@@ -280,27 +280,27 @@ function AgentEditor({
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+            <span className="mb-1 block text-xs font-medium text-muted">Name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Description (optional)</span>
+            <span className="mb-1 block text-xs font-medium text-muted">Description (optional)</span>
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </label>
 
           <div className="block">
-            <span className="mb-1 flex items-center justify-between text-xs font-medium text-slate-600">
+            <span className="mb-1 flex items-center justify-between text-xs font-medium text-muted">
               <span>Instructions (the agent’s system prompt)</span>
-              <span className="font-normal text-slate-400">
-                Type <code className="rounded bg-slate-100 px-1">/</code> to insert a skill
+              <span className="font-normal text-faint">
+                Type <code className="rounded bg-surface-2 px-1">/</code> to insert a skill
               </span>
             </span>
             <div className="relative">
@@ -318,10 +318,10 @@ function AgentEditor({
                 }}
                 rows={8}
                 placeholder="You are a support triage agent. For each message, classify urgency and draft a reply…"
-                className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
               {slashQuery !== null && skillMatches.length > 0 && (
-                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg">
                   {skillMatches.map((s) => (
                     <button
                       key={s.id}
@@ -330,13 +330,13 @@ function AgentEditor({
                         e.preventDefault()
                         insertSkill(s)
                       }}
-                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50"
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-hover"
                     >
-                      <SkillIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                      <SkillIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-slate-800">{s.name}</span>
+                        <span className="block truncate text-sm font-medium text-text">{s.name}</span>
                         {s.description && (
-                          <span className="block truncate text-xs text-slate-500">{s.description}</span>
+                          <span className="block truncate text-xs text-muted">{s.description}</span>
                         )}
                       </span>
                     </button>
@@ -347,18 +347,18 @@ function AgentEditor({
           </div>
 
           <div>
-            <span className="mb-1 block text-xs font-medium text-slate-600">Tools it may use</span>
+            <span className="mb-1 block text-xs font-medium text-muted">Tools it may use</span>
             {tools.length === 0 ? (
-              <p className="text-xs text-slate-400">No active tools. Add some on the Tools page.</p>
+              <p className="text-xs text-faint">No active tools. Add some on the Tools page.</p>
             ) : (
               <div className="space-y-1">
                 {tools.map((t) => (
-                  <label key={t.id} className="flex items-center gap-2 text-sm text-slate-700">
+                  <label key={t.id} className="flex items-center gap-2 text-sm text-text">
                     <input
                       type="checkbox"
                       checked={toolIds.includes(t.id)}
                       onChange={() => toggleTool(t.id)}
-                      className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                      className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
                     />
                     <span className="font-mono text-xs">{t.kind === 'web' ? 'web_browsing' : t.name}</span>
                   </label>
@@ -368,8 +368,8 @@ function AgentEditor({
           </div>
 
           <div>
-            <span className="block text-xs font-medium text-slate-600">Schedules</span>
-            <p className="mb-2 mt-0.5 text-xs text-slate-400">
+            <span className="block text-xs font-medium text-muted">Schedules</span>
+            <p className="mb-2 mt-0.5 text-xs text-faint">
               Run this agent on its own, on a repeat — pick how often and what it should do each time, then
               Add. Each run shows up in Activity.
             </p>
@@ -377,16 +377,16 @@ function AgentEditor({
               {schedules.map((s) => (
                 <div
                   key={s.id}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                  className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-xs"
                 >
                   <button
                     onClick={() => toggleSchedule(s)}
                     title={s.is_active ? 'Active — tap to pause' : 'Paused — tap to activate'}
-                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.is_active ? 'bg-emerald-500' : 'bg-border-strong'}`}
                   />
-                  <span className="shrink-0 font-medium text-slate-600">{intervalLabel(s.interval_minutes)}</span>
-                  <span className="min-w-0 flex-1 truncate text-slate-500">{s.input || '(no input)'}</span>
-                  <button onClick={() => removeSchedule(s.id)} className="text-slate-400 hover:text-red-600">
+                  <span className="shrink-0 font-medium text-muted">{intervalLabel(s.interval_minutes)}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted">{s.input || '(no input)'}</span>
+                  <button onClick={() => removeSchedule(s.id)} className="text-faint hover:text-red-600">
                     <TrashIcon className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -396,7 +396,7 @@ function AgentEditor({
               <select
                 value={newInterval}
                 onChange={(e) => setNewInterval(Number(e.target.value))}
-                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs sm:w-auto"
+                className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs sm:w-auto"
               >
                 {INTERVALS.map((i) => (
                   <option key={i.minutes} value={i.minutes}>
@@ -408,7 +408,7 @@ function AgentEditor({
                 value={newInput}
                 onChange={(e) => setNewInput(e.target.value)}
                 placeholder="What it should do each run, e.g. “Gather today’s AI news and save it as an artifact”"
-                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500 sm:flex-1"
+                className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs outline-none focus:border-primary sm:flex-1"
               />
               <button
                 onClick={addSchedule}
@@ -420,22 +420,22 @@ function AgentEditor({
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-text">
             <input
               type="checkbox"
               checked={isActive}
               onChange={(e) => setIsActive(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
             />
             Active
           </label>
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
+        <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
           <button
             onClick={saveAndRun}
             disabled={saving || !name.trim()}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-border-strong px-3 py-2 text-sm font-medium text-text hover:bg-surface-hover disabled:opacity-50"
             title="Save, then run the agent now"
           >
             <PlayIcon className="h-4 w-4" /> Run
@@ -443,14 +443,14 @@ function AgentEditor({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover"
             >
               Cancel
             </button>
             <button
               onClick={save}
               disabled={saving || !name.trim()}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>

@@ -52,22 +52,22 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-gradient-to-br from-brand-50 via-slate-50 to-white p-4">
+    <div className="flex h-full items-center justify-center bg-gradient-to-br from-primary-soft via-bg to-bg p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 text-xl font-bold text-white">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-xl font-bold text-white">
             ✺
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-semibold tracking-tight text-text">
             Welcome to your Intranet
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted">
             Sign in to chat with AI, build and share artifacts.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex rounded-lg bg-slate-100 p-1 text-sm font-medium">
+        <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+          <div className="mb-5 flex rounded-lg bg-surface-2 p-1 text-sm font-medium">
             {(['signin', 'signup', 'magic'] as Mode[]).map((m) => (
               <button
                 key={m}
@@ -78,8 +78,8 @@ export default function LoginPage() {
                 }}
                 className={`flex-1 rounded-md px-2 py-1.5 capitalize transition ${
                   mode === m
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-surface text-text shadow-sm'
+                    : 'text-muted hover:text-text'
                 }`}
               >
                 {m === 'magic' ? 'Magic link' : m === 'signin' ? 'Sign in' : 'Sign up'}
@@ -131,7 +131,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={busy}
-              className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
+              className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
             >
               {busy
                 ? 'Working…'
@@ -144,7 +144,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-4 text-center text-xs text-slate-400">
+        <p className="mt-4 text-center text-xs text-faint">
           Powered by Supabase Auth
         </p>
       </div>
@@ -164,12 +164,12 @@ function Field({
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
       <input
         {...rest}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary-soft"
       />
     </label>
   )
