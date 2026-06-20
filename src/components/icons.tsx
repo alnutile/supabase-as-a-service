@@ -155,6 +155,12 @@ export const PluginIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const ForgeIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M13 2 4 14h7l-1 8 9-12h-7z" />
+  </svg>
+)
+
 export const MenuIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 12h18M3 6h18M3 18h18" />

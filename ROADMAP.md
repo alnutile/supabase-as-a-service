@@ -12,7 +12,8 @@ model for each job, and clear visibility into what everything costs. A workspace
 tools that start from zero every conversation.
 
 The development sequence is deliberate: **prove it works on the best model first, then
-drive the cost down and prove it keeps working.** Today everything runs on Claude Opus.
+drive the cost down and prove it keeps working.** Models run through OpenRouter, so any
+model (hosted or local, OpenAI-compatible) is one admin edit away.
 The roadmap below is largely about keeping the quality while shrinking the bill — and
 making the savings visible.
 
@@ -48,9 +49,9 @@ model is one admin edit, not a code change.
    automatic escalation: start cheap, step up only when the task demands it.
 4. **Prompt caching.** Always-on prompts and tool definitions are identical on every
    call — cache them and stop paying full price to resend them.
-5. **Provider abstraction.** The model is already a single server-side setting; widen
-   that seam so a workspace can bring whatever model it wants. Anthropic-first, not
-   Anthropic-only.
+5. **Provider abstraction.** ✅ Done — all model calls go through **OpenRouter**
+   (OpenAI-compatible), so a workspace can point any profile at any model (hosted or
+   local) from Settings → Models. Per-profile model ids are OpenRouter slugs.
 
 ## Next: guardrails
 

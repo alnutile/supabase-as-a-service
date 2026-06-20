@@ -1,21 +1,33 @@
 // Supabase Edge Function: `chat`
-// Streams a Claude completion to the browser as SSE. Runs an agentic tool loop:
-// the assistant can call tools (web search/fetch + custom HTTP tools defined in
-// the `tools` table), the function executes them and feeds results back, looping
-// until the model is done. The Anthropic key stays server-side (verify_jwt=true).
+// Streams a completion to the browser as SSE. Runs an agentic tool loop: the
+// assistant can call tools (web search via the OpenRouter web plugin + custom
+// HTTP tools defined in the `tools` table), the function executes them and feeds
+// results back, looping until the model is done. The OpenRouter key stays
+// server-side (verify_jwt=true).
 //
 // The system prompt is assembled from the always-on prompts (skills.auto_apply).
 // Tools are loaded from the `tools` table (is_active = true).
-import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
 import { resolveModel } from '../_shared/models.ts'
 import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import {
+  assistantToolCallMsg,
+  orApiKey,
+  orStream,
+  parseToolArgs,
+  reasoningParam,
+  systemMsg,
+  toolResultMsg,
+  toORTool,
+  WEB_PLUGIN,
+  type ORMessage,
+  type ORTool,
+} from '../_shared/openrouter.ts'
 
 const MAX_ATTACH_BYTES = 6_000_000 // ~6MB per file
 
-const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 8
 
 const DEFAULT_SYSTEM = `You are the assistant inside a Supabase-powered intranet. Be warm, concise, and practical.
@@ -79,9 +91,9 @@ function userIdFromAuth(req: Request): string | null {
   }
 }
 
-// Turn a message with file attachments into Anthropic content blocks (image /
-// document / inlined text), downloading each file from storage with the service
-// role. Messages without attachments stay as plain strings.
+// Turn a message with file attachments into OpenAI/OpenRouter content blocks
+// (image_url / file / inlined text), downloading each file from storage with the
+// service role. Messages without attachments stay as plain strings.
 async function expandContent(
   db: ReturnType<typeof createClient> | null,
   msg: ChatMessage,
@@ -99,9 +111,12 @@ async function expandContent(
       }
       const mime = att.mime ?? ''
       if (mime.startsWith('image/')) {
-        blocks.push({ type: 'image', source: { type: 'base64', media_type: mime, data: encodeBase64(buf) } })
+        blocks.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${encodeBase64(buf)}` } })
       } else if (mime === 'application/pdf') {
-        blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: encodeBase64(buf) } })
+        blocks.push({
+          type: 'file',
+          file: { filename: att.name, file_data: `data:application/pdf;base64,${encodeBase64(buf)}` },
+        })
       } else {
         const text = new TextDecoder().decode(buf).slice(0, 60000)
         blocks.push({ type: 'text', text: `Attached file "${att.name}":\n\n${text}` })
@@ -146,53 +161,44 @@ async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): P
   }
 }
 
-// Build the Anthropic `tools` array from active rows, and a lookup of the
+// Build the OpenAI/OpenRouter `tools` array from active rows, and a lookup of the
 // custom (http) tools so we can execute them when the model calls them.
 // `restrictIds` (when an agent is driving the chat) limits the exposed tools to
-// the agent's chosen set. undefined = all active tools.
+// the agent's chosen set. undefined = all active tools. A `kind='web'` row turns
+// on the OpenRouter web plugin (webEnabled) rather than adding a tool.
 async function loadTools(
   db: ReturnType<typeof createClient> | null,
   restrictIds?: string[] | null,
 ) {
-  const anthropicTools: unknown[] = []
+  const tools: ORTool[] = []
   const httpTools = new Map<string, ToolRow>()
   const builtins = new Set<string>()
   const capabilities: string[] = []
-  if (!db) return { anthropicTools, httpTools, builtins, capabilities }
+  let webEnabled = false
+  if (!db) return { tools, httpTools, builtins, capabilities, webEnabled }
   try {
     const { data } = await db.from('tools').select('*').eq('is_active', true)
-    let webEnabled = false
     for (const t of (data ?? []) as ToolRow[]) {
       if (restrictIds && !restrictIds.includes(t.id)) continue
       if (t.kind === 'web') {
         webEnabled = true
       } else if (t.kind === 'builtin' && t.name) {
-        anthropicTools.push({
-          name: t.name,
-          description: t.description,
-          input_schema: t.input_schema ?? { type: 'object', properties: {} },
-        })
+        tools.push(toORTool(t.name, t.description, t.input_schema))
         builtins.add(t.name)
         capabilities.push(`\`${t.name}\` — ${t.description}`)
       } else if (t.kind === 'http' && t.name) {
-        anthropicTools.push({
-          name: t.name,
-          description: t.description,
-          input_schema: t.input_schema ?? { type: 'object', properties: {} },
-        })
+        tools.push(toORTool(t.name, t.description, t.input_schema))
         httpTools.set(t.name, t)
         capabilities.push(`\`${t.name}\` — ${t.description}`)
       }
     }
     if (webEnabled) {
-      anthropicTools.push({ type: 'web_search_20260209', name: 'web_search' })
-      anthropicTools.push({ type: 'web_fetch_20260209', name: 'web_fetch' })
-      capabilities.unshift('Web browsing — search the web and fetch URLs yourself')
+      capabilities.unshift('Web browsing — search the web for current information')
     }
   } catch {
     // tools are optional — degrade to no tools
   }
-  return { anthropicTools, httpTools, builtins, capabilities }
+  return { tools, httpTools, builtins, capabilities, webEnabled }
 }
 
 // Built-in tools (search_documents, send_email, check_email) are executed by the
@@ -221,9 +227,8 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: CORS })
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY is not configured' }), {
+  if (!orApiKey()) {
+    return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY is not configured' }), {
       status: 500,
       headers: { ...CORS, 'Content-Type': 'application/json' },
     })
@@ -252,7 +257,7 @@ Deno.serve(async (req: Request) => {
   const db = admin()
   const userId = userIdFromAuth(req)
   const MODEL = await resolveModel(db, 'orchestrator')
-  const { anthropicTools, httpTools, builtins, capabilities } = await loadTools(db, toolIds)
+  const { tools, httpTools, builtins, capabilities, webEnabled } = await loadTools(db, toolIds)
 
   let system: string
   if (replaceSystem && skillSystem.trim()) {
@@ -269,14 +274,12 @@ Deno.serve(async (req: Request) => {
       .join('\n')}\nUse them whenever they help. You also create shareable artifacts with the :::artifact protocol.`
   }
 
-  const anthropic = new Anthropic({ apiKey })
-
   // Guardrails (chat context): cheap utility-model pre-flight on the latest user
   // message. Makes NO model call when there are no active chat guardrails. Chat
   // fails OPEN — a signed-in human is present, availability beats a flaky gate.
   const lastUser = inMessages[inMessages.length - 1]
   const lastText = lastUser && lastUser.role === 'user' ? lastUser.content : ''
-  const guard = await runGuardrails(db, anthropic, 'chat', lastText)
+  const guard = await runGuardrails(db, 'chat', lastText)
   if (guard.ok === false && 'error' in guard) {
     await logActivity(db, 'guardrail.error', 'Guardrail check errored (chat — proceeding)', { error: guard.error }, userId)
   } else if (guard.ok === false && guard.blocked) {
@@ -296,66 +299,52 @@ Deno.serve(async (req: Request) => {
     await logActivity(db, 'guardrail.flagged', `Flagged chat message — ${guard.violations[0].name}`, { violations: guard.violations }, userId)
   }
 
-  // Conversation messages, mutated across tool turns.
-  const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = []
+  // Conversation messages, mutated across tool turns. The system prompt is the
+  // first message (OpenAI shape), followed by the conversation history.
+  const messages: ORMessage[] = [systemMsg(system)]
   for (const m of inMessages) {
     messages.push({ role: m.role, content: await expandContent(db, m) })
   }
 
+  const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+  const reasoning = reasoningParam()
+
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // Server-side tools (web_search/web_fetch) run their dynamic filtering
-        // inside an Anthropic-hosted code-execution container. Once one exists,
-        // every continuation request must echo its id back or the API 400s with
-        // "container_id is required when there are pending tool uses generated
-        // by code execution with tools."
-        let containerId: string | null = null
         for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-          const llm = anthropic.messages.stream({
-            model: MODEL,
-            max_tokens: 16000,
-            thinking: { type: 'adaptive' },
-            output_config: { effort: EFFORT },
-            system,
-            tools: anthropicTools.length ? (anthropicTools as never) : undefined,
-            ...(containerId ? { container: containerId } : {}),
-            messages: messages as never,
-          })
-          llm.on('text', (delta: string) => controller.enqueue(sse({ delta })))
-          const final = await llm.finalMessage()
-          const finalContainerId = (final as { container?: { id?: string } | null }).container?.id
-          if (finalContainerId) containerId = finalContainerId
+          const result = await orStream(
+            {
+              model: MODEL,
+              messages,
+              tools: tools.length ? tools : undefined,
+              plugins,
+              reasoning,
+              maxTokens: 16000,
+            },
+            (delta) => controller.enqueue(sse({ delta })),
+          )
 
-          // Preserve the assistant turn verbatim (thinking + tool_use blocks
-          // must be passed back on the next request).
-          messages.push({ role: 'assistant', content: final.content })
-
-          if (final.stop_reason === 'tool_use') {
-            const toolResults: unknown[] = []
-            for (const block of final.content as Array<Record<string, unknown>>) {
-              if (block.type !== 'tool_use') continue
-              const name = block.name as string
+          if (result.toolCalls.length) {
+            // Preserve the assistant turn (content + tool_calls) before results.
+            messages.push(assistantToolCallMsg(result.content, result.toolCalls))
+            for (const call of result.toolCalls) {
+              const name = call.function.name
+              const input = parseToolArgs(call.function.arguments)
               const tool = httpTools.get(name)
               let output: string
-              if (tool) output = await runHttpTool(tool, block.input)
-              else if (builtins.has(name)) output = await runBuiltin(db, name, (block.input as Record<string, unknown>) ?? {}, userId)
+              if (tool) output = await runHttpTool(tool, input)
+              else if (builtins.has(name)) output = await runBuiltin(db, name, input, userId)
               else output = `Unknown tool: ${name}`
               if (tool || builtins.has(name)) {
                 await logActivity(db, 'tool.call', `Used tool: ${name}`, { name }, userId)
               }
-              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output })
+              messages.push(toolResultMsg(call.id, output))
             }
-            messages.push({ role: 'user', content: toolResults })
             continue
           }
 
-          if (final.stop_reason === 'pause_turn') {
-            // Server-side tool (web) paused at its iteration limit — continue.
-            continue
-          }
-
-          break // end_turn / max_tokens / refusal
+          break // stop / length / content_filter
         }
         controller.enqueue(sse('[DONE]'))
       } catch (err) {

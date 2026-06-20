@@ -3,13 +3,23 @@
 // by token and process the payload: either with the webhook's own prompt, or —
 // if an agent is attached — by running that agent (its instructions + its tools)
 // over the payload through a non-streaming agentic loop. The event is logged.
-import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
 import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import {
+  assistantToolCallMsg,
+  orApiKey,
+  orComplete,
+  parseToolArgs,
+  reasoningParam,
+  toolResultMsg,
+  toORTool,
+  WEB_PLUGIN,
+  type ORMessage,
+  type ORTool,
+} from '../_shared/openrouter.ts'
 
-const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 6
 
 const CORS = {
@@ -46,28 +56,24 @@ function extractToken(url: URL): string | null {
 
 // deno-lint-ignore no-explicit-any
 async function loadAgentTools(db: any, restrictIds: string[]) {
-  const anthropicTools: unknown[] = []
+  const tools: ORTool[] = []
   const httpTools = new Map<string, ToolRow>()
   const builtins = new Set<string>()
-  if (!restrictIds.length) return { anthropicTools, httpTools, builtins }
+  let webEnabled = false
+  if (!restrictIds.length) return { tools, httpTools, builtins, webEnabled }
   const { data } = await db.from('tools').select('*').eq('is_active', true)
-  let web = false
   for (const t of (data ?? []) as ToolRow[]) {
     if (!restrictIds.includes(t.id)) continue
-    if (t.kind === 'web') web = true
+    if (t.kind === 'web') webEnabled = true
     else if (t.kind === 'builtin' && t.name) {
-      anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
+      tools.push(toORTool(t.name, t.description, t.input_schema))
       builtins.add(t.name)
     } else if (t.kind === 'http' && t.name) {
-      anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
+      tools.push(toORTool(t.name, t.description, t.input_schema))
       httpTools.set(t.name, t)
     }
   }
-  if (web) {
-    anthropicTools.push({ type: 'web_search_20260209', name: 'web_search' })
-    anthropicTools.push({ type: 'web_fetch_20260209', name: 'web_fetch' })
-  }
-  return { anthropicTools, httpTools, builtins }
+  return { tools, httpTools, builtins, webEnabled }
 }
 
 async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
@@ -85,10 +91,6 @@ async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
   }
 }
 
-function textOf(content: Array<Record<string, unknown>>): string {
-  return content.filter((b) => b.type === 'text').map((b) => b.text as string).join('\n').trim()
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json({ error: 'Use POST' }, 405)
@@ -99,8 +101,7 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!supabaseUrl || !serviceKey || !apiKey) return json({ error: 'Server not configured' }, 500)
+  if (!supabaseUrl || !serviceKey || !orApiKey()) return json({ error: 'Server not configured' }, 500)
   const db = createClient(supabaseUrl, serviceKey)
 
   const { data: webhook } = await db
@@ -129,12 +130,11 @@ Deno.serve(async (req: Request) => {
   const eventId = event?.id
 
   try {
-    const anthropic = new Anthropic({ apiKey })
     const MODEL = await resolveModel(db, 'orchestrator')
 
     // Guardrails: a cheap utility-model pre-flight on the untrusted payload,
     // enforced here in code. Webhooks fail CLOSED — unattended + attacker-facing.
-    const guard = await runGuardrails(db, anthropic, 'webhook', payloadText)
+    const guard = await runGuardrails(db, 'webhook', payloadText)
     if (guard.ok === false && 'error' in guard) {
       if (eventId) await db.from('webhook_events').update({ status: 'blocked', error: `Guardrail evaluator error: ${guard.error}` }).eq('id', eventId)
       await db.from('activity_log').insert({ type: 'guardrail.error', summary: `Guardrail check errored for "${webhook.name}" — blocked`, detail: { event_id: eventId, error: guard.error }, actor_id: webhook.owner_id })
@@ -152,62 +152,57 @@ Deno.serve(async (req: Request) => {
 
     // Resolve what runs: an attached agent (prompt + tools) or the bare prompt.
     // Deterministic rule: the agent runs toolless unless the webhook opts in.
-    let system = webhook.prompt || 'Process the incoming webhook payload and summarize what it contains.'
-    let anthropicTools: unknown[] = []
+    let systemPrompt = webhook.prompt || 'Process the incoming webhook payload and summarize what it contains.'
+    let tools: ORTool[] = []
     let httpTools = new Map<string, ToolRow>()
     let builtins = new Set<string>()
+    let webEnabled = false
     if (webhook.agent_id) {
       const { data: agent } = await db.from('agents').select('instructions, tool_ids').eq('id', webhook.agent_id).maybeSingle()
       if (agent) {
-        system = agent.instructions || system
+        systemPrompt = agent.instructions || systemPrompt
         if (webhook.allow_tools) {
           const loaded = await loadAgentTools(db, agent.tool_ids ?? [])
-          anthropicTools = loaded.anthropicTools
+          tools = loaded.tools
           httpTools = loaded.httpTools
           builtins = loaded.builtins
+          webEnabled = loaded.webEnabled
         }
       }
     }
 
-    const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
+    const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+    const reasoning = reasoningParam()
+    const messages: ORMessage[] = [
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: payloadText || '(empty payload)' },
     ]
     let result = ''
-    // web_search/web_fetch run in an Anthropic-hosted code-execution container;
-    // its id must be echoed on every continuation request or the API 400s.
-    let containerId: string | null = null
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-      const msg = await anthropic.messages.create({
+      const out = await orComplete({
         model: MODEL,
-        max_tokens: 4096,
-        thinking: { type: 'adaptive' },
-        output_config: { effort: EFFORT },
-        system,
-        tools: anthropicTools.length ? (anthropicTools as never) : undefined,
-        ...(containerId ? { container: containerId } : {}),
-        messages: messages as never,
+        messages,
+        tools: tools.length ? tools : undefined,
+        plugins,
+        reasoning,
+        maxTokens: 4096,
       })
-      const msgContainerId = (msg as { container?: { id?: string } | null }).container?.id
-      if (msgContainerId) containerId = msgContainerId
-      messages.push({ role: 'assistant', content: msg.content })
-      result = textOf(msg.content as Array<Record<string, unknown>>) || result
+      result = out.content || result
 
-      if (msg.stop_reason === 'tool_use') {
-        const toolResults: unknown[] = []
-        for (const block of msg.content as Array<Record<string, unknown>>) {
-          if (block.type !== 'tool_use') continue
-          const name = block.name as string
+      if (out.toolCalls.length) {
+        messages.push(assistantToolCallMsg(out.content, out.toolCalls))
+        for (const call of out.toolCalls) {
+          const name = call.function.name
+          const input = parseToolArgs(call.function.arguments)
           const tool = httpTools.get(name)
           let output: string
-          if (tool) output = await runHttpTool(tool, block.input)
-          else if (builtins.has(name)) output = await runBuiltin(db, name, (block.input as Record<string, unknown>) ?? {}, webhook.owner_id)
+          if (tool) output = await runHttpTool(tool, input)
+          else if (builtins.has(name)) output = await runBuiltin(db, name, input, webhook.owner_id)
           else output = `Unknown tool: ${name}`
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output })
+          messages.push(toolResultMsg(call.id, output))
         }
-        messages.push({ role: 'user', content: toolResults })
         continue
       }
-      if (msg.stop_reason === 'pause_turn') continue
       break
     }
 

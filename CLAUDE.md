@@ -6,7 +6,7 @@ Guidance for AI agents (and humans) working in this repository.
 
 A React intranet layer on top of Supabase: auth, an AI chat assistant, shareable
 "artifacts" (docs/code/HTML), file storage, and live realtime updates. The
-Anthropic key is server-side only (a Supabase Edge Function); the browser holds
+OpenRouter key is server-side only (a Supabase Edge Function); the browser holds
 just the Supabase anon key and is protected by Postgres row-level security.
 
 ## Commands
@@ -35,7 +35,7 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   them — images/PDFs as content blocks, text inlined — so the assistant can parse them.
   Streaming comes from `src/lib/chat.ts` → `POST` to the `chat` edge function, which
   returns **SSE** lines `data: {"delta": "..."}` and ends with `data: [DONE]`.
-  The function calls Anthropic; the client only sends the message history + the user's
+  The function calls OpenRouter; the client only sends the message history + the user's
   access token (+ the anon key as the `apikey` header).
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
@@ -76,12 +76,14 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
     (or the ⚡ button) lists them; `runSkill()` sends them as the `system` (artifact
     mode uses `replaceSystem: true` for clean output; reply mode appends to context).
 - **Tools (tools-as-data):** the `tools` table defines capabilities the chat loop
-  exposes to Claude. `kind = 'http'` → a custom tool; Claude calls it and the chat
+  exposes to the model. `kind = 'http'` → a custom tool; the model calls it and the chat
   function POSTs the inputs to `config.url` and feeds the response back. `kind = 'web'`
-  → switches on Anthropic's server-side `web_search`/`web_fetch`. Admin-managed
-  (`ToolsPage`); a seeded `is_builtin` "web_browsing" row is on by default. The chat
-  function runs an **agentic loop** (model → tool_use → execute → tool_result → … →
-  end_turn), preserving thinking + tool_use blocks across turns (the opus-4-8 rule).
+  → switches on OpenRouter's **web plugin** (`plugins:[{id:'web'}]`), the portable
+  replacement for Anthropic's server-side web tools (works with any OpenRouter model).
+  Admin-managed (`ToolsPage`); a seeded `is_builtin` "web_browsing" row is on by default.
+  The chat function runs an **agentic loop** (model → tool_calls → execute →
+  tool result messages → … → stop), pushing the assistant turn (content + `tool_calls`)
+  back before each batch of `{role:'tool'}` results (OpenAI/OpenRouter shape).
 - **Guardrails:** the `guardrails` table holds admin-managed pre-flight checks evaluated
   by the cheap `utility` model profile **before** the orchestrator runs. `GuardrailsPage`
   (admin-only) manages them; each has `instructions` (what to check for), `applies_to_webhooks`
@@ -178,9 +180,10 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider
+  functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers) shared by all 3 loops + guardrails
   functions/_shared/builtins.ts  runBuiltin: search_documents, send_email, check_email (shared by all 3 loops)
-  functions/chat/index.ts      Deno edge function: agentic tool loop, streams Claude (verify_jwt: true)
+  functions/chat/index.ts      Deno edge function: agentic tool loop, streams the model via OpenRouter (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
   functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
@@ -215,29 +218,36 @@ If you change the schema: update the migration, apply it, run `npm run gen:types
 
 ## The chat edge function
 
-`supabase/functions/chat/index.ts` (Deno). Uses the official Anthropic SDK
-(`npm:@anthropic-ai/sdk`) with `thinking: { type: 'adaptive' }` and
-`output_config: { effort }`. **Model selection — never hardcode a model id:**
-the model resolves through the `model_profiles` table via `resolveModel(db, key)`
+`supabase/functions/chat/index.ts` (Deno). Calls **OpenRouter** (OpenAI-compatible
+`/chat/completions`) through the shared `supabase/functions/_shared/openrouter.ts`
+client — a thin fetch wrapper (`orComplete` non-streaming, `orStream` streaming)
+that also carries the `reasoning` (effort) and `plugins` (web) fields. **Model
+selection — never hardcode a model id:** the model resolves through the
+`model_profiles` table via `resolveModel(db, key)`
 (`supabase/functions/_shared/models.ts`). Features bind to a profile **key**, not
 a model — `orchestrator` (the main brain: chat/agents/webhook/scheduled runs,
-seeded `claude-opus-4-8`) and `utility` (cheap + fast, seeded
-`claude-haiku-4-5-20251001`). Admins re-point a key in Settings → Models; the DB
-row is the source of truth and `ANTHROPIC_MODEL` is only a fallback when the row
-can't be loaded. Deployed with `verify_jwt: true`. Reads `ANTHROPIC_API_KEY`
-(required), `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` from edge-function secrets. It assembles the system prompt by
-reading the always-on prompts (`skills.auto_apply = true`) with the service-role key,
-then optionally appends/replaces with an invoked skill's instructions
-(`body.system` + `body.replaceSystem`). Request body: `{ messages, system?, replaceSystem? }`.
-It also loads active `tools` rows and runs an **agentic loop**: server-side
-`web_search`/`web_fetch` (for `kind = 'web'`) and custom `http` tools (POST inputs to
-`config.url`, feed the response back). It appends each assistant turn's full `content`
-(thinking + tool_use blocks) before sending `tool_result`s, then loops to `MAX_TOOL_TURNS`.
+seeded `anthropic/claude-sonnet-4.5`) and `utility` (cheap + fast, seeded
+`anthropic/claude-haiku-4.5`). Model ids are **OpenRouter slugs**. Admins re-point a
+key in Settings → Models; the DB row is the source of truth and `OPENROUTER_MODEL`
+is only a fallback when the row can't be loaded. Deployed with `verify_jwt: true`.
+Reads `OPENROUTER_API_KEY` (required) and optional `OPENROUTER_MODEL`,
+`OPENROUTER_EFFORT`, `OPENROUTER_SITE_URL`, `OPENROUTER_APP_NAME` from edge-function
+secrets. It assembles the system prompt by reading the always-on prompts
+(`skills.auto_apply = true`) with the service-role key, then optionally
+appends/replaces with an invoked skill's instructions (`body.system` +
+`body.replaceSystem`); the system prompt is sent as the first `{role:'system'}`
+message. Request body: `{ messages, system?, replaceSystem? }`. It also loads active
+`tools` rows and runs an **agentic loop**: the OpenRouter web plugin (for `kind = 'web'`)
+and custom `http` tools (POST inputs to `config.url`, feed the response back). It
+appends each assistant turn (content + `tool_calls`) before sending one
+`{role:'tool', tool_call_id}` message per call, then loops to `MAX_TOOL_TURNS`.
 
-**Anthropic conventions (do not change without reason):** default to `claude-opus-4-8`;
-use **adaptive thinking** (`budget_tokens`, `temperature`, `top_p` are removed on Opus
-4.8 and will 400); stream responses. Don't downgrade the model to save cost — that's
-the maintainer's call.
+**OpenRouter conventions (do not change without reason):** model ids are OpenRouter
+slugs (`provider/model`, e.g. `anthropic/claude-sonnet-4.5`); reasoning effort goes
+through `reasoning:{effort}` (no Anthropic `thinking`/`output_config`); tool calls
+use OpenAI function-calling shape (`tool_calls` + `{role:'tool'}` results); stream
+responses. Don't silently downgrade the model to save cost — that's the maintainer's
+call (it's a one-line edit in Settings → Models).
 
 ## Environment & secrets
 
@@ -245,14 +255,15 @@ the maintainer's call.
 | --- | --- | --- |
 | Frontend (build-time) | `VITE_SUPABASE_URL` | Inlined into the bundle |
 | Frontend (build-time) | `VITE_SUPABASE_ANON_KEY` | Public by design; RLS protects data |
-| Edge secret | `ANTHROPIC_API_KEY` | `supabase secrets set ...` — never commit |
-| Edge secret | `ANTHROPIC_MODEL` / `ANTHROPIC_EFFORT` | Optional overrides |
+| Edge secret | `OPENROUTER_API_KEY` | `supabase secrets set ...` — never commit |
+| Edge secret | `OPENROUTER_MODEL` / `OPENROUTER_EFFORT` | Optional overrides (slug fallback / effort) |
+| Edge secret | `OPENROUTER_SITE_URL` / `OPENROUTER_APP_NAME` | Optional OpenRouter ranking headers |
 
 `VITE_*` are read at **build time** — they must exist before `npm run build`.
 
 ## Gotchas
 
-- **Don't put secrets in the frontend.** Only the anon key belongs there; the Anthropic
+- **Don't put secrets in the frontend.** Only the anon key belongs there; the OpenRouter
   key is an edge-function secret.
 - **Streaming format:** the function emits SSE `data: {"delta": "..."}`; `streamChat`
   parses on `\n\n` boundaries and stops at `[DONE]`. Keep both sides in sync.

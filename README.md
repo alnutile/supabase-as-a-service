@@ -13,7 +13,7 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 ![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-38BDF8?logo=tailwindcss&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%7C%20Auth%20%7C%20Realtime%20%7C%20Storage-3FCF8E?logo=supabase&logoColor=white)
-![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)
+![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-6566F1?logo=openai&logoColor=white)
 
 </div>
 
@@ -33,7 +33,7 @@ A small but complete foundation for a team workspace ("intranet") that you fully
 It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
 
 - 🔐 **Auth** — email/password and magic links via Supabase Auth. A profile is created automatically on signup.
-- 💬 **AI chat** — talk to Claude to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
+- 💬 **AI chat** — talk to any model (via OpenRouter) to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
 - ⚡ **Prompts & skills** — **always-on** prompts (a built-in "how this system works" prompt + admin-set workspace context like *"this is Acme's intranet"*) shape every chat; **on-demand** skills run from chat with `/`. The assistant can also **create artifacts directly** ("turn that into something I can share") — they're saved and linked inline. These are the seed for scheduled/promotable agents.
 - 📄 **Artifacts** — turn any reply (or a blank page) into a markdown / code / HTML / text artifact with live preview. Share it as **Private**, **Unlisted** (anyone with the link), or **Public** — served to anonymous visitors at `/share/a/:slug`.
 - 📁 **Files** — upload to a private, per-user storage bucket and hand out **7-day signed share links** when you want to.
@@ -49,7 +49,7 @@ It leans on Supabase for the parts that should be boring and solid, and adds a c
 - 🔌 **MCP server** — connect **Claude Code / Desktop** to your workspace with a token (Settings → Connect Claude), then say *"build an agent that does X on my intranet"* — Claude authors it and **pushes it in over MCP**, where it shows up in the dashboard. Your app is one way to build these; it isn't the only way.
 - 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).
 
-The Anthropic API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
+The OpenRouter API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
 
 
 > CLUADE DESKTOP INTEGRATION
@@ -74,8 +74,8 @@ The Anthropic API key lives **only** on the server (a Supabase Edge Function), n
                  │   • Postgres + RLS  (profiles, conversations,│
                  │     messages, artifacts, files)              │
                  │   • Auth · Realtime · Storage                │
-                 │   • Edge Function `chat`  ───▶ Anthropic API │
-                 │     (ANTHROPIC_API_KEY stays server-side)    │
+                 │   • Edge Function `chat` ──▶ OpenRouter API  │
+                 │     (OPENROUTER_API_KEY stays server-side)   │
                  └─────────────────────────────────────────────┘
 ```
 
@@ -85,7 +85,7 @@ The Anthropic API key lives **only** on the server (a Supabase Edge Function), n
 
 - **Frontend:** React 18 · TypeScript · Vite · Tailwind CSS · React Router
 - **Backend:** Supabase — Postgres, Auth, Realtime, Storage, Edge Functions (Deno)
-- **AI:** Anthropic Claude (`claude-opus-4-8`) via a streaming edge function
+- **AI:** any model via [OpenRouter](https://openrouter.ai) (default `anthropic/claude-sonnet-4.5`) through a streaming edge function
 - **Hosting:** any static host; first-class config for [Railway](https://railway.app)
 
 ## Project layout
@@ -99,7 +99,7 @@ src/
   lib/                         Supabase client, chat streaming, types, utils
 supabase/
   migrations/0001_init.sql     Schema + RLS + realtime + storage policies
-  functions/chat/index.ts      Edge function that streams Claude
+  functions/chat/index.ts      Edge function that streams the model (via OpenRouter)
 railway.json                   Build/serve config for Railway
 DEPLOY.md                      End-to-end deployment guide
 ```
@@ -108,7 +108,7 @@ DEPLOY.md                      End-to-end deployment guide
 
 ![tools](images/tools.png)
 
-**Prerequisites:** Node 18+, a [Supabase](https://supabase.com) project, an [Anthropic API key](https://console.anthropic.com), and the [Supabase CLI](https://supabase.com/docs/guides/cli).
+**Prerequisites:** Node 18+, a [Supabase](https://supabase.com) project, an [OpenRouter API key](https://openrouter.ai/keys), and the [Supabase CLI](https://supabase.com/docs/guides/cli).
 
 ```bash
 # 1. Install
@@ -123,7 +123,7 @@ supabase link --project-ref <your-project-ref>
 supabase db push                 # or paste supabase/migrations/0001_init.sql into the SQL editor
 
 # 4. Deploy the AI edge function + its secret
-supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+supabase secrets set OPENROUTER_API_KEY=sk-or-...
 supabase functions deploy chat
 
 # 5. Run
@@ -140,9 +140,9 @@ Then sign up, and start chatting.
 | --- | --- | --- |
 | Frontend (build-time) | `VITE_SUPABASE_URL` | Your Supabase project URL. Inlined into the bundle. |
 | Frontend (build-time) | `VITE_SUPABASE_ANON_KEY` | Anon/publishable key. Safe in the browser — RLS protects data. |
-| Edge function secret | `ANTHROPIC_API_KEY` | **Server-only.** `supabase secrets set ANTHROPIC_API_KEY=…` |
-| Edge function secret | `ANTHROPIC_MODEL` | Optional. Defaults to `claude-opus-4-8`. |
-| Edge function secret | `ANTHROPIC_EFFORT` | Optional. `low` \| `medium` \| `high`. Defaults to `medium`. |
+| Edge function secret | `OPENROUTER_API_KEY` | **Server-only.** `supabase secrets set OPENROUTER_API_KEY=…` |
+| Edge function secret | `OPENROUTER_MODEL` | Optional fallback slug when a `model_profiles` row can't be read. Defaults to `anthropic/claude-sonnet-4.5`. |
+| Edge function secret | `OPENROUTER_EFFORT` | Optional. `low` \| `medium` \| `high` reasoning effort. Defaults to none. |
 
 `VITE_*` vars are read at **build time** — on a host like Railway they must be set before the build runs.
 
@@ -203,7 +203,7 @@ fully quit and reopen Desktop:
 
 - The browser only ever holds the **anon/publishable** key. Row-level security is what protects data, not key secrecy. Every table has RLS: owners see their own rows; artifacts/files open up only when explicitly set to *unlisted* or *public*.
 - Files live in a **private** storage bucket scoped to `‹user-id›/…`; sharing is done with time-limited signed URLs.
-- The **Anthropic key** is only ever a Supabase Edge Function secret — never in the repo, never in the bundle.
+- The **OpenRouter key** is only ever a Supabase Edge Function secret — never in the repo, never in the bundle.
 - The `chat` function requires a valid Supabase JWT (`verify_jwt`), so only signed-in users can call the model.
 
 ## Regenerating types

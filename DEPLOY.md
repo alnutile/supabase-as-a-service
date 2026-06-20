@@ -7,7 +7,7 @@ Two pieces go live: the **Supabase backend** (database, auth, storage, realtime,
 1. Apply the schema: run `supabase/migrations/0001_init.sql` (SQL editor or `supabase db push`).
 2. Deploy the AI function and its secret:
    ```bash
-   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+   supabase secrets set OPENROUTER_API_KEY=sk-or-...
    supabase functions deploy chat
    ```
 3. Grab **Project URL** and **anon/publishable key** (Project Settings → API).
@@ -25,4 +25,4 @@ Railway builds the Vite app (Nixpacks) and serves the static output with `serve`
 
 ### Notes
 - `VITE_*` variables must exist **before the build runs**. If you add them after the first deploy, trigger a redeploy so they get baked in.
-- The Anthropic key lives only as a Supabase edge-function secret — never in Railway, never in the bundle.
+- The OpenRouter key lives only as a Supabase edge-function secret — never in Railway, never in the bundle.

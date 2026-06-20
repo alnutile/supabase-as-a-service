@@ -1,6 +1,6 @@
 // Shared executor for `builtin` tools — tools run in-function (as opposed to
-// `http` tools that POST to a URL, or `web` tools that switch on Anthropic's
-// server-side search/fetch). Centralized here so ALL THREE agent loops (chat,
+// `http` tools that POST to a URL, or `web` tools that switch on OpenRouter's
+// web-search plugin). Centralized here so ALL THREE agent loops (chat,
 // webhook, scheduler) can run them: the "morning agent emails me" flow runs
 // through the scheduler, so this is load-bearing, not a refactor nicety.
 //

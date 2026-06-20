@@ -139,7 +139,16 @@ function ModelsCard() {
       <h2 className="text-sm font-semibold text-slate-700">Models</h2>
       <p className="mt-1 text-sm text-slate-500">
         Which model powers each job. Edit the id to re-point a profile — applied on the next message,
-        no redeploy needed.
+        no redeploy needed. Use an{' '}
+        <a
+          href="https://openrouter.ai/models"
+          target="_blank"
+          rel="noreferrer"
+          className="text-brand-600 underline"
+        >
+          OpenRouter model slug
+        </a>{' '}
+        (e.g. <code>anthropic/claude-sonnet-4.5</code>, <code>openai/gpt-4o-mini</code>).
       </p>
       <div className="mt-4 space-y-3">
         {profiles.map((p) => (

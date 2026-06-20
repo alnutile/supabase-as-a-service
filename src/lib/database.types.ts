@@ -264,6 +264,42 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['tools']['Insert']>
         Relationships: []
       }
+      forged_functions: {
+        Row: {
+          id: string
+          slug: string
+          name: string
+          spec: string
+          source: string
+          model: string | null
+          input_schema: Json
+          status: string
+          deploy_error: string | null
+          invoke_token: string
+          tool_id: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          slug: string
+          name: string
+          spec?: string
+          source: string
+          model?: string | null
+          input_schema?: Json
+          status?: string
+          deploy_error?: string | null
+          invoke_token?: string
+          tool_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['forged_functions']['Insert']>
+        Relationships: []
+      }
       activity_log: {
         Row: {
           id: string

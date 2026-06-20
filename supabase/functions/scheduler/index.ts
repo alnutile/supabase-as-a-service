@@ -1,12 +1,22 @@
 // Supabase Edge Function: `scheduler` (PUBLIC — verify_jwt=false, but gated by a
 // DB-stored secret that only the pg_cron job knows). Called every minute by
 // pg_cron; runs any agents whose schedule is due, over the schedule's input.
-import Anthropic from 'npm:@anthropic-ai/sdk@0.69.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import {
+  assistantToolCallMsg,
+  orApiKey,
+  orComplete,
+  parseToolArgs,
+  reasoningParam,
+  toolResultMsg,
+  toORTool,
+  WEB_PLUGIN,
+  type ORMessage,
+  type ORTool,
+} from '../_shared/openrouter.ts'
 
-const EFFORT = (Deno.env.get('ANTHROPIC_EFFORT') ?? 'medium') as 'low' | 'medium' | 'high'
 const MAX_TOOL_TURNS = 6
 
 interface ToolRow {
@@ -20,28 +30,24 @@ interface ToolRow {
 
 // deno-lint-ignore no-explicit-any
 async function loadAgentTools(db: any, restrictIds: string[]) {
-  const anthropicTools: unknown[] = []
+  const tools: ORTool[] = []
   const httpTools = new Map<string, ToolRow>()
   const builtins = new Set<string>()
-  if (!restrictIds.length) return { anthropicTools, httpTools, builtins }
+  let webEnabled = false
+  if (!restrictIds.length) return { tools, httpTools, builtins, webEnabled }
   const { data } = await db.from('tools').select('*').eq('is_active', true)
-  let web = false
   for (const t of (data ?? []) as ToolRow[]) {
     if (!restrictIds.includes(t.id)) continue
-    if (t.kind === 'web') web = true
+    if (t.kind === 'web') webEnabled = true
     else if (t.kind === 'builtin' && t.name) {
-      anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
+      tools.push(toORTool(t.name, t.description, t.input_schema))
       builtins.add(t.name)
     } else if (t.kind === 'http' && t.name) {
-      anthropicTools.push({ name: t.name, description: t.description, input_schema: t.input_schema ?? { type: 'object', properties: {} } })
+      tools.push(toORTool(t.name, t.description, t.input_schema))
       httpTools.set(t.name, t)
     }
   }
-  if (web) {
-    anthropicTools.push({ type: 'web_search_20260209', name: 'web_search' })
-    anthropicTools.push({ type: 'web_fetch_20260209', name: 'web_fetch' })
-  }
-  return { anthropicTools, httpTools, builtins }
+  return { tools, httpTools, builtins, webEnabled }
 }
 
 async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
@@ -57,10 +63,6 @@ async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
   } catch (err) {
     return `Tool call failed: ${err instanceof Error ? err.message : 'error'}`
   }
-}
-
-function textOf(content: Array<Record<string, unknown>>): string {
-  return content.filter((b) => b.type === 'text').map((b) => b.text as string).join('\n').trim()
 }
 
 // Scheduled runs are unattended: no human sees the agent's questions or answers
@@ -79,50 +81,43 @@ function scheduledRunGuidance(ownerEmail: string | null): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(anthropic: Anthropic, db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null) {
-  const { anthropicTools, httpTools, builtins } = await loadAgentTools(db, agent.tool_ids ?? [])
+async function runAgent(db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null) {
+  const { tools, httpTools, builtins, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   const system = [agent.instructions || 'You are a scheduled agent. Do the task described.', scheduledRunGuidance(ownerEmail)].join('\n\n')
   // The schedule's input is optional. When it's blank, drive the agent with a
   // clear directive so it runs its own instructions (the system prompt) rather
   // than being handed a meaningless turn.
-  const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
+  const messages: ORMessage[] = [
+    { role: 'system', content: system },
     { role: 'user', content: input.trim() || "It's time for your scheduled run. Carry out your task now, following your instructions." },
   ]
+  const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+  const reasoning = reasoningParam()
   let result = ''
-  // web_search/web_fetch run in an Anthropic-hosted code-execution container;
-  // its id must be echoed on every continuation request or the API 400s.
-  let containerId: string | null = null
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-    const msg = await anthropic.messages.create({
+    const out = await orComplete({
       model,
-      max_tokens: 4096,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: EFFORT },
-      system,
-      tools: anthropicTools.length ? (anthropicTools as never) : undefined,
-      ...(containerId ? { container: containerId } : {}),
-      messages: messages as never,
+      messages,
+      tools: tools.length ? tools : undefined,
+      plugins,
+      reasoning,
+      maxTokens: 4096,
     })
-    const msgContainerId = (msg as { container?: { id?: string } | null }).container?.id
-    if (msgContainerId) containerId = msgContainerId
-    messages.push({ role: 'assistant', content: msg.content })
-    result = textOf(msg.content as Array<Record<string, unknown>>) || result
-    if (msg.stop_reason === 'tool_use') {
-      const toolResults: unknown[] = []
-      for (const block of msg.content as Array<Record<string, unknown>>) {
-        if (block.type !== 'tool_use') continue
-        const name = block.name as string
+    result = out.content || result
+    if (out.toolCalls.length) {
+      messages.push(assistantToolCallMsg(out.content, out.toolCalls))
+      for (const call of out.toolCalls) {
+        const name = call.function.name
+        const input = parseToolArgs(call.function.arguments)
         const tool = httpTools.get(name)
-        let out: string
-        if (tool) out = await runHttpTool(tool, block.input)
-        else if (builtins.has(name)) out = await runBuiltin(db, name, (block.input as Record<string, unknown>) ?? {}, ownerId)
-        else out = `Unknown tool: ${name}`
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: out })
+        let res: string
+        if (tool) res = await runHttpTool(tool, input)
+        else if (builtins.has(name)) res = await runBuiltin(db, name, input, ownerId)
+        else res = `Unknown tool: ${name}`
+        messages.push(toolResultMsg(call.id, res))
       }
-      messages.push({ role: 'user', content: toolResults })
       continue
     }
-    if (msg.stop_reason === 'pause_turn') continue
     break
   }
   return result
@@ -147,7 +142,7 @@ Deno.serve(async (req: Request) => {
     .lte('next_run_at', new Date().toISOString())
     .limit(20)
 
-  const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY')! })
+  if (!orApiKey()) return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), { status: 500 })
   const model = await resolveModel(db, 'orchestrator')
   let ran = 0
 
@@ -157,7 +152,7 @@ Deno.serve(async (req: Request) => {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
         const { data: owner } = await db.from('profiles').select('email').eq('id', s.owner_id).maybeSingle()
-        const result = await runAgent(anthropic, db, agent, s.input, model, s.owner_id, owner?.email ?? null)
+        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,

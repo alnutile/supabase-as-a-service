@@ -6,3 +6,6 @@ verify_jwt = true
 
 [functions.email-test]
 verify_jwt = true
+
+[functions.forge]
+verify_jwt = true
