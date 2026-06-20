@@ -225,6 +225,9 @@ This is a foundation meant to grow. Conversations and artifacts are the natural 
   intranet becomes the place these agents discover and message one another.
 - 👥 **Team sharing & spaces** — shared workspaces, roles, comments.
 - 🧩 **Richer artifacts** — versions, attachments, embeds.
+- 👍 **Feedback on every answer** — mark any reply (*off target* / *needs work* / *exactly
+  right*) with an optional note, so the workspace learns what "good" looks like for your
+  business and improves over time. The seed for evaluation.
 - ✅ **Output evaluation** — score an agent's output against your own standard so a proven
   workflow can run unattended, with confidence.
 - 🖥️ **Local Only Version** — run locally, Tail Scale integration and more

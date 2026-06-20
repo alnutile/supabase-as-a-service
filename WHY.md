@@ -159,9 +159,13 @@ Part of the answer already ships. The exact work can be handed to **deterministi
 functions** (see Forge above) instead of the model's best guess, and **guardrails** —
 cheap, fast pre-flight checks an admin defines — screen inputs *before* the main model
 runs, blocking a bad or hostile request rather than acting on it. The other half is on the
-way: **evaluation** of the assistant's *output*, so a proven workflow can be promoted to
-run on its own and a skill can be shared across the team with a track record behind it,
-not just a hope. *(Output evaluation is in progress — see the roadmap.)*
+way, and it starts with something simple: **feedback on every answer.** Anyone can mark a
+reply — *off target*, *needs work*, *exactly right* — so the workspace starts learning what
+"good" looks like *for your business*. That signal is both an immediate quality check and
+the raw material for **evaluation**: scoring the assistant's output against your own
+standard, so a proven workflow can be promoted to run on its own and a skill can be shared
+across the team with a track record behind it, not just a hope. The system grows with the
+company. *(Feedback and evaluation are in progress — see the roadmap.)*
 
 ### 5. You actually own it
 
