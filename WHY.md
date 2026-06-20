@@ -255,6 +255,14 @@ managed infrastructure (Supabase for the database, auth, storage, realtime, and 
 server-side AI functions) plus a focused layer of UI on top, it does things that usually
 take a platform team — and all of it is readable, forkable, and yours.
 
+Where this is headed is the part that gets interesting: once everyone has their own
+helpers, the helpers start working *with each other*. Bob's scheduling assistant sorts out
+a meeting time with Jan's, and has the agenda ready before either of them walks in; a
+shared notes assistant keeps every project's follow-ups straight across the team. Because
+they all live in the same owned workspace, it becomes the place your team's assistants find
+each other and get things done together — not something you wire up between separate apps.
+*(This is on the roadmap.)*
+
 And if running it yourself isn't your thing, the intent is to make it **hostable for you**:
 the same project, run as a managed service, so you get the owned-data, no-lock-in
 foundation with none of the setup. Use it, fork it, or have it hosted — either way the
