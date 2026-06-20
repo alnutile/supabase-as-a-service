@@ -618,6 +618,110 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['inbox_messages']['Insert']>
         Relationships: []
       }
+      eval_suites: {
+        Row: {
+          id: string
+          name: string
+          description: string
+          target_kind: string
+          agent_id: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string
+          target_kind?: string
+          agent_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['eval_suites']['Insert']>
+        Relationships: []
+      }
+      eval_cases: {
+        Row: {
+          id: string
+          suite_id: string
+          name: string
+          input: string
+          assertions: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          suite_id: string
+          name?: string
+          input: string
+          assertions?: Json
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['eval_cases']['Insert']>
+        Relationships: []
+      }
+      eval_runs: {
+        Row: {
+          id: string
+          suite_id: string
+          model: string | null
+          status: string
+          total: number
+          passed: number
+          score: number | null
+          cost: number | null
+          error: string | null
+          triggered_by: string | null
+          created_at: string
+          finished_at: string | null
+        }
+        Insert: {
+          id?: string
+          suite_id: string
+          model?: string | null
+          status?: string
+          total?: number
+          passed?: number
+          score?: number | null
+          cost?: number | null
+          error?: string | null
+          triggered_by?: string | null
+          created_at?: string
+          finished_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['eval_runs']['Insert']>
+        Relationships: []
+      }
+      eval_results: {
+        Row: {
+          id: string
+          run_id: string
+          case_id: string | null
+          case_name: string
+          passed: boolean
+          score: number | null
+          output: string | null
+          detail: Json | null
+          latency_ms: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          run_id: string
+          case_id?: string | null
+          case_name?: string
+          passed?: boolean
+          score?: number | null
+          output?: string | null
+          detail?: Json | null
+          latency_ms?: number | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['eval_results']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: {
