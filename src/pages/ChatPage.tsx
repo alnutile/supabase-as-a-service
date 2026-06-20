@@ -16,6 +16,7 @@ import {
   PlusIcon,
   SendIcon,
   SkillIcon,
+  TrashIcon,
 } from '../components/icons'
 
 const BUCKET = 'files'
@@ -60,6 +61,14 @@ export default function ChatPage() {
   useEffect(() => {
     loadConversations()
   }, [loadConversations])
+
+  // Delete a conversation (messages cascade via FK). If it's the open one, go home.
+  async function deleteConversation(id: string, title: string) {
+    if (!confirm(`Delete chat “${title}”? This can't be undone.`)) return
+    await supabase.from('conversations').delete().eq('id', id)
+    setConversations((prev) => prev.filter((c) => c.id !== id))
+    if (id === conversationId) navigate('/chat')
+  }
 
   // --- Load saved skills (for the slash menu / run button) ---
   useEffect(() => {
@@ -445,20 +454,32 @@ export default function ChatPage() {
         </div>
         <div className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">
           {conversations.map((c) => (
-            <button
+            <div
               key={c.id}
-              onClick={() => {
-                navigate(`/chat/${c.id}`)
-                setShowConvos(false)
-              }}
-              className={`block w-full truncate rounded-lg px-3 py-2 text-left text-sm transition ${
-                c.id === conversationId
-                  ? 'bg-primary-soft text-primary'
-                  : 'text-muted hover:bg-surface-hover'
+              className={`group flex items-center rounded-lg transition ${
+                c.id === conversationId ? 'bg-primary-soft' : 'hover:bg-surface-hover'
               }`}
             >
-              {c.title}
-            </button>
+              <button
+                onClick={() => {
+                  navigate(`/chat/${c.id}`)
+                  setShowConvos(false)
+                }}
+                className={`min-w-0 flex-1 truncate px-3 py-2 text-left text-sm transition ${
+                  c.id === conversationId ? 'text-primary' : 'text-muted'
+                }`}
+              >
+                {c.title}
+              </button>
+              <button
+                onClick={() => deleteConversation(c.id, c.title)}
+                title="Delete chat"
+                aria-label={`Delete chat ${c.title}`}
+                className="mr-1 shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
+            </div>
           ))}
           {conversations.length === 0 && (
             <p className="px-3 py-6 text-center text-xs text-faint">
