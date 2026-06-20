@@ -30,3 +30,8 @@ verify_jwt = false
 
 [functions.ingest]
 verify_jwt = false
+
+# Serves a shared HTML artifact as a clean standalone page (gated by RLS via the
+# anon key — only non-private artifacts are ever returned).
+[functions.p]
+verify_jwt = false

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ArtifactType, Database, Visibility } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
+import { standalonePageUrl, supabase } from '../lib/supabase'
 import { makeSlug } from '../lib/util'
 import { Markdown } from '../components/Markdown'
 import { VisibilityControl } from '../components/VisibilityControl'
@@ -148,6 +148,17 @@ export default function ArtifactEditorPage() {
             shareUrl={shareUrl}
             onChange={changeVisibility}
           />
+          {artifact.type === 'html' && artifact.visibility !== 'private' && artifact.public_slug && (
+            <a
+              href={standalonePageUrl(artifact.public_slug)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs font-medium text-muted transition hover:border-primary hover:text-primary"
+              title="Open the raw HTML as a clean standalone page — no intranet chrome"
+            >
+              Open as standalone page ↗
+            </a>
+          )}
         </div>
         <div className="p-4">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">

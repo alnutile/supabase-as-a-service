@@ -40,6 +40,18 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
+  **Standalone hosting:** an `html` artifact can also be served as a clean, chrome-free
+  public page by the **public `p` edge function** (`verify_jwt: false`):
+  `GET /functions/v1/p/‹slug›` returns the artifact's raw `content` as `text/html`
+  (injecting `<title>`/OpenGraph tags + a permissive CSP + `nosniff`) — for sharing "a
+  great diagram in HTML" with the public without deploying a whole app. It queries with
+  the **anon key**, so RLS only ever returns non-private rows (private artifacts are
+  invisible to it); only `type='html'` renders, anything else 404s. The editor's Sharing
+  panel and `PublicArtifactPage` link out to it (`standalonePageUrl(slug)` in
+  `src/lib/supabase.ts`). Because it serves straight from `artifacts.content`, editing the
+  artifact updates the page live; an external/local AI app can also push HTML up (via MCP)
+  to the same table and get the same URL. *(Planned: multi-file/bundled SPAs behind the
+  same `p/‹slug›` URL via a public storage bucket; an MCP `publish_html` one-call helper.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
 - **PDF knowledge (RAG):** uploading a PDF enqueues a `documents` row (trigger on
@@ -241,6 +253,7 @@ supabase/
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
   functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
+  functions/p/index.ts         Public standalone-page server (verify_jwt: false): serves a shared HTML artifact as raw text/html
 railway.json, DEPLOY.md        Deployment config + guide
 ```
 
