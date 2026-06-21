@@ -11,6 +11,7 @@ import PublicArtifactPage from './pages/PublicArtifactPage'
 import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
 import WebhooksPage from './pages/WebhooksPage'
+import GitHubSourcesPage from './pages/GitHubSourcesPage'
 import ToolsPage from './pages/ToolsPage'
 import ForgePage from './pages/ForgePage'
 import GuardrailsPage from './pages/GuardrailsPage'
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="webhooks" element={<WebhooksPage />} />
+        <Route path="github" element={<GitHubSourcesPage />} />
         <Route path="tools" element={<ToolsPage />} />
         <Route path="forge" element={<ForgePage />} />
         <Route path="guardrails" element={<GuardrailsPage />} />

@@ -67,6 +67,34 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   returns the document name for citations). Scope is **separate** from
   `files.visibility` — the raw PDF blob stays owner-private; only the text chunks
   are shared. Text-layer PDFs only for now (scanned → Stage 2 vision).
+- **GitHub knowledge (sync):** a `github_sources` row points at a repo (`owner/name` +
+  `branch` + `include_globs` like `docs/**`, `**/*.md`) and syncs its docs/spec files —
+  and optionally its issues & PRs (`ingest_issues`) — into the same workspace KB as
+  `documents` with `source = 'github'`. The **public `github-webhook` edge function**
+  (`verify_jwt: false`, migration 0029) is the ingress: a repo's webhook POSTs `push` /
+  `issues` / `pull_request` events to `/functions/v1/github-webhook/‹token›`; the function
+  resolves the source by token, verifies GitHub's `X-Hub-Signature-256` HMAC when a
+  `secret` is set (rejecting **before** logging, like the webhook secret), then for a push
+  fetches each changed matching file's content from the GitHub API and **stages** it — and
+  for an issue/PR stages its title+body. Staging means `stageDocument()`
+  (`_shared/knowledge.ts`) writes the `documents` row (`status='processing'`,
+  `source_ref='owner/repo:path@branch'` so a re-pushed file updates in place) plus
+  un-embedded chunks; **the existing `ingest` cron's EMBED phase fills the gte-small
+  embeddings** — the same resumable, compute-safe path PDFs use, so a big push/backfill
+  never blows the edge worker budget (it just embeds across ticks; partial results are
+  searchable because `match_document_chunks` ignores NULL embeddings). Retrieval is
+  unchanged: github docs default to `scope='workspace'`, so RLS + `search_documents` make
+  them searchable by the whole team. `GitHubSourcesPage` (route `/github`) manages sources,
+  shows the webhook URL + setup steps, and has a **"Sync now"** backfill that walks the
+  repo tree (JWT-authenticated owner path on the same function: `POST` body
+  `{action:'sync', source_id}`) to index existing docs immediately, not just on the next
+  push. Private repos use a **GitHub PAT kept in Supabase Vault** (`pat_secret_id` pointer;
+  written via the owner-checked security-definer RPC `set_github_source_pat`, read by edge
+  functions via the service-role-only `read_github_source_pat`), same posture as the email
+  integration — never a table column, never sent to the browser. A live `github_events` log
+  (Realtime) drives the page; outcomes also log to `activity_log` (`github.synced`).
+  *Planned follow-up (not built): comment/wiki/release events; an `applies_to_github`
+  guardrail context to screen synced content.*
 - **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
   DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
   calls). RLS: you see your own rows, admins see all. Realtime-subscribed.
@@ -244,7 +272,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0024 knowledge notes; 0029 GitHub sources (synced repo docs → KB)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
@@ -252,6 +280,9 @@ supabase/
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams the model via OpenRouter (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
   functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages
+  functions/github-webhook/index.ts  Public GitHub ingest (verify_jwt: false): HMAC-verified push/issue/PR events + JWT "sync" backfill → stages documents (source='github')
+  functions/_shared/github.ts  GitHub helpers: HMAC verify, glob match, fetch file/tree
+  functions/_shared/knowledge.ts  chunk/embed/ingest + stageDocument (defer embedding to the ingest cron)
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
   functions/p/index.ts         Public standalone-page server (verify_jwt: false): serves a shared HTML artifact as raw text/html
 railway.json, DEPLOY.md        Deployment config + guide
@@ -264,7 +295,8 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
 `mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
 config), `inbox_messages`, `plugins` (installed-plugin registry), `usage_events`
-(per-call token/cost accounting). Enums: `visibility`
+(per-call token/cost accounting), `github_sources` (synced repos; Vault-backed PAT)
++ `github_events` (sync log). Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**

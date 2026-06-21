@@ -469,6 +469,7 @@ export interface Database {
           status: string
           scope: string
           source: string
+          source_ref: string | null
           error: string | null
           chunk_count: number
           created_at: string
@@ -482,12 +483,73 @@ export interface Database {
           status?: string
           scope?: string
           source?: string
+          source_ref?: string | null
           error?: string | null
           chunk_count?: number
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['documents']['Insert']>
+        Relationships: []
+      }
+      github_sources: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          repo: string
+          branch: string
+          include_globs: string[]
+          ingest_issues: boolean
+          scope: string
+          token: string
+          secret: string | null
+          pat_secret_id: string | null
+          is_active: boolean
+          last_synced_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name?: string
+          repo?: string
+          branch?: string
+          include_globs?: string[]
+          ingest_issues?: boolean
+          scope?: string
+          token?: string
+          secret?: string | null
+          pat_secret_id?: string | null
+          is_active?: boolean
+          last_synced_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['github_sources']['Insert']>
+        Relationships: []
+      }
+      github_events: {
+        Row: {
+          id: string
+          source_id: string
+          event_type: string
+          status: string
+          summary: string | null
+          detail: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          source_id: string
+          event_type: string
+          status: string
+          summary?: string | null
+          detail?: Json | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['github_events']['Insert']>
         Relationships: []
       }
       document_chunks: {
@@ -773,6 +835,13 @@ export interface Database {
       email_is_configured: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      set_github_source_pat: {
+        Args: {
+          p_source_id: string
+          p_pat: string
+        }
+        Returns: undefined
       }
       usage_summary: {
         Args: { p_days?: number }

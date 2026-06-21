@@ -46,6 +46,88 @@ export async function embedAndStore(
   return idx
 }
 
+// Stage a block of raw text as a searchable document WITHOUT embedding inline:
+// create/update the `documents` row, chunk it, and insert the chunks with
+// embedding = NULL. The existing `ingest` cron's EMBED phase then fills them in
+// (the same resumable, compute-safe path PDFs use) — so a single request can
+// stage many files (a repo sync) without blowing the edge worker's compute
+// budget. Idempotent on `sourceRef`: re-staging the same ref replaces its chunks
+// and re-queues embedding, so a re-pushed file updates in place. Returns the
+// document id and how many chunks were queued.
+export async function stageDocument(
+  db: DB,
+  opts: {
+    ownerId: string
+    name: string
+    text: string
+    source: string
+    sourceRef: string
+    scope?: 'workspace' | 'private'
+  },
+): Promise<{ documentId: string; chunkCount: number }> {
+  const chunks = chunkText(opts.text)
+  if (chunks.length === 0) throw new Error('nothing to index after cleaning the text')
+  const scope = opts.scope === 'private' ? 'private' : 'workspace'
+  const now = new Date().toISOString()
+
+  // Upsert by sourceRef (no DB unique constraint needed — a sync is single-writer).
+  const { data: existing } = await db
+    .from('documents')
+    .select('id')
+    .eq('source', opts.source)
+    .eq('source_ref', opts.sourceRef)
+    .maybeSingle()
+
+  let documentId: string
+  if (existing?.id) {
+    documentId = existing.id as string
+    await db.from('documents').update({
+      name: opts.name,
+      scope,
+      status: 'processing',
+      error: null,
+      updated_at: now,
+    }).eq('id', documentId)
+    await db.from('document_chunks').delete().eq('document_id', documentId)
+  } else {
+    const { data: doc, error } = await db
+      .from('documents')
+      .insert({
+        owner_id: opts.ownerId,
+        name: opts.name,
+        source: opts.source,
+        source_ref: opts.sourceRef,
+        scope,
+        status: 'processing',
+      })
+      .select('id')
+      .single()
+    if (error || !doc) throw new Error(error?.message ?? 'could not create the document')
+    documentId = doc.id as string
+  }
+
+  const rows = chunks.map((content, idx) => ({
+    document_id: documentId,
+    owner_id: opts.ownerId,
+    idx,
+    content,
+    embedding: null,
+  }))
+  for (let i = 0; i < rows.length; i += 50) {
+    await db.from('document_chunks').insert(rows.slice(i, i + 50))
+  }
+  // Reflect the queued count + bump updated_at so the EMBED phase's stale window
+  // starts now (it won't pick the doc until the chunks are safely written).
+  await db.from('documents').update({ chunk_count: chunks.length, updated_at: now }).eq('id', documentId)
+  return { documentId, chunkCount: chunks.length }
+}
+
+// Remove a previously-staged document by its external ref (e.g. a file deleted
+// from the repo). Chunks cascade. No-op if it doesn't exist.
+export async function removeDocumentByRef(db: DB, source: string, sourceRef: string): Promise<void> {
+  await db.from('documents').delete().eq('source', source).eq('source_ref', sourceRef)
+}
+
 // Ingest a block of raw text as a `note` document (no backing file): create the
 // `documents` row, chunk + embed + store synchronously, mark it done, and log
 // activity. Throws on failure after flipping the row to `error`. Defaults to

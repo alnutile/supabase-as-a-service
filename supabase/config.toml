@@ -25,6 +25,9 @@ verify_jwt = false
 [functions.email-inbound]
 verify_jwt = false
 
+[functions.github-webhook]
+verify_jwt = false
+
 [functions.scheduler]
 verify_jwt = false
 
