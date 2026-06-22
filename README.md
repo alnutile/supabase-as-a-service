@@ -83,7 +83,8 @@ The OpenRouter API key lives **only** on the server (a Supabase Edge Function), 
                  └─────────────────────────────────────────────┘
 ```
 
-![skills](images/skills.png)
+<img width="2684" height="1820" alt="CleanShot 2026-06-21 at 21 43 49@2x" src="https://github.com/user-attachments/assets/77f646c0-2855-4c19-9504-2b155143deba" />
+
 
 ## Tech stack
 
@@ -110,7 +111,8 @@ DEPLOY.md                      End-to-end deployment guide
 
 ## Quick start (local)
 
-![tools](images/tools.png)
+<img width="2650" height="1572" alt="CleanShot 2026-06-21 at 21 44 26@2x" src="https://github.com/user-attachments/assets/49efe409-dda5-4c15-8142-5e6f9c0f1d44" />
+
 
 **Prerequisites:** Node 18+, a [Supabase](https://supabase.com) project, an [OpenRouter API key](https://openrouter.ai/keys), and the [Supabase CLI](https://supabase.com/docs/guides/cli).
 
@@ -151,7 +153,8 @@ Then sign up, and start chatting.
 `VITE_*` vars are read at **build time** — on a host like Railway they must be set before the build runs.
 
 ## Deploying
-![](images/webhooks.png)
+<img width="2734" height="1802" alt="CleanShot 2026-06-21 at 21 44 55@2x" src="https://github.com/user-attachments/assets/808cb448-146e-4c5d-8ab4-20929e9d59fa" />
+
 
 Two pieces go live: the **Supabase backend** (schema, auth, storage, realtime, the `chat` function) and the **static frontend**. Railway is wired up out of the box:
 
