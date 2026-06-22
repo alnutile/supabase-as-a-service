@@ -62,6 +62,7 @@ create or replace function public._user_table_pgtype(p_type text)
   returns text
   language sql
   immutable
+  set search_path = ''
 as $$
   select case lower(coalesce(p_type, ''))
     when 'text' then 'text'
@@ -87,8 +88,10 @@ create or replace function public._is_admin(p_uid uuid)
 as $$
   select coalesce((select p.is_admin from public.profiles p where p.id = p_uid), false)
 $$;
-revoke execute on function public._is_admin(uuid) from anon, public;
-grant execute on function public._is_admin(uuid) to authenticated, service_role;
+-- Internal helper for the structural RPCs only (they call it as the definer/owner);
+-- not exposed on the REST RPC surface to signed-in users.
+revoke execute on function public._is_admin(uuid) from anon, public, authenticated;
+grant execute on function public._is_admin(uuid) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- create_user_table — create a real table + register it
