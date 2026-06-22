@@ -7,9 +7,9 @@
 
 Log in, chat with AI to build things, and share what you make — publicly or locked down. Files, artifacts, and live updates included.
 
-** 👀 Read the [docs](https://supanet-docs.dailyai.studio/)**
+**👀 Read the [docs](https://supanet-docs.dailyai.studio/)**
 
-** 👀 More Info [supanet](https://supanet.dailyai.studio)**
+**👀 More Info [supanet](https://supanet.dailyai.studio)**
 
 <br/>
 
