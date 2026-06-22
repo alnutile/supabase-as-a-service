@@ -41,15 +41,26 @@ export interface DeployResult {
   body: string
 }
 
+export interface DeployFile {
+  name: string
+  content: string
+}
+
 export interface DeployOptions {
   slug: string
   name: string
-  source: string
+  source?: string
+  // Multi-file deploy: pass the entrypoint + its relative deps. `entrypointPath`
+  // must match one of the file names. When omitted, falls back to a single
+  // `index.ts` built from `source` (the Forge path).
+  files?: DeployFile[]
+  entrypointPath?: string
   verifyJwt?: boolean
   bundleOnly?: boolean
 }
 
-// Deploy (or, with bundleOnly, just validate) a single-file edge function.
+// Deploy (or, with bundleOnly, just validate) an edge function — single-file via
+// `source`, or multi-file via `files` + `entrypointPath`.
 export async function deployFunction(opts: DeployOptions): Promise<DeployResult> {
   const ref = projectRef()
   const token = pat()
@@ -61,19 +72,21 @@ export async function deployFunction(opts: DeployOptions): Promise<DeployResult>
   // The Management API expects a boolean string ("true"/"false"), not "1".
   if (opts.bundleOnly) params.set('bundleOnly', 'true')
 
+  const files: DeployFile[] =
+    opts.files && opts.files.length ? opts.files : [{ name: 'index.ts', content: opts.source ?? '' }]
+  const entrypoint = opts.entrypointPath ?? 'index.ts'
+
   const metadata = {
     name: opts.name || opts.slug,
-    entrypoint_path: 'index.ts',
+    entrypoint_path: entrypoint,
     verify_jwt: opts.verifyJwt ?? false,
   }
 
   const form = new FormData()
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
-  form.append(
-    'file',
-    new Blob([opts.source], { type: 'application/typescript' }),
-    'index.ts',
-  )
+  for (const f of files) {
+    form.append('file', new Blob([f.content], { type: 'application/typescript' }), f.name)
+  }
 
   try {
     const res = await fetch(`${API_BASE}/projects/${ref}/functions/deploy?${params}`, {

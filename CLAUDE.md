@@ -244,6 +244,27 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `.failed` / `.deleted`). *Planned follow-up (not built): DB-writing forged functions via
   admin-authored `security definer` RPCs; an `applies_to_forge` guardrail context; a
   `forge_tool` MCP action so Claude Code can forge tools too.*
+- **In-app function deploys (edge functions don't ride `main` by default):** pushing to `main`
+  redeploys the **frontend** (Railway) and DB migrations are applied out-of-band, but the Supabase
+  **edge functions** otherwise only update via a `functions deploy`. Two things close this gap:
+  (1) a **GitHub Action** (`.github/workflows/deploy-functions.yml`) runs `supabase functions deploy`
+  on pushes that touch `supabase/functions/**` or `config.toml` (needs repo secrets
+  `SUPABASE_ACCESS_TOKEN` — a Supabase PAT, same kind as `FORGE_PAT` — and `SUPABASE_PROJECT_REF`;
+  `verify_jwt` comes from `config.toml`); it deploys only the **core/repo** functions (forged ones
+  live in the DB, not git). (2) Forge's "Deploy maintenance" panel (admin-only, on `ForgePage`)
+  does the same from inside the app for when you can't push, reusing Forge's Management-API path
+  (`_shared/management.ts`, now multi-file capable): **"Update core functions"** → forge
+  `deploy_core` redeploys the repo functions (`chat`, `mcp`, `webhook`, `scheduler`, …) from their
+  source **bundled into the UI at build time** (`src/lib/functionSources.ts` via
+  `import.meta.glob('?raw')`, lazy-loaded so it never weighs down the main bundle); since the
+  frontend auto-deploys from `main`, that bundled source is current as of the last deploy.
+  **"Redeploy forged functions"** → `redeploy_all_forged` re-pushes every vibe-coded function's
+  stored source (the only path for those — CI can't, they're not in git). `deploy_core` is
+  admin-only and **slug allow-listed** (`CORE_SLUGS`) so it can only (re)deploy known functions,
+  never arbitrary ones; no lint runs (core functions legitimately use `Deno.env` + the service
+  role). Outcomes log as `forge.deploy_core` / `forge.redeploy_all`. Bootstrapping note: the
+  `forge` function itself must be deployed once (CLI/Action/MCP) to gain these actions; after that
+  it can redeploy everything, including itself.
 
 ## Directory map
 

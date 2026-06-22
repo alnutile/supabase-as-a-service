@@ -53,6 +53,29 @@ export function redeployFunction(id: string) {
   return call<{ ok: true }>({ action: 'redeploy', id })
 }
 
+export interface DeployResultRow {
+  slug: string
+  ok: boolean
+  status?: number
+  error?: string | null
+}
+
+/** Re-push the stored source of every forged function. */
+export function redeployAllForged() {
+  return call<{ ok: true; results: DeployResultRow[] }>({ action: 'redeploy_all_forged' })
+}
+
+/**
+ * Redeploy the app's own core edge functions (chat/mcp/webhook/…) from the
+ * source bundled into the UI at build time. The source module is heavy, so it's
+ * imported lazily here to keep it out of the main bundle.
+ */
+export async function deployCore() {
+  const { loadCoreFunctions } = await import('./functionSources')
+  const functions = loadCoreFunctions()
+  return call<{ ok: true; results: DeployResultRow[] }>({ action: 'deploy_core', functions })
+}
+
 export function deleteForgedFunction(id: string) {
   return call<{ ok: true }>({ action: 'delete', id })
 }

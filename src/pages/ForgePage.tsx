@@ -4,9 +4,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import {
   deleteForgedFunction,
+  deployCore,
   deployFunction,
   generateFunction,
+  redeployAllForged,
   redeployFunction,
+  type DeployResultRow,
   type GeneratedPreview,
 } from '../lib/forge'
 import { ForgeIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/icons'
@@ -161,10 +164,87 @@ export default function ForgePage() {
         {!isAdmin && !loading && (
           <p className="mt-4 text-xs text-faint">Only an admin can forge or change functions.</p>
         )}
+
+        {isAdmin && <DeployMaintenance onForgedRedeployed={load} />}
       </div>
 
       {creating && <ForgeCreator onClose={() => setCreating(false)} onDone={() => { setCreating(false); load() }} />}
       {viewing && <SourceViewer row={viewing} onClose={() => setViewing(null)} />}
+    </div>
+  )
+}
+
+// Admin maintenance: redeploy edge functions from inside the app. Edge functions
+// don't auto-deploy from main, so these buttons close that gap — "core" pushes
+// the repo functions bundled into the UI at build time; "forged" re-pushes the
+// stored source of every vibe-coded function.
+function DeployMaintenance({ onForgedRedeployed }: { onForgedRedeployed: () => void }) {
+  const [busy, setBusy] = useState<null | 'core' | 'forged'>(null)
+  const [results, setResults] = useState<{ label: string; rows: DeployResultRow[] } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function run(kind: 'core' | 'forged') {
+    if (kind === 'core' && !confirm('Redeploy all core edge functions (chat, mcp, webhook, scheduler, …) from the current app build?')) return
+    setBusy(kind)
+    setError(null)
+    setResults(null)
+    try {
+      const res = kind === 'core' ? await deployCore() : await redeployAllForged()
+      setResults({ label: kind === 'core' ? 'Core functions' : 'Forged functions', rows: res.results })
+      if (kind === 'forged') onForgedRedeployed()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Deploy failed')
+    }
+    setBusy(null)
+  }
+
+  const failed = results?.rows.filter((r) => !r.ok) ?? []
+  const okCount = (results?.rows.length ?? 0) - failed.length
+
+  return (
+    <div className="mt-10 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Deploy maintenance</h2>
+      <p className="mt-1 text-xs text-muted">
+        Edge functions don’t auto-deploy when you push to <code>main</code>. Redeploy them here:
+        “core” pushes this app’s built-in functions from the current build; “forged” re-pushes every
+        vibe-coded function’s stored source.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={() => run('core')}
+          disabled={busy !== null}
+          className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+        >
+          {busy === 'core' ? 'Deploying core…' : 'Update core functions'}
+        </button>
+        <button
+          onClick={() => run('forged')}
+          disabled={busy !== null}
+          className="rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-muted hover:bg-surface-hover disabled:opacity-50"
+        >
+          {busy === 'forged' ? 'Redeploying…' : 'Redeploy forged functions'}
+        </button>
+      </div>
+
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+
+      {results && (
+        <div className="mt-3 text-sm">
+          <p className="text-muted">
+            {results.label}: <span className="font-semibold text-emerald-700">{okCount} ok</span>
+            {failed.length > 0 && <span className="font-semibold text-red-600">, {failed.length} failed</span>}
+          </p>
+          {failed.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {failed.map((r) => (
+                <li key={r.slug} className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+                  <span className="font-mono font-semibold">{r.slug}</span>: {r.error || `status ${r.status}`}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -28,6 +28,22 @@ const CORS = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 
+// The app's own repo functions that `deploy_core` is allowed to (re)deploy.
+// An allow-list so this admin path can never deploy an arbitrary slug.
+const CORE_SLUGS = new Set([
+  'chat',
+  'webhook',
+  'mcp',
+  'scheduler',
+  'ingest',
+  'email-inbound',
+  'email-test',
+  'p',
+  'forge',
+  'evals',
+  'openrouter-balance',
+])
+
 function admin() {
   const url = Deno.env.get('SUPABASE_URL')
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
@@ -243,6 +259,71 @@ Deno.serve(async (req: Request) => {
     await db.from('forged_functions').update({ status: 'deployed', deploy_error: null, updated_at: new Date().toISOString() }).eq('id', id)
     await db.from('activity_log').insert({ type: 'forge.deployed', summary: `Redeployed "${row.slug}"`, detail: { slug: row.slug }, actor_id: userId })
     return json({ ok: true })
+  }
+
+  // --- redeploy_all_forged: re-push every forged function's stored source ---
+  if (action === 'redeploy_all_forged') {
+    if (!managementConfigured()) return json({ error: 'Deploy not configured.' }, 500)
+    const { data: fns } = await db.from('forged_functions').select('*')
+    const results: Array<{ slug: string; ok: boolean; status?: number; error?: string | null }> = []
+    for (const row of fns ?? []) {
+      const dep = await deployFunction({ slug: row.slug, name: row.name, source: row.source, verifyJwt: false })
+      await db
+        .from('forged_functions')
+        .update(
+          dep.ok
+            ? { status: 'deployed', deploy_error: null, updated_at: new Date().toISOString() }
+            : { status: 'failed', deploy_error: `${dep.status}: ${dep.body}`.slice(0, 1000) },
+        )
+        .eq('id', row.id)
+      results.push({ slug: row.slug, ok: dep.ok, status: dep.status, error: dep.ok ? null : dep.body.slice(0, 300) })
+    }
+    const okCount = results.filter((r) => r.ok).length
+    await db.from('activity_log').insert({
+      type: 'forge.redeploy_all',
+      summary: `Redeployed ${okCount}/${results.length} forged functions`,
+      detail: { results },
+      actor_id: userId,
+    })
+    return json({ ok: true, results })
+  }
+
+  // --- deploy_core: redeploy the app's own repo functions from caller-supplied
+  // source (bundled into the admin UI at build time). Slug allow-listed so this
+  // can only (re)deploy the known core functions, never arbitrary ones. No lint:
+  // core functions legitimately use Deno.env + the service role. ---
+  if (action === 'deploy_core') {
+    if (!managementConfigured()) return json({ error: 'Deploy not configured.' }, 500)
+    const fns = Array.isArray(body.functions) ? (body.functions as Array<Record<string, unknown>>) : []
+    if (!fns.length) return json({ error: 'No functions provided.' }, 400)
+    const results: Array<{ slug: string; ok: boolean; status?: number; error?: string | null }> = []
+    for (const fn of fns) {
+      const slug = String(fn?.slug ?? '').trim()
+      if (!CORE_SLUGS.has(slug)) {
+        results.push({ slug, ok: false, error: 'not an allowed core function' })
+        continue
+      }
+      const files = (Array.isArray(fn?.files) ? fn.files : []).filter(
+        (f: unknown): f is { name: string; content: string } =>
+          Boolean(f) && typeof (f as { name?: unknown }).name === 'string' && typeof (f as { content?: unknown }).content === 'string',
+      )
+      if (!files.length) {
+        results.push({ slug, ok: false, error: 'no files' })
+        continue
+      }
+      const entrypointPath = String(fn?.entrypoint_path ?? `functions/${slug}/index.ts`)
+      const verifyJwt = Boolean(fn?.verify_jwt)
+      const dep = await deployFunction({ slug, name: slug, files, entrypointPath, verifyJwt })
+      results.push({ slug, ok: dep.ok, status: dep.status, error: dep.ok ? null : dep.body.slice(0, 300) })
+    }
+    const okCount = results.filter((r) => r.ok).length
+    await db.from('activity_log').insert({
+      type: 'forge.deploy_core',
+      summary: `Deployed ${okCount}/${results.length} core functions`,
+      detail: { results },
+      actor_id: userId,
+    })
+    return json({ ok: true, results })
   }
 
   // --- delete: undeploy + remove tool + remove row ---
