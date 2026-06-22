@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { streamChat } from '../lib/chat'
 import {
+  ArrowRightIcon,
   GlobeIcon,
   LockIcon,
   PlusIcon,
@@ -66,6 +67,7 @@ export default function TablesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -84,19 +86,51 @@ export default function TablesPage() {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* List pane */}
+      {/* Collapsed rail (desktop only): give the grid the full width. */}
       <div
-        className={`w-full shrink-0 flex-col border-r border-border bg-surface md:flex md:w-80 ${
-          selected ? 'hidden md:flex' : 'flex'
+        className={`hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3 ${
+          collapsed ? 'md:flex' : 'md:hidden'
         }`}
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h1 className="text-lg font-semibold tracking-tight text-text">Tables</h1>
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Show tables"
+          aria-label="Show tables"
+          className="rounded-lg p-2 text-muted hover:bg-surface-hover hover:text-text"
+        >
+          <ArrowRightIcon className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setShowNew(true)}
+          title="New table"
+          aria-label="New table"
+          className="rounded-lg bg-primary p-2 text-white hover:bg-primary-strong"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* List pane */}
+      <div
+        className={`w-full shrink-0 flex-col border-r border-border bg-surface ${
+          selected ? 'hidden' : 'flex'
+        } ${collapsed ? 'md:hidden' : 'md:flex md:w-80'}`}
+      >
+        <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+          <h1 className="flex-1 text-lg font-semibold tracking-tight text-text">Tables</h1>
           <button
             onClick={() => setShowNew(true)}
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
           >
             <PlusIcon className="h-4 w-4" /> New
+          </button>
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Collapse list"
+            aria-label="Collapse list"
+            className="hidden rounded-lg p-1.5 text-muted hover:bg-surface-hover hover:text-text md:block"
+          >
+            <ArrowRightIcon className="h-5 w-5 rotate-180" />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
@@ -152,8 +186,26 @@ export default function TablesPage() {
             }}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-faint">
-            Select a table to view and edit its data.
+          <div className="flex h-full items-center justify-center p-8">
+            <div className="max-w-md text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-2 text-muted">
+                <TableIcon className="h-7 w-7" />
+              </div>
+              <h2 className="text-lg font-semibold text-text">Your data tables</h2>
+              <p className="mt-2 text-sm text-muted">
+                Select a table to see its data and manage it — add, edit, and delete rows in the grid.
+              </p>
+              <p className="mt-2 text-sm text-muted">
+                Or create a new table: describe it to AI, or build the columns yourself. Share it with
+                the workspace and the assistant can read and update it for you right in Chat.
+              </p>
+              <button
+                onClick={() => setShowNew(true)}
+                className="mx-auto mt-5 flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong"
+              >
+                <PlusIcon className="h-4 w-4" /> New table
+              </button>
+            </div>
           </div>
         )}
       </div>
