@@ -19,8 +19,7 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 ![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-6566F1?logo=openai&logoColor=white)
 
 </div>
-
-<img width="1314" height="739" alt="marketing-click-through" src="https://github.com/user-attachments/assets/378f52b9-5afb-460e-a1ac-f9a2ddbcf735" />
+<img width="2620" height="1736" alt="CleanShot 2026-06-21 at 21 42 22@2x" src="https://github.com/user-attachments/assets/aa7e8a42-9802-45a3-b8e7-95f2e75cb9f9" />
 
 ---
 
