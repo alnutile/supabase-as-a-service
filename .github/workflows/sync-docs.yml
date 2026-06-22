@@ -1,0 +1,165 @@
+name: Sync docs on merge to main
+
+# When something merges to `main` here (the SupaNet app), the docs site
+# (alnutile/supanet-docs) can drift. This workflow watches merges to `main`,
+# reads the merged diff, and uses the Claude Code GitHub Action to translate
+# the code/behaviour changes into matching edits in the docs repo's MDX, then
+# commits them straight to that repo's `main`.
+#
+# It is intentionally best-effort: if a change isn't doc-worthy, Claude makes
+# no edits and the workflow is a no-op (nothing to commit).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   ANTHROPIC_API_KEY  - an Anthropic API key for the Claude Code action.
+#   DOCS_REPO_TOKEN    - a token with `contents: write` on alnutile/supanet-docs
+#                        (a fine-grained PAT scoped to that repo, or a GitHub
+#                        App installation token). The default GITHUB_TOKEN only
+#                        grants access to THIS repo, so a cross-repo token is
+#                        required to push to the docs repo.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Only run when something likely to affect the docs changed. Pure CI /
+      # tooling tweaks won't trigger a (paid) docs pass.
+      - 'src/**'
+      - 'supabase/**'
+      - 'CLAUDE.md'
+      - 'README.md'
+      - 'ROADMAP.md'
+      - 'WHY.md'
+      - '.github/workflows/sync-docs.yml'
+  workflow_dispatch: {}
+
+# One docs sync at a time; let an in-flight run finish rather than cancelling,
+# so we don't abandon a half-written commit.
+concurrency:
+  group: sync-docs
+  cancel-in-progress: false
+
+jobs:
+  sync-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DOCS_REPO: alnutile/supanet-docs
+      DOCS_BRANCH: main
+    steps:
+      - name: Check required secrets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DOCS_REPO_TOKEN: ${{ secrets.DOCS_REPO_TOKEN }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$DOCS_REPO_TOKEN" ]; then
+            echo "::error::Set the ANTHROPIC_API_KEY and DOCS_REPO_TOKEN repository secrets."
+            exit 1
+          fi
+
+      # The app repo, with full history so we can diff the merge range.
+      - name: Checkout app repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The docs repo, into ./docs-site, with a token that can push to it.
+      - name: Checkout docs repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.DOCS_REPO }}
+          ref: ${{ env.DOCS_BRANCH }}
+          token: ${{ secrets.DOCS_REPO_TOKEN }}
+          path: docs-site
+          fetch-depth: 0
+
+      # Build the context Claude works from: the commit list + full diff for
+      # the range that just landed on main.
+      - name: Collect merged changes
+        run: |
+          BASE="${{ github.event.before }}"
+          HEAD="${{ github.sha }}"
+          # First push to the branch, or a force-push, leaves `before` empty or
+          # all-zeros; fall back to the previous commit.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="$(git rev-parse "${HEAD}~1" 2>/dev/null || echo "")"
+          fi
+          {
+            echo "# Merged into main: ${BASE:-<root>}..${HEAD}"
+            echo
+            echo "## Commits"
+            git log --no-merges --pretty='- %h %s' "${BASE:+${BASE}..}${HEAD}" || true
+          } > /tmp/app-commits.md
+          if [ -n "$BASE" ]; then
+            git diff "$BASE" "$HEAD" > /tmp/app-changes.diff || true
+          else
+            git show "$HEAD" > /tmp/app-changes.diff || true
+          fi
+          echo "Diff size: $(wc -l < /tmp/app-changes.diff) lines"
+
+      - name: Update docs with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: >-
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git -C docs-site diff:*)"
+            --max-turns 40
+          prompt: |
+            A change just merged into `main` of the SupaNet app repository. Your
+            job is to update the SupaNet documentation site so it reflects that
+            change. The docs repo is checked out at `./docs-site`.
+
+            ## What changed
+            Read these two files for the exact change set:
+            - `/tmp/app-commits.md` - the commits that just landed.
+            - `/tmp/app-changes.diff` - the full unified diff.
+
+            `CLAUDE.md` in this (app) repo is the engineering source-of-truth and
+            describes every feature; consult it to understand context. Diffs to
+            `CLAUDE.md` itself are often the clearest signal of what to document.
+
+            ## The docs
+            Docs live under `./docs-site/content/docs/` as `.mdx` files, split
+            into two audiences:
+            - `using/`   - for everyone: what a feature does and how to get value
+              from it. No code, no internals.
+            - `building/` - for builders: how it works, how to run and extend it.
+
+            Each folder has a `meta.json` that controls nav ordering. Every page's
+            frontmatter needs a `title` and a `description`. Match the existing
+            voice exactly: plain, concrete, no marketing language. Read a couple
+            of neighbouring pages first to mirror their structure and tone.
+
+            ## What to do
+            1. Decide which docs the merged change affects. Only user-visible or
+               builder-relevant behaviour needs documenting - pure refactors,
+               test-only changes, or internal tweaks usually need nothing.
+            2. Edit the relevant existing `.mdx` page(s). If a genuinely new
+               feature landed, add a new page in the right folder AND register its
+               slug in that folder's `meta.json`.
+            3. Keep edits tight and accurate to the diff - do not invent behaviour
+               that isn't in the change, and do not rewrite unrelated sections.
+            4. Only modify files under `./docs-site/`. Never edit the app repo.
+            5. If nothing in this change is worth documenting, make NO edits and
+               say so. A no-op is a perfectly valid outcome.
+
+            Do not run git commit or git push - a later workflow step handles
+            committing and pushing.
+
+      # Commit straight to the docs repo's main (per the configured delivery
+      # mode). No-op if Claude made no edits.
+      - name: Commit and push docs changes
+        run: |
+          cd docs-site
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No documentation changes - nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: sync with ${GITHUB_REPOSITORY}@${GITHUB_SHA:0:7}
+
+          Auto-generated from changes merged into main of ${GITHUB_REPOSITORY}.
+          Source commit: ${GITHUB_SHA}"
+          git push origin "HEAD:${DOCS_BRANCH}"
