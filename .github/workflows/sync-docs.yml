@@ -43,6 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # The Claude Code action authenticates via OIDC and needs to mint an
+      # id-token; without this it fails with "Could not fetch an OIDC token".
+      id-token: write
     env:
       DOCS_REPO: alnutile/supanet-docs
     steps:
