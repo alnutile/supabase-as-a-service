@@ -45,7 +45,6 @@ jobs:
       contents: read
     env:
       DOCS_REPO: alnutile/supanet-docs
-      DOCS_BRANCH: main
     steps:
       - name: Check required secrets
         env:
@@ -64,11 +63,12 @@ jobs:
           fetch-depth: 0
 
       # The docs repo, into ./docs-site, with a token that can push to it.
+      # No `ref:` - checkout uses the docs repo's own default branch (it is
+      # `master`, not `main`), so this keeps working if that ever changes.
       - name: Checkout docs repo
         uses: actions/checkout@v4
         with:
           repository: ${{ env.DOCS_REPO }}
-          ref: ${{ env.DOCS_BRANCH }}
           token: ${{ secrets.DOCS_REPO_TOKEN }}
           path: docs-site
           fetch-depth: 0
@@ -146,8 +146,8 @@ jobs:
             Do not run git commit or git push - a later workflow step handles
             committing and pushing.
 
-      # Commit straight to the docs repo's main (per the configured delivery
-      # mode). No-op if Claude made no edits.
+      # Commit straight to the docs repo's default branch (per the configured
+      # delivery mode). No-op if Claude made no edits.
       - name: Commit and push docs changes
         run: |
           cd docs-site
@@ -155,6 +155,9 @@ jobs:
             echo "No documentation changes - nothing to commit."
             exit 0
           fi
+          # Push back to whatever branch was checked out (the docs repo's
+          # default branch), so this isn't tied to main vs. master.
+          DOCS_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
