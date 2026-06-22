@@ -14,6 +14,23 @@ export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'
 export type WebhookEventStatus = 'received' | 'ok' | 'error' | 'blocked'
 export type ToolKind = 'http' | 'web'
+export type UserTableVisibility = 'private' | 'workspace'
+export type UserTableColumnType =
+  | 'text'
+  | 'longtext'
+  | 'number'
+  | 'integer'
+  | 'boolean'
+  | 'date'
+  | 'datetime'
+  | 'json'
+
+/** A column in a user-defined table's `columns` spec. */
+export interface UserTableColumn {
+  key: string
+  label: string
+  type: UserTableColumnType
+}
 
 export interface Database {
   public: {
@@ -266,6 +283,32 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['tools']['Insert']>
+        Relationships: []
+      }
+      user_tables: {
+        Row: {
+          id: string
+          name: string
+          description: string
+          physical_name: string
+          owner_id: string
+          columns: Json
+          visibility: UserTableVisibility
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string
+          physical_name: string
+          owner_id: string
+          columns?: Json
+          visibility?: UserTableVisibility
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['user_tables']['Insert']>
         Relationships: []
       }
       forged_functions: {
@@ -781,6 +824,36 @@ export interface Database {
       feedback_summary: {
         Args: { p_days?: number }
         Returns: Json
+      }
+      create_user_table: {
+        Args: {
+          p_name: string
+          p_columns?: Json
+          p_visibility?: string
+          p_owner?: string | null
+        }
+        Returns: Database['public']['Tables']['user_tables']['Row']
+      }
+      add_user_column: {
+        Args: { p_table_id: string; p_key: string; p_type?: string; p_label?: string | null }
+        Returns: Database['public']['Tables']['user_tables']['Row']
+      }
+      drop_user_column: {
+        Args: { p_table_id: string; p_key: string }
+        Returns: Database['public']['Tables']['user_tables']['Row']
+      }
+      update_user_table: {
+        Args: {
+          p_table_id: string
+          p_name?: string | null
+          p_description?: string | null
+          p_visibility?: string | null
+        }
+        Returns: Database['public']['Tables']['user_tables']['Row']
+      }
+      drop_user_table: {
+        Args: { p_table_id: string }
+        Returns: undefined
       }
     }
     Enums: { [_ in never]: never }

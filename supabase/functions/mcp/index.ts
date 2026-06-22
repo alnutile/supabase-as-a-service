@@ -175,7 +175,77 @@ const TOOLS = [
     description: 'Recent activity on the workspace (events, tool calls, creations).',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'list_tables',
+    description: 'List the user-created data tables you can access (name, visibility, and columns).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_table',
+    description:
+      'Create a new user data table (real Postgres table) with typed columns. It appears in the Tables dashboard and the assistant can read/write it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        visibility: {
+          type: 'string',
+          enum: ['private', 'workspace'],
+          description: 'workspace = shared with the team (default private).',
+        },
+        columns: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string' },
+              type: {
+                type: 'string',
+                enum: ['text', 'longtext', 'number', 'integer', 'boolean', 'date', 'datetime', 'json'],
+              },
+            },
+            required: ['label', 'type'],
+          },
+        },
+      },
+      required: ['name', 'columns'],
+    },
+  },
+  {
+    name: 'add_table_row',
+    description: 'Add a row to a user data table. Identify the table by name; pass column values as an object.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: 'The table name (or id).' },
+        values: { type: 'object', description: 'Column key/value pairs.' },
+      },
+      required: ['table', 'values'],
+    },
+  },
 ]
+
+// Tables the MCP owner may use (their own + workspace-shared).
+async function ownerTables(db: DB, owner: string) {
+  const { data } = await db
+    .from('user_tables')
+    .select('id, name, physical_name, owner_id, columns, visibility')
+    .or(`owner_id.eq.${owner},visibility.eq.workspace`)
+  return (data ?? []) as Array<{
+    id: string
+    name: string
+    physical_name: string
+    owner_id: string
+    columns: Array<{ key: string; label: string; type: string }>
+    visibility: string
+  }>
+}
+
+function slugifyKey(label: string): string {
+  const s = String(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  if (!s) return 'col'
+  return /^[a-z]/.test(s) ? s : `c_${s}`
+}
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 // 10 MB decoded
 
@@ -356,6 +426,50 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'list_activity': {
       const { data } = await db.from('activity_log').select('type, summary, created_at').order('created_at', { ascending: false }).limit(20)
       return text((data ?? []).map((e) => `[${e.type}] ${e.summary}`).join('\n') || 'No activity.')
+    }
+    case 'list_tables': {
+      const tables = await ownerTables(db, owner)
+      if (!tables.length) return text('No data tables yet. Use create_table to make one.')
+      return text(
+        tables
+          .map((t) => {
+            const cols = (t.columns ?? []).map((c) => `${c.key} (${c.type})`).join(', ') || 'no columns'
+            return `• ${t.name} [${t.visibility}] — ${cols}`
+          })
+          .join('\n'),
+      )
+    }
+    case 'create_table': {
+      const name = String(args.name ?? '').trim()
+      if (!name) return text('create_table needs a name.', true)
+      const visibility = args.visibility === 'workspace' ? 'workspace' : 'private'
+      const cols = (Array.isArray(args.columns) ? args.columns : []).map((c: { label?: string; name?: string; type?: string }) => {
+        const label = String(c?.label ?? c?.name ?? 'Field')
+        return { key: slugifyKey(label), label, type: String(c?.type ?? 'text') }
+      })
+      const { data, error } = await db.rpc('create_user_table', {
+        p_name: name,
+        p_columns: cols,
+        p_visibility: visibility,
+        p_owner: owner,
+      })
+      if (error) return text(`Error: ${error.message}`, true)
+      const created = (Array.isArray(data) ? data[0] : data) as { name?: string } | null
+      return text(`Created table "${created?.name ?? name}" (${visibility}). It's in the Tables dashboard.`)
+    }
+    case 'add_table_row': {
+      const ref = String(args.table ?? '').trim()
+      const values = (args.values ?? null) as Record<string, unknown> | null
+      if (!ref || !values || typeof values !== 'object') return text('add_table_row needs table and values.', true)
+      const r = ref.toLowerCase()
+      const t = (await ownerTables(db, owner)).find((x) => x.id === ref || x.name.trim().toLowerCase() === r)
+      if (!t) return text(`No table named "${ref}" that you can access.`, true)
+      const allowed = new Set((t.columns ?? []).map((c) => c.key))
+      const row: Record<string, unknown> = { owner_id: owner }
+      for (const [k, v] of Object.entries(values)) if (allowed.has(k)) row[k] = v
+      const { error } = await db.from(t.physical_name).insert(row)
+      if (error) return text(`Error: ${error.message}`, true)
+      return text(`Added a row to "${t.name}".`)
     }
     default:
       return text(`Unknown tool: ${name}`, true)

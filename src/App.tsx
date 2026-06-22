@@ -12,6 +12,7 @@ import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
 import WebhooksPage from './pages/WebhooksPage'
 import ToolsPage from './pages/ToolsPage'
+import TablesPage from './pages/TablesPage'
 import ForgePage from './pages/ForgePage'
 import GuardrailsPage from './pages/GuardrailsPage'
 import EvalsPage from './pages/EvalsPage'
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="skills" element={<SkillsPage />} />
         <Route path="webhooks" element={<WebhooksPage />} />
         <Route path="tools" element={<ToolsPage />} />
+        <Route path="tables" element={<TablesPage />} />
         <Route path="forge" element={<ForgePage />} />
         <Route path="guardrails" element={<GuardrailsPage />} />
         <Route path="evals" element={<EvalsPage />} />

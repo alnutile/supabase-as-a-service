@@ -160,6 +160,13 @@ export const ToolIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const TableIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 9h18M3 14h18M9 4v16M15 4v16" />
+  </svg>
+)
+
 export const PluginIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M10 3v3a2 2 0 0 0 4 0V3h4v4h-3a2 2 0 0 0 0 4h3v6h-4v-3a2 2 0 0 0-4 0v3H6v-6h3a2 2 0 0 0 0-4H6V3z" />
