@@ -1,3 +1,4 @@
+
 <div align="center">
 
 # ✺ Intranet In A Box [BETA]
@@ -19,7 +20,7 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 
 </div>
 
-![agents](images/agents.png)
+<img width="1314" height="739" alt="marketing-click-through" src="https://github.com/user-attachments/assets/378f52b9-5afb-460e-a1ac-f9a2ddbcf735" />
 
 ---
 
