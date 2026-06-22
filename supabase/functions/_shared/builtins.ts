@@ -5,8 +5,11 @@
 // through the scheduler, so this is load-bearing, not a refactor nicety.
 //
 // Builtins: search_documents (RAG over the workspace knowledge base), send_email,
-// check_email. send_email is exfiltration-capable — it enforces an optional
-// recipient allowlist, a per-hour rate limit, and logs every send.
+// check_email, and the user-table tools (list_tables / query_table / add_table_row /
+// create_table — the "Tables" feature). send_email is exfiltration-capable — it
+// enforces an optional recipient allowlist, a per-hour rate limit, and logs every
+// send. The table builtins run with the service role, so they re-enforce the
+// private/workspace access rule in code.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 
 type DB = ReturnType<typeof createClient>
@@ -28,6 +31,14 @@ export async function runBuiltin(
       return sendEmail(db, input, userId)
     case 'check_email':
       return checkEmail(db, input)
+    case 'list_tables':
+      return listTables(db, userId)
+    case 'query_table':
+      return queryTable(db, input, userId)
+    case 'add_table_row':
+      return addTableRow(db, input, userId)
+    case 'create_table':
+      return createTable(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -166,6 +177,145 @@ async function sendEmail(
 
   await logActivity(db, 'email.sent', `Emailed ${to}: ${subject || '(no subject)'}`, { to, subject }, userId)
   return `Email sent to ${to}.`
+}
+
+// --- User tables ("Tables" feature) -----------------------------------------
+// Builtins run with the service role (RLS bypassed), so these enforce the same
+// private/workspace access in code: a table is reachable when the caller owns it
+// OR it's shared workspace-wide. Writes follow the same rule (workspace tables
+// are collaborative). Structural creation goes through the create_user_table RPC.
+
+interface UTColumn {
+  key: string
+  label: string
+  type: string
+}
+interface UTRow {
+  id: string
+  name: string
+  physical_name: string
+  owner_id: string
+  columns: UTColumn[]
+  visibility: string
+}
+
+function slugifyKey(label: string): string {
+  const s = String(label)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  if (!s) return 'col'
+  return /^[a-z]/.test(s) ? s : `c_${s}`
+}
+
+// Load the tables this caller may use (owned or workspace-shared).
+async function accessibleTables(db: DB, userId: string | null): Promise<UTRow[]> {
+  if (!userId) return []
+  const { data } = await db
+    .from('user_tables')
+    .select('id, name, physical_name, owner_id, columns, visibility')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+  return (data ?? []) as UTRow[]
+}
+
+function findTable(tables: UTRow[], ref: string): UTRow | undefined {
+  const r = ref.trim().toLowerCase()
+  return tables.find((t) => t.id === ref || t.name.trim().toLowerCase() === r)
+}
+
+async function listTables(db: DB | null, userId: string | null): Promise<string> {
+  if (!db || !userId) return 'Tables are unavailable.'
+  const tables = await accessibleTables(db, userId)
+  if (!tables.length) return 'There are no data tables yet. Use create_table to make one.'
+  return tables
+    .map((t) => {
+      const cols = (t.columns ?? []).map((c) => `${c.key} (${c.type})`).join(', ') || 'no columns yet'
+      const own = t.owner_id === userId ? 'yours' : 'shared'
+      return `• ${t.name} [${t.visibility}, ${own}] — columns: ${cols}`
+    })
+    .join('\n')
+}
+
+async function queryTable(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Tables are unavailable.'
+  const ref = String(input?.table ?? '').trim()
+  if (!ref) return 'Which table? Pass a table name.'
+  const t = findTable(await accessibleTables(db, userId), ref)
+  if (!t) return `No table named "${ref}" that you can access.`
+
+  let limit = Number(input?.limit ?? 50)
+  if (!Number.isFinite(limit) || limit <= 0) limit = 50
+  limit = Math.min(Math.trunc(limit), 200)
+
+  // deno-lint-ignore no-explicit-any
+  let q: any = db.from(t.physical_name).select('*').limit(limit)
+  const filters = (input?.filters ?? null) as Record<string, unknown> | null
+  if (filters && typeof filters === 'object') {
+    const allowed = new Set((t.columns ?? []).map((c) => c.key).concat(['id', 'owner_id']))
+    for (const [k, v] of Object.entries(filters)) {
+      if (allowed.has(k)) q = q.eq(k, v)
+    }
+  }
+  const { data, error } = await q
+  if (error) return `Could not read "${t.name}": ${error.message}`
+  if (!data || !data.length) return `"${t.name}" has no matching rows.`
+  return `Rows from "${t.name}" (${data.length}):\n${JSON.stringify(data, null, 2)}`
+}
+
+async function addTableRow(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Tables are unavailable.'
+  const ref = String(input?.table ?? '').trim()
+  if (!ref) return 'Which table? Pass a table name.'
+  const t = findTable(await accessibleTables(db, userId), ref)
+  if (!t) return `No table named "${ref}" that you can access.`
+
+  const values = (input?.values ?? null) as Record<string, unknown> | null
+  if (!values || typeof values !== 'object') return 'Pass the row data as a "values" object.'
+  const allowed = new Set((t.columns ?? []).map((c) => c.key))
+  const row: Record<string, unknown> = { owner_id: userId }
+  const skipped: string[] = []
+  for (const [k, v] of Object.entries(values)) {
+    if (allowed.has(k)) row[k] = v
+    else skipped.push(k)
+  }
+  const { error } = await db.from(t.physical_name).insert(row)
+  if (error) return `Could not add the row: ${error.message}`
+  const note = skipped.length ? ` (ignored unknown columns: ${skipped.join(', ')})` : ''
+  return `Added a row to "${t.name}".${note}`
+}
+
+async function createTable(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Tables are unavailable.'
+  const name = String(input?.name ?? '').trim()
+  if (!name) return 'A table name is required.'
+  const visibility = input?.visibility === 'workspace' ? 'workspace' : 'private'
+  const rawCols = Array.isArray(input?.columns) ? (input.columns as Record<string, unknown>[]) : []
+  const columns = rawCols.map((c) => {
+    const label = String(c?.label ?? c?.name ?? 'Field')
+    return { key: slugifyKey(label), label, type: String(c?.type ?? 'text') }
+  })
+  const { data, error } = await db.rpc('create_user_table', {
+    p_name: name,
+    p_columns: columns,
+    p_visibility: visibility,
+    p_owner: userId,
+  })
+  if (error) return `Could not create the table: ${error.message}`
+  await logActivity(db, 'table.created', `Created table "${name}"`, { name, visibility }, userId)
+  const created = (Array.isArray(data) ? data[0] : data) as { name?: string } | null
+  return `Created table "${created?.name ?? name}" (${visibility}). It's now in Tables and you can add rows to it.`
 }
 
 async function checkEmail(db: DB | null, input: Record<string, unknown>): Promise<string> {

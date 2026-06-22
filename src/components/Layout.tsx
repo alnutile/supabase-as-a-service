@@ -22,6 +22,7 @@ import {
   SkillIcon,
   SparkleIcon,
   SunIcon,
+  TableIcon,
   ToolIcon,
   UsageIcon,
   WebhookIcon,
@@ -30,6 +31,7 @@ import {
 const navItems = [
   { to: '/home', label: 'Home', icon: HomeIcon, end: false, adminOnly: false },
   { to: '/chat', label: 'Chat', icon: ChatIcon, end: false, adminOnly: false },
+  { to: '/tables', label: 'Tables', icon: TableIcon, end: false, adminOnly: false },
   { to: '/agents', label: 'Agents', icon: AgentIcon, end: false, adminOnly: false },
   { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon, end: false, adminOnly: false },
   { to: '/skills', label: 'Skills', icon: SkillIcon, end: false, adminOnly: false },

@@ -54,6 +54,30 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   same `p/‹slug›` URL via a public storage bucket; an MCP `publish_html` one-call helper.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
+- **Tables (Airtable-but-real-Postgres):** `TablesPage` (route `/tables`, sidebar,
+  any member) lets a user create a data table — by hand or by describing it to AI —
+  and edit rows in a spreadsheet-style grid. Each table is a **real Postgres table**
+  (not EAV/JSONB) created in the `public` schema as `ut_‹uuid›`, so it keeps full SQL
+  power and PostgREST exposes it for ordinary CRUD. **Browsers never run DDL:** all
+  structural changes go through security-definer RPCs in migration 0029
+  (`create_user_table`, `add_user_column`, `drop_user_column`, `update_user_table`,
+  `drop_user_table`) that validate every identifier with `format(%I)` and an
+  allow-list of column types (text/longtext/number/integer/boolean/date/datetime/json),
+  so there's no injection surface even though any signed-in member can create tables.
+  A registry table `public.user_tables` holds each table's metadata (display name,
+  `physical_name`, `columns` spec, owner, `visibility`). **Access lives in one place:**
+  `user_tables` RLS makes a row visible to its owner, to everyone when
+  `visibility='workspace'` (collaborative read+write, like a shared base), or to admins;
+  each physical `ut_*` table's single `for all` policy just checks "is the matching
+  `user_tables` row visible?", so the physical tables inherit the registry's access
+  logic. The RPCs honor an explicit owner only for the service role (auth.uid() wins for
+  authenticated callers, so owner can't be spoofed) and `notify pgrst, 'reload schema'`
+  after DDL so new tables/columns are queryable immediately. The assistant can use tables
+  too: seeded `is_builtin` tools `list_tables` / `query_table` / `add_table_row` /
+  `create_table` (in `_shared/builtins.ts`, so chat/agents/scheduler all get them) run
+  with the service role and **re-enforce the private/workspace rule in code**; MCP exposes
+  `list_tables` / `create_table` / `add_table_row` for an external Claude. *(Planned: a
+  fuller query surface — sorting, richer filters/joins — and column reordering/rename.)*
 - **PDF knowledge (RAG):** uploading a PDF enqueues a `documents` row (trigger on
   `files`). A `pg_cron` tick calls the `ingest` edge function, which extracts the
   text layer (`unpdf`), chunks it, embeds each chunk **free** with the in-edge
@@ -235,7 +259,7 @@ src/
     icons.tsx                  Inline SVG icons (no icon dependency)
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
-                               FilesPage, SkillsPage, WebhooksPage, ToolsPage,
+                               FilesPage, TablesPage, SkillsPage, WebhooksPage, ToolsPage,
                                AgentsPage, PluginsPage, ActivityPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
@@ -244,7 +268,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
@@ -264,7 +288,8 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
 `mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
 config), `inbox_messages`, `plugins` (installed-plugin registry), `usage_events`
-(per-call token/cost accounting). Enums: `visibility`
+(per-call token/cost accounting), `user_tables` (registry for the Tables feature;
+the actual user tables are real `ut_*` tables created at runtime). Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**
