@@ -20,6 +20,31 @@ type Row = Record<string, unknown>
 // still applies — the user only ever sees rows they're allowed to).
 const dyn = (name: string) => (supabase as unknown as { from: (t: string) => any }).from(name)
 
+// Turn a human label into a safe physical column key (must match the RPC's
+// `^[a-z][a-z0-9_]*$` rule), matching how the chat/MCP callers build keys.
+function slugifyKey(label: string): string {
+  const s = String(label)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  if (!s) return 'col'
+  return /^[a-z]/.test(s) ? s : `c_${s}`
+}
+
+// A just-created table can take a moment to appear in PostgREST's schema cache.
+// Retry the query while we see the "schema cache / table not found" error.
+async function schemaRetry<T>(
+  run: () => Promise<{ data: T; error: { message: string } | null }>,
+): Promise<{ data: T; error: { message: string } | null }> {
+  let res = await run()
+  for (let attempt = 0; attempt < 6 && res.error; attempt++) {
+    if (!/schema cache|find the table|PGRST205/i.test(res.error.message)) break
+    await new Promise((r) => setTimeout(r, 600 + attempt * 400))
+    res = await run()
+  }
+  return res
+}
+
 const COLUMN_TYPES: { value: UserTableColumnType; label: string }[] = [
   { value: 'text', label: 'Text' },
   { value: 'longtext', label: 'Long text' },
@@ -173,11 +198,10 @@ function TableGrid({
 
   const loadRows = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await dyn(table.physical_name)
-      .select('*')
-      .order('created_at', { ascending: true })
-      .limit(500)
-    if (error) setErr(error.message)
+    const { data, error } = await schemaRetry(() =>
+      dyn(table.physical_name).select('*').order('created_at', { ascending: true }).limit(500),
+    )
+    setErr(error ? error.message : null)
     setRows((data as Row[]) ?? [])
     setLoading(false)
   }, [table.physical_name])
@@ -189,7 +213,7 @@ function TableGrid({
   async function addRow() {
     setBusy(true)
     setErr(null)
-    const { error } = await dyn(table.physical_name).insert({ owner_id: userId })
+    const { error } = await schemaRetry(() => dyn(table.physical_name).insert({ owner_id: userId }))
     setBusy(false)
     if (error) {
       setErr(error.message)
@@ -515,7 +539,7 @@ function NewTableModal({
     setError(null)
     const { data, error: rpcErr } = await supabase.rpc('create_user_table', {
       p_name: name.trim(),
-      p_columns: cleaned.map((c) => ({ label: c.label.trim(), type: c.type })),
+      p_columns: cleaned.map((c) => ({ key: slugifyKey(c.label), label: c.label.trim(), type: c.type })),
       p_visibility: visibility,
       p_owner: ownerId,
     })
