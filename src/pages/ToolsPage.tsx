@@ -133,9 +133,16 @@ export default function ToolsPage() {
                         Forged
                       </span>
                     )}
+                    {t.kind === 'mcp' && (
+                      <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[10px] uppercase tracking-wide text-primary">
+                        MCP
+                      </span>
+                    )}
                   </div>
                   <p className="mt-0.5 line-clamp-1 text-xs text-muted">
-                    {t.description || (t.kind === 'http' ? (t.config as { url?: string })?.url || 'No endpoint set' : '')}
+                    {t.kind === 'mcp'
+                      ? `${((t.config as { tools?: unknown[] })?.tools ?? []).length} remote tools · ${(t.config as { url?: string })?.url ?? 'no endpoint'}`
+                      : t.description || (t.kind === 'http' ? (t.config as { url?: string })?.url || 'No endpoint set' : '')}
                   </p>
                 </button>
 

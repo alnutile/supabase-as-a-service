@@ -177,6 +177,28 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   push agents/tools into the workspace, where they appear in the dashboard. *(Planned —
   see `docs/tasks/`: `upload_file` + a signed-URL pair to push files/PDFs into Files and
   the knowledge base, and a tabbed Code/Desktop connect UI.)*
+- **External MCP client (outbound):** the inverse of the MCP *server* above — the
+  workspace connects out to **one external MCP endpoint** (e.g. **Zapier MCP** in front of
+  Gmail/Calendar) so agents can call its tools. An admin pastes the endpoint URL + bearer
+  token once in **Settings → External MCP server**; the token lives ONLY in Supabase Vault
+  (same model as email — `set_mcp_integration` admin RPC writes it, service-role-only
+  `read_mcp_secret` reads it, `mcp_is_configured` boolean for the UI; migration 0032). A
+  single `tools` row of `kind='mcp'` is the in-app handle: activating it (ToolsPage, "MCP"
+  badge) or scoping it to an agent via `tool_ids` turns the whole remote toolset on/off
+  like any other tool. `supabase/functions/_shared/mcp.ts` is the **MCP client** (JSON-RPC
+  over Streamable HTTP — `initialize` handshake → optional `Mcp-Session-Id` → `tools/list`
+  / `tools/call`, parsing JSON or SSE replies). `expandMcpTools()` discovers the remote
+  tools, **expands each into a first-class namespaced function** (`‹label›__‹remote›`, e.g.
+  `zapier__gmail_find_email`) and caches the list on the tool row's `config.tools`
+  (10-min TTL) so the loops don't re-handshake every message; `runMcpTool()` executes a
+  call. Wired into the three agent loops (chat, scheduler, webhook) right beside `http`/
+  `builtin` dispatch, so it composes with every existing gate — admin activation, agent
+  `tool_ids` scoping, the `webhooks.allow_tools` lock, and the `runGuardrails` pre-flight.
+  The admin-only `mcp-admin` edge function (`verify_jwt: true`) powers Settings' "Connect &
+  list tools" — it validates the endpoint server-side and refreshes the cache. The remote
+  tools are exfiltration-capable (they can send mail), so they carry the same workspace-wide
+  trust as `send_email`. *(Planned: per-user tokens, multiple MCP servers, auto-refresh,
+  and wiring the eval `orchestrator`/`loop` loops.)*
 - **Email:** two seeded `is_builtin` tools — `send_email` and `check_email` — let any
   user or agent use email once an admin configures a provider in **Settings → Email**.
   Sending goes through an HTTP provider (Postmark / Resend, not raw SMTP); receiving is

@@ -29,6 +29,7 @@ const VERIFY_JWT: Record<string, boolean> = {
   forge: true,
   loop: true,
   'email-test': true,
+  'mcp-admin': true,
   evals: true,
   'openrouter-balance': true,
 }

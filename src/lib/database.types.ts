@@ -13,7 +13,7 @@ export type MessageRole = 'user' | 'assistant' | 'system'
 export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'
 export type WebhookEventStatus = 'received' | 'ok' | 'error' | 'blocked'
-export type ToolKind = 'http' | 'web'
+export type ToolKind = 'http' | 'web' | 'builtin' | 'mcp'
 export type UserTableVisibility = 'private' | 'workspace'
 export type UserTableColumnType =
   | 'text'
@@ -644,23 +644,25 @@ export interface Database {
       integrations: {
         Row: {
           id: string
-          kind: 'email'
-          provider: 'postmark' | 'resend'
-          from_address: string
+          kind: 'email' | 'mcp'
+          provider: 'postmark' | 'resend' | null
+          from_address: string | null
           inbound_token: string | null
           allowed_recipients: string[] | null
           secret_id: string
+          config: Json
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          kind: 'email'
-          provider: 'postmark' | 'resend'
-          from_address: string
+          kind: 'email' | 'mcp'
+          provider?: 'postmark' | 'resend' | null
+          from_address?: string | null
           inbound_token?: string | null
           allowed_recipients?: string[] | null
           secret_id: string
+          config?: Json
           created_at?: string
           updated_at?: string
         }
@@ -884,6 +886,18 @@ export interface Database {
         Returns: undefined
       }
       email_is_configured: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      set_mcp_integration: {
+        Args: {
+          p_url: string
+          p_token: string
+          p_label?: string
+        }
+        Returns: undefined
+      }
+      mcp_is_configured: {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }

@@ -38,6 +38,7 @@ const CORE_SLUGS = new Set([
   'ingest',
   'email-inbound',
   'email-test',
+  'mcp-admin',
   'p',
   'forge',
   'loop',

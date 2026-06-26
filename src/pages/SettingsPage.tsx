@@ -81,6 +81,8 @@ export default function SettingsPage() {
 
         {isAdmin && <EmailCard />}
 
+        {isAdmin && <McpCard />}
+
         {isAdmin && <InvitePeople />}
 
         <ConnectClaude />
@@ -201,6 +203,183 @@ function ModelProfileRow({ profile }: { profile: ModelProfile }) {
         </button>
       </div>
     </div>
+  )
+}
+
+// External MCP server (admin-only). Connect one MCP endpoint (e.g. Zapier MCP in
+// front of Gmail/Calendar) once; its remote tools then become callable by chat,
+// scheduled agents, and webhook agents. The bearer token is write-only — stored
+// in Vault via set_mcp_integration, never read back into the browser. "Connect &
+// list tools" validates the endpoint and caches the discovered toolset.
+type McpIntegration = {
+  config: { url?: string; label?: string } | null
+}
+
+function McpCard() {
+  const [existing, setExisting] = useState<McpIntegration | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [url, setUrl] = useState('')
+  const [label, setLabel] = useState('zapier')
+  const [token, setToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [discovered, setDiscovered] = useState<{ ok: boolean; message: string; tools?: string[] } | null>(null)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('integrations').select('config').eq('kind', 'mcp').maybeSingle()
+    if (data) {
+      const row = data as McpIntegration
+      setExisting(row)
+      setUrl(row.config?.url ?? '')
+      setLabel(row.config?.label ?? 'zapier')
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function save() {
+    setError(null)
+    if (!url.trim()) {
+      setError('An MCP endpoint URL is required.')
+      return
+    }
+    if (!existing && !token.trim()) {
+      setError('A bearer token is required to connect.')
+      return
+    }
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('set_mcp_integration', {
+      p_url: url.trim(),
+      p_token: token.trim() || '', // empty = keep existing token
+      p_label: label.trim() || 'mcp',
+    })
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    setToken('')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+    await load()
+  }
+
+  // Validates the endpoint server-side (reads the Vault token, runs the MCP
+  // handshake + tools/list) and caches the discovered toolset.
+  async function connect() {
+    setTesting(true)
+    setDiscovered(null)
+    const { data, error: invokeErr } = await supabase.functions.invoke('mcp-admin', { body: {} })
+    setTesting(false)
+    if (invokeErr) {
+      const ctx = (invokeErr as { context?: Response }).context
+      let message = invokeErr.message
+      try {
+        if (ctx) message = (await ctx.json())?.message ?? message
+      } catch {
+        // keep the generic message
+      }
+      setDiscovered({ ok: false, message })
+      return
+    }
+    setDiscovered({
+      ok: !!data?.ok,
+      message: data?.ok ? `Connected — ${data.count} tool${data.count === 1 ? '' : 's'} available.` : data?.message ?? 'Failed.',
+      tools: data?.tools,
+    })
+  }
+
+  return (
+    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">External MCP server</h2>
+      <p className="mt-1 text-sm text-muted">
+        Connect an MCP endpoint — e.g.{' '}
+        <a href="https://mcp.zapier.com" target="_blank" rel="noreferrer" className="text-primary underline">
+          Zapier MCP
+        </a>{' '}
+        in front of Gmail, Calendar, and more — once, and its tools become callable by chat and your
+        agents. The bearer token is stored in Supabase Vault, never in the browser.
+      </p>
+
+      {loading ? (
+        <p className="mt-4 text-sm text-faint">Loading…</p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">Endpoint URL</span>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://mcp.zapier.com/api/v1/connect"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">Label</span>
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="zapier"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+            <span className="mt-1 block text-xs text-faint">
+              Used to namespace the remote tools (e.g. <code>zapier__gmail_find_email</code>).
+            </span>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Bearer token {existing && <span className="text-faint">(leave blank to keep current)</span>}
+            </span>
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={existing ? '••••••••' : 'Paste the MCP server token'}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+            >
+              {saving ? 'Saving…' : saved ? 'Saved!' : existing ? 'Update server' : 'Connect server'}
+            </button>
+            {existing && (
+              <button
+                onClick={connect}
+                disabled={testing}
+                className="rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-text transition hover:bg-surface-2 disabled:opacity-60"
+              >
+                {testing ? 'Connecting…' : 'Connect & list tools'}
+              </button>
+            )}
+          </div>
+
+          {discovered && (
+            <div
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                discovered.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'
+              }`}
+            >
+              <p>{discovered.message}</p>
+              {discovered.tools && discovered.tools.length > 0 && (
+                <p className="mt-1 text-xs text-muted">{discovered.tools.join(', ')}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
