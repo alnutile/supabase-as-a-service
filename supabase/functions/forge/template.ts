@@ -10,7 +10,7 @@
 
 // Functions the platform itself owns — a forged slug can never shadow these.
 export const RESERVED_SLUGS = new Set([
-  'chat', 'webhook', 'mcp', 'scheduler', 'ingest', 'email-inbound', 'email-test', 'forge',
+  'chat', 'webhook', 'mcp', 'mcp-admin', 'scheduler', 'ingest', 'email-inbound', 'email-test', 'forge',
 ])
 
 export function validateSlug(slug: string): string | null {

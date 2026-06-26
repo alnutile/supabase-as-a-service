@@ -4,6 +4,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import {
   assistantToolCallMsg,
@@ -34,8 +35,10 @@ async function loadAgentTools(db: any, restrictIds: string[]) {
   const tools: ORTool[] = []
   const httpTools = new Map<string, ToolRow>()
   const builtins = new Set<string>()
+  const mcpRows: ToolRow[] = []
+  let mcpRouter: McpRouter = new Map()
   let webEnabled = false
-  if (!restrictIds.length) return { tools, httpTools, builtins, webEnabled }
+  if (!restrictIds.length) return { tools, httpTools, builtins, mcpRouter, webEnabled }
   const { data } = await db.from('tools').select('*').eq('is_active', true)
   for (const t of (data ?? []) as ToolRow[]) {
     if (!restrictIds.includes(t.id)) continue
@@ -46,9 +49,14 @@ async function loadAgentTools(db: any, restrictIds: string[]) {
     } else if (t.kind === 'http' && t.name) {
       tools.push(toORTool(t.name, t.description, t.input_schema))
       httpTools.set(t.name, t)
+    } else if (t.kind === 'mcp') {
+      mcpRows.push(t)
     }
   }
-  return { tools, httpTools, builtins, webEnabled }
+  const mcp = await expandMcpTools(db, mcpRows)
+  for (const mt of mcp.tools) tools.push(mt)
+  mcpRouter = mcp.router
+  return { tools, httpTools, builtins, mcpRouter, webEnabled }
 }
 
 async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
@@ -83,7 +91,7 @@ function scheduledRunGuidance(ownerEmail: string | null): string {
 
 // deno-lint-ignore no-explicit-any
 async function runAgent(db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null) {
-  const { tools, httpTools, builtins, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
+  const { tools, httpTools, builtins, mcpRouter, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   const system = [agent.instructions || 'You are a scheduled agent. Do the task described.', scheduledRunGuidance(ownerEmail)].join('\n\n')
   // The schedule's input is optional. When it's blank, drive the agent with a
   // clear directive so it runs its own instructions (the system prompt) rather
@@ -115,6 +123,7 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
         let res: string
         if (tool) res = await runHttpTool(tool, input)
         else if (builtins.has(name)) res = await runBuiltin(db, name, input, ownerId)
+        else if (mcpRouter.has(name)) res = await runMcpTool(db, mcpRouter, name, input)
         else res = `Unknown tool: ${name}`
         messages.push(toolResultMsg(call.id, res))
       }

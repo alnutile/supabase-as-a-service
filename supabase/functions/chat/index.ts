@@ -12,6 +12,7 @@ import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts'
 import { resolveModel } from '../_shared/models.ts'
 import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import {
   assistantToolCallMsg,
@@ -174,9 +175,11 @@ async function loadTools(
   const tools: ORTool[] = []
   const httpTools = new Map<string, ToolRow>()
   const builtins = new Set<string>()
+  const mcpRows: ToolRow[] = []
+  let mcpRouter: McpRouter = new Map()
   const capabilities: string[] = []
   let webEnabled = false
-  if (!db) return { tools, httpTools, builtins, capabilities, webEnabled }
+  if (!db) return { tools, httpTools, builtins, mcpRouter, capabilities, webEnabled }
   try {
     const { data } = await db.from('tools').select('*').eq('is_active', true)
     for (const t of (data ?? []) as ToolRow[]) {
@@ -191,15 +194,22 @@ async function loadTools(
         tools.push(toORTool(t.name, t.description, t.input_schema))
         httpTools.set(t.name, t)
         capabilities.push(`\`${t.name}\` — ${t.description}`)
+      } else if (t.kind === 'mcp') {
+        mcpRows.push(t)
       }
     }
+    // Expand any connected MCP servers into first-class, namespaced tools.
+    const mcp = await expandMcpTools(db, mcpRows)
+    for (const mt of mcp.tools) tools.push(mt)
+    for (const c of mcp.capabilities) capabilities.push(c)
+    mcpRouter = mcp.router
     if (webEnabled) {
       capabilities.unshift('Web browsing — search the web for current information')
     }
   } catch {
     // tools are optional — degrade to no tools
   }
-  return { tools, httpTools, builtins, capabilities, webEnabled }
+  return { tools, httpTools, builtins, mcpRouter, capabilities, webEnabled }
 }
 
 // Built-in tools (search_documents, send_email, check_email) are executed by the
@@ -258,7 +268,7 @@ Deno.serve(async (req: Request) => {
   const db = admin()
   const userId = userIdFromAuth(req)
   const MODEL = await resolveModel(db, 'orchestrator')
-  const { tools, httpTools, builtins, capabilities, webEnabled } = await loadTools(db, toolIds)
+  const { tools, httpTools, builtins, mcpRouter, capabilities, webEnabled } = await loadTools(db, toolIds)
 
   let system: string
   if (replaceSystem && skillSystem.trim()) {
@@ -337,8 +347,9 @@ Deno.serve(async (req: Request) => {
               let output: string
               if (tool) output = await runHttpTool(tool, input)
               else if (builtins.has(name)) output = await runBuiltin(db, name, input, userId)
+              else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
               else output = `Unknown tool: ${name}`
-              if (tool || builtins.has(name)) {
+              if (tool || builtins.has(name) || mcpRouter.has(name)) {
                 await logActivity(db, 'tool.call', `Used tool: ${name}`, { name }, userId)
               }
               messages.push(toolResultMsg(call.id, output))
