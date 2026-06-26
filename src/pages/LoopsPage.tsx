@@ -35,13 +35,17 @@ export default function LoopsPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Loop | null>(null)
   const [running, setRunning] = useState<Loop | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [{ data: l }, { data: a }, { data: t }] = await Promise.all([
+    const [{ data: l, error: le }, { data: a }, { data: t }] = await Promise.all([
       supabase.from('loops').select('*').order('updated_at', { ascending: false }),
       supabase.from('agents').select('*').eq('is_active', true).order('name'),
       supabase.from('tools').select('*').eq('is_active', true).eq('kind', 'http'),
     ])
+    // A failed loops read almost always means the 0031 migration hasn't been
+    // applied — surface it instead of silently showing an empty list.
+    if (le) setError(`Couldn't load loops: ${le.message}. The 0031_loops migration may not be applied to this project.`)
     setLoops(l ?? [])
     setAgents(a ?? [])
     setTools(t ?? [])
@@ -54,11 +58,16 @@ export default function LoopsPage() {
 
   async function create() {
     if (!agents.length) return
-    const { data } = await supabase
+    setError(null)
+    const { data, error: ce } = await supabase
       .from('loops')
       .insert({ owner_id: user!.id, name: 'New loop', agent_id: agents[0].id, goal: '' })
       .select()
       .single()
+    if (ce) {
+      setError(`Couldn't create a loop: ${ce.message}`)
+      return
+    }
     if (data) {
       await load()
       setEditing(data)
@@ -85,6 +94,15 @@ export default function LoopsPage() {
           score feeds the next round, and the best result is kept. It stops when the agent converges,
           hits the iteration limit, reaches a target score, or <strong>spends up to its price cap</strong>.
         </p>
+
+        {error && (
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="shrink-0 font-medium hover:text-red-900">
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <p className="text-sm text-faint">Loading…</p>
@@ -177,12 +195,14 @@ function LoopEditor({
   const [targetScore, setTargetScore] = useState<string>(loop.target_score == null ? '' : String(loop.target_score))
   const [isActive, setIsActive] = useState(loop.is_active)
   const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
 
   async function save() {
     setSaving(true)
+    setErr(null)
     const budgetNum = Math.max(0.01, Number(budget) || 1)
     const target = targetScore.trim() === '' ? null : Math.max(0, Math.min(100, Number(targetScore)))
-    await supabase
+    const { error } = await supabase
       .from('loops')
       .update({
         name,
@@ -198,12 +218,20 @@ function LoopEditor({
       })
       .eq('id', loop.id)
     setSaving(false)
+    if (error) {
+      setErr(`Couldn't save: ${error.message}`)
+      return
+    }
     onSaved()
   }
 
   async function remove() {
     if (!confirm(`Delete loop “${loop.name}”?`)) return
-    await supabase.from('loops').delete().eq('id', loop.id)
+    const { error } = await supabase.from('loops').delete().eq('id', loop.id)
+    if (error) {
+      setErr(`Couldn't delete: ${error.message}`)
+      return
+    }
     onSaved()
   }
 
@@ -331,6 +359,7 @@ function LoopEditor({
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          {err && <span className="mr-auto text-xs text-red-600">{err}</span>}
           <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover">
             Cancel
           </button>
@@ -379,7 +408,21 @@ function RunView({ loop, onClose }: { loop: Loop; onClose: () => void }) {
     const { data, error: invokeErr } = await supabase.functions.invoke('loop', { body: { loop_id: loop.id } })
     setStarting(false)
     if (invokeErr) {
-      setError(invokeErr.message)
+      // FunctionsHttpError hides the real cause in a Response body ("non-2xx
+      // status code") — read it so the actual error shows.
+      let msg = invokeErr.message
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ctx = (invokeErr as any).context
+      if (ctx && typeof ctx.text === 'function') {
+        try {
+          const body = await ctx.text()
+          const parsed = body && body.trim().startsWith('{') ? JSON.parse(body) : null
+          msg = parsed?.error || body || msg
+        } catch {
+          // keep the generic message
+        }
+      }
+      setError(msg)
       return
     }
     if (data?.error) setError(data.error)
