@@ -16,6 +16,25 @@ import { ForgeIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type Forged = Database['public']['Tables']['forged_functions']['Row']
 
+// The app's own repo edge functions — the `deploy_core` allow-list (CORE_SLUGS in
+// supabase/functions/forge/index.ts). Shown read-only so an admin can see what
+// "Update core functions" (re)deploys; these are built-in and can't be edited or
+// deleted from here (they live in git, not the DB). Keep in sync with CORE_SLUGS.
+const CORE_FUNCTIONS: { slug: string; description: string }[] = [
+  { slug: 'chat', description: 'The AI chat assistant — runs the agentic tool loop and streams replies.' },
+  { slug: 'webhook', description: 'Public ingress — runs a prompt, agent, or tool against incoming payloads.' },
+  { slug: 'mcp', description: 'MCP server an external Claude connects to (build agents/tools/artifacts).' },
+  { slug: 'scheduler', description: 'Runs scheduled agents on the cron tick.' },
+  { slug: 'ingest', description: 'Extracts, chunks, and embeds uploaded PDFs for knowledge search.' },
+  { slug: 'email-inbound', description: 'Public inbound-email sink — normalizes incoming mail into the inbox.' },
+  { slug: 'email-test', description: 'Admin “send a test email” for Settings → Email.' },
+  { slug: 'p', description: 'Serves a shared HTML artifact as a standalone public page.' },
+  { slug: 'forge', description: 'Generates, deploys, and maintains edge functions (this page).' },
+  { slug: 'loop', description: 'Drives a goal-directed agent run with scored feedback iterations.' },
+  { slug: 'evals', description: 'Runs an eval suite against the orchestrator and scores it.' },
+  { slug: 'openrouter-balance', description: 'Proxies the OpenRouter account balance for the Usage page.' },
+]
+
 const STATUS_STYLE: Record<string, string> = {
   deployed: 'bg-emerald-100 text-emerald-700',
   failed: 'bg-red-100 text-red-700',
@@ -166,6 +185,7 @@ export default function ForgePage() {
         )}
 
         {isAdmin && <DeployMaintenance onForgedRedeployed={load} />}
+        {isAdmin && <CoreFunctionsList />}
       </div>
 
       {creating && <ForgeCreator onClose={() => setCreating(false)} onDone={() => { setCreating(false); load() }} />}
@@ -245,6 +265,42 @@ function DeployMaintenance({ onForgedRedeployed }: { onForgedRedeployed: () => v
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// Read-only list of the app's built-in core functions. Mirrors the forged-function
+// cards above but carries no actions — these are deployed from git/the build, not
+// editable or deletable here. It just lets an admin see what the "Update core
+// functions" button (re)deploys.
+function CoreFunctionsList() {
+  return (
+    <div className="mt-6">
+      <h2 className="text-sm font-semibold text-text">Core functions</h2>
+      <p className="mt-1 text-xs text-muted">
+        The app’s built-in edge functions that “Update core functions” redeploys. These ship with the
+        app (from git) — read-only here, so they can’t be edited or deleted.
+      </p>
+      <div className="mt-3 space-y-3">
+        {CORE_FUNCTIONS.map((f) => (
+          <div key={f.slug} className="rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
+                <ForgeIcon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-mono text-sm font-medium text-text">{f.slug}</span>
+                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                    Core
+                  </span>
+                </div>
+                <p className="mt-0.5 line-clamp-1 text-xs text-muted">{f.description}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
