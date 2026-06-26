@@ -125,6 +125,15 @@ export const ActivityIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const LoopIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M17 2.1 21 6l-4 3.9" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+    <path d="M7 21.9 3 18l4-3.9" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+  </svg>
+)
+
 export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M12 3 4 6v6c0 5 3.5 7.6 8 9 4.5-1.4 8-4 8-9V6z" />

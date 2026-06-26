@@ -801,6 +801,76 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['eval_results']['Insert']>
         Relationships: []
       }
+      loops: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          goal: string
+          agent_id: string
+          feedback_tool_id: string | null
+          rubric: string
+          max_iterations: number
+          budget_usd: number
+          target_score: number | null
+          visibility: Visibility
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name: string
+          goal?: string
+          agent_id: string
+          feedback_tool_id?: string | null
+          rubric?: string
+          max_iterations?: number
+          budget_usd?: number
+          target_score?: number | null
+          visibility?: Visibility
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['loops']['Insert']>
+        Relationships: []
+      }
+      loop_runs: {
+        Row: {
+          id: string
+          loop_id: string
+          status: string
+          stop_reason: string | null
+          iterations: number
+          cost_spent: number
+          best_score: number | null
+          best_output: string | null
+          transcript: Json
+          error: string | null
+          triggered_by: string | null
+          started_at: string
+          ended_at: string | null
+        }
+        Insert: {
+          id?: string
+          loop_id: string
+          status?: string
+          stop_reason?: string | null
+          iterations?: number
+          cost_spent?: number
+          best_score?: number | null
+          best_output?: string | null
+          transcript?: Json
+          error?: string | null
+          triggered_by?: string | null
+          started_at?: string
+          ended_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['loop_runs']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: {
