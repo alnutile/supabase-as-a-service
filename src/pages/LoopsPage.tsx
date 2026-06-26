@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -35,6 +35,7 @@ export default function LoopsPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Loop | null>(null)
   const [running, setRunning] = useState<Loop | null>(null)
+  const [viewing, setViewing] = useState<Loop | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -143,6 +144,13 @@ export default function LoopsPage() {
                     <PlayIcon className="h-3.5 w-3.5" /> Run
                   </button>
                   <button
+                    onClick={() => setViewing(l)}
+                    title="View past runs and results"
+                    className="rounded-lg border border-border-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
+                  >
+                    View
+                  </button>
+                  <button
                     onClick={() => setEditing(l)}
                     className="rounded-lg border border-border-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
                   >
@@ -167,7 +175,16 @@ export default function LoopsPage() {
           }}
         />
       )}
-      {running && <RunView loop={running} onClose={() => setRunning(null)} />}
+      {(running || viewing) && (
+        <RunView
+          loop={(running || viewing)!}
+          autoStart={!!running}
+          onClose={() => {
+            setRunning(null)
+            setViewing(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -376,14 +393,33 @@ function LoopEditor({
   )
 }
 
-function RunView({ loop, onClose }: { loop: Loop; onClose: () => void }) {
+function RunView({ loop, autoStart = false, onClose }: { loop: Loop; autoStart?: boolean; onClose: () => void }) {
+  const [runs, setRuns] = useState<LoopRun[]>([])
   const [run, setRun] = useState<LoopRun | null>(null)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const startedRef = useRef(false)
   const budget = Number(loop.budget_usd)
 
-  // Live updates: subscribe to this loop's runs. The edge function inserts a run
-  // row at start and updates it each iteration, so progress streams in.
+  // Load past runs so you can go back and view results without re-running.
+  // Opens on the most recent run by default.
+  useEffect(() => {
+    supabase
+      .from('loop_runs')
+      .select('*')
+      .eq('loop_id', loop.id)
+      .order('started_at', { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        const rows = (data ?? []) as LoopRun[]
+        setRuns(rows)
+        setRun((cur) => cur ?? rows[0] ?? null)
+      })
+  }, [loop.id])
+
+  // Live updates: the edge function inserts a run row at start and updates it
+  // each iteration, so progress streams in. Merge each change into the history
+  // and follow it if it's the run currently being viewed (or a brand-new one).
   useEffect(() => {
     const channel = supabase
       .channel(`loop_runs:${loop.id}`)
@@ -392,6 +428,10 @@ function RunView({ loop, onClose }: { loop: Loop; onClose: () => void }) {
         { event: '*', schema: 'public', table: 'loop_runs', filter: `loop_id=eq.${loop.id}` },
         (payload) => {
           const row = payload.new as LoopRun
+          setRuns((prev) => {
+            const without = prev.filter((r) => r.id !== row.id)
+            return [row, ...without].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+          })
           setRun((cur) => (!cur || cur.id === row.id || new Date(row.started_at) >= new Date(cur.started_at) ? row : cur))
         },
       )
@@ -433,6 +473,16 @@ function RunView({ loop, onClose }: { loop: Loop; onClose: () => void }) {
     }
   }
 
+  // "Run" opens this panel and kicks off a run immediately; "View" opens it to
+  // review history without spending. Guard so it fires at most once.
+  useEffect(() => {
+    if (autoStart && !startedRef.current) {
+      startedRef.current = true
+      start()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart])
+
   const transcript: TranscriptEntry[] = Array.isArray(run?.transcript) ? (run!.transcript as unknown as TranscriptEntry[]) : []
   const spent = run ? Number(run.cost_spent) : 0
   const pct = Math.min(100, budget > 0 ? (spent / budget) * 100 : 0)
@@ -452,6 +502,27 @@ function RunView({ loop, onClose }: { loop: Loop; onClose: () => void }) {
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {/* Run history — pick a past run to view its result. */}
+          {runs.length > 0 && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-muted">
+                Run history ({runs.length})
+              </span>
+              <select
+                value={run?.id ?? ''}
+                onChange={(e) => setRun(runs.find((r) => r.id === e.target.value) ?? null)}
+                className="w-full rounded-lg border border-border-strong px-3 py-2 text-xs"
+              >
+                {runs.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {formatDate(r.started_at)} · {r.status === 'running' ? 'running…' : (STOP_LABEL[r.stop_reason ?? ''] ?? r.status)}
+                    {r.best_score != null ? ` · best ${r.best_score}/100` : ''} · ${Number(r.cost_spent).toFixed(4)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {/* Cost vs. budget meter — the price cap, live. */}
           <div>
             <div className="mb-1 flex items-center justify-between text-xs">
