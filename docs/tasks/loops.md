@@ -1,5 +1,9 @@
 # Task: Loops — goal-directed agent runs that self-correct on measured feedback and stop at a price cap
 
+> **Status: implemented.** Migration `0031_loops.sql`, the `loop` edge function, the
+> `LoopsPage` UI, and the wire-ups below all shipped in this PR. v1 is single-run
+> (`K=1`); best-of-K and the other items under "Open questions" remain follow-ups.
+
 ## Context
 
 Today an agent run is **one-shot or short**: chat and the three agent loops

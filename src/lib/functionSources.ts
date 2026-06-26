@@ -27,6 +27,7 @@ const VERIFY_JWT: Record<string, boolean> = {
   p: false,
   chat: true,
   forge: true,
+  loop: true,
   'email-test': true,
   evals: true,
   'openrouter-balance': true,

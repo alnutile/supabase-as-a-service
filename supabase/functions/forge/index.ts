@@ -40,6 +40,7 @@ const CORE_SLUGS = new Set([
   'email-test',
   'p',
   'forge',
+  'loop',
   'evals',
   'openrouter-balance',
 ])

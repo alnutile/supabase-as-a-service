@@ -10,6 +10,9 @@ verify_jwt = true
 [functions.forge]
 verify_jwt = true
 
+[functions.loop]
+verify_jwt = true
+
 # Public / token-gated functions — must stay verify_jwt = false so external
 # callers (and pg_cron via pg_net) reach them without a Supabase JWT. They are
 # gated instead by an unguessable token in the URL (webhook / email-inbound), a
