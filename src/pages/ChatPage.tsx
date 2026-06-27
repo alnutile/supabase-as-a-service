@@ -11,6 +11,7 @@ import {
   ArtifactIcon,
   ChatIcon,
   CloseIcon,
+  CollectionIcon,
   FileIcon,
   PaperclipIcon,
   PlusIcon,
@@ -36,6 +37,7 @@ type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
 type Agent = Database['public']['Tables']['agents']['Row']
+type Collection = Database['public']['Tables']['collections']['Row']
 
 export default function ChatPage() {
   const { conversationId } = useParams()
@@ -56,6 +58,9 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [feedback, setFeedback] = useState<Record<string, FeedbackRow>>({})
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [collectionId, setCollectionId] = useState<string | null>(null)
+  const [showCollections, setShowCollections] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -90,6 +95,21 @@ export default function ChatPage() {
       .order('updated_at', { ascending: false })
       .then(({ data }) => setSkills(data ?? []))
   }, [])
+
+  // --- Load collections (for scoping the chat to a focused set of artifacts) ---
+  useEffect(() => {
+    supabase
+      .from('collections')
+      .select('*')
+      .order('name', { ascending: true })
+      .then(({ data }) => setCollections(data ?? []))
+  }, [])
+
+  // --- Launched from Artifacts → "Chat with this" (?collection=id): preselect it ---
+  const collectionParam = searchParams.get('collection')
+  useEffect(() => {
+    if (collectionParam) setCollectionId(collectionParam)
+  }, [collectionParam])
 
   // --- If launched as an agent (?agent=id), load it and run chats with its prompt ---
   const agentId = searchParams.get('agent')
@@ -329,8 +349,12 @@ export default function ChatPage() {
         history,
         (delta) => setStreaming((s) => (s ?? '') + delta),
         // Running as an agent: layer its prompt onto the workspace context and
-        // scope the assistant to the agent's chosen tools.
-        agent ? { system: agent.instructions, toolIds: agent.tool_ids } : undefined,
+        // scope the assistant to the agent's chosen tools. A chosen collection
+        // injects its artifacts as primary context.
+        {
+          ...(agent ? { system: agent.instructions, toolIds: agent.tool_ids } : {}),
+          ...(collectionId ? { collectionId } : {}),
+        },
       )
       setStreaming(null)
       const finalText = await materializeArtifacts(convId, full)
@@ -677,6 +701,81 @@ export default function ChatPage() {
               </div>
             )}
 
+            {/* Collection picker menu */}
+            {showCollections && (
+              <div className="absolute bottom-full mb-2 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    Chat with a collection
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/artifacts')}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Manage
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCollectionId(null)
+                    setShowCollections(false)
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-hover ${
+                    collectionId === null ? 'text-primary' : 'text-muted'
+                  }`}
+                >
+                  No collection (whole workspace)
+                </button>
+                {collections.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-faint">
+                    No collections yet — group artifacts on the Artifacts page.
+                  </p>
+                ) : (
+                  collections.map((c) => (
+                    <button
+                      type="button"
+                      key={c.id}
+                      onClick={() => {
+                        setCollectionId(c.id)
+                        setShowCollections(false)
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-hover ${
+                        collectionId === c.id ? 'text-primary' : 'text-text'
+                      }`}
+                    >
+                      <CollectionIcon className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                      {c.visibility === 'workspace' && (
+                        <span className="text-[10px] uppercase tracking-wide text-faint">shared</span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Active collection scope */}
+            {collectionId && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                <span className="flex items-center gap-1.5 rounded-lg border border-brand-300 bg-primary-soft px-2 py-1 text-xs font-medium text-primary">
+                  <CollectionIcon className="h-3.5 w-3.5" />
+                  <span className="max-w-[200px] truncate">
+                    {collections.find((c) => c.id === collectionId)?.name ?? 'Collection'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCollectionId(null)}
+                    title="Remove collection scope"
+                    className="text-primary hover:text-primary-strong"
+                  >
+                    <CloseIcon className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              </div>
+            )}
+
             {/* Pending file attachments */}
             {attachments.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
@@ -702,7 +801,10 @@ export default function ChatPage() {
             <div className="flex items-end gap-2">
               <button
                 type="button"
-                onClick={() => setShowSkills((v) => !v)}
+                onClick={() => {
+                  setShowSkills((v) => !v)
+                  setShowCollections(false)
+                }}
                 title="Run a skill"
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${
                   skillMenuOpen
@@ -711,6 +813,21 @@ export default function ChatPage() {
                 }`}
               >
                 <SkillIcon className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCollections((v) => !v)
+                  setShowSkills(false)
+                }}
+                title="Chat with a collection"
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${
+                  showCollections || collectionId
+                    ? 'border-brand-300 bg-primary-soft text-primary'
+                    : 'border-border-strong text-muted hover:bg-surface-hover'
+                }`}
+              >
+                <CollectionIcon className="h-5 w-5" />
               </button>
               <button
                 type="button"

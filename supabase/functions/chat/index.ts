@@ -145,6 +145,75 @@ async function logActivity(
   }
 }
 
+// Per-artifact and total caps so a big collection can't blow the context window.
+const COLLECTION_ITEM_CHARS = 8000
+const COLLECTION_TOTAL_CHARS = 40000
+
+// Build a context block from a collection's artifacts so the user can "chat with"
+// a focused set of content. Runs with the service role, so it RE-ENFORCES access
+// in code: the collection must be visible to the caller (owner / workspace / admin)
+// and only artifacts the caller could read (own or non-private) are included.
+async function loadCollectionContext(
+  db: ReturnType<typeof createClient> | null,
+  collectionId: string,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return ''
+  try {
+    const { data: col } = await db
+      .from('collections')
+      .select('id, name, description, owner_id, visibility')
+      .eq('id', collectionId)
+      .maybeSingle()
+    if (!col) return ''
+    if (col.owner_id !== userId && col.visibility !== 'workspace') {
+      const { data: prof } = await db.from('profiles').select('is_admin').eq('id', userId).maybeSingle()
+      if (!prof?.is_admin) return '' // not allowed to use this collection
+    }
+
+    const { data: links } = await db
+      .from('collection_artifacts')
+      .select('artifact_id')
+      .eq('collection_id', collectionId)
+    const ids = (links ?? []).map((l: { artifact_id: string }) => l.artifact_id)
+    if (!ids.length) return ''
+
+    const { data: arts } = await db
+      .from('artifacts')
+      .select('id, title, type, content, visibility, owner_id')
+      .in('id', ids)
+      .order('updated_at', { ascending: false })
+
+    const readable = (arts ?? []).filter(
+      (a: { owner_id: string; visibility: string }) => a.owner_id === userId || a.visibility !== 'private',
+    )
+    if (!readable.length) return ''
+
+    let total = 0
+    const parts: string[] = []
+    for (const a of readable as Array<{ title: string; type: string; content: string }>) {
+      if (total >= COLLECTION_TOTAL_CHARS) {
+        parts.push(`…(${readable.length - parts.length} more item(s) omitted to fit the context.)`)
+        break
+      }
+      let body = (a.content ?? '').slice(0, COLLECTION_ITEM_CHARS)
+      if ((a.content ?? '').length > COLLECTION_ITEM_CHARS) body += '\n…(truncated)'
+      total += body.length
+      parts.push(`## ${a.title} (${a.type})\n${body}`)
+    }
+
+    return (
+      `# Collection context: "${col.name}"\n` +
+      (col.description ? `${col.description}\n` : '') +
+      `The user has scoped this chat to the "${col.name}" collection — ${readable.length} item(s). ` +
+      `Treat the following as the primary reference content for this conversation; ground your answers in it.\n\n` +
+      parts.join('\n\n---\n\n')
+    )
+  } catch {
+    return ''
+  }
+}
+
 async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): Promise<string> {
   if (!db) return DEFAULT_SYSTEM
   try {
@@ -249,6 +318,7 @@ Deno.serve(async (req: Request) => {
   let skillSystem = ''
   let replaceSystem = false
   let toolIds: string[] | undefined
+  let collectionId: string | undefined
   try {
     const body = await req.json()
     inMessages = body.messages
@@ -258,6 +328,7 @@ Deno.serve(async (req: Request) => {
     if (typeof body.system === 'string') skillSystem = body.system
     replaceSystem = body.replaceSystem === true
     if (Array.isArray(body.toolIds)) toolIds = body.toolIds.map(String)
+    if (typeof body.collectionId === 'string' && body.collectionId) collectionId = body.collectionId
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
       status: 400,
@@ -283,6 +354,12 @@ Deno.serve(async (req: Request) => {
     system += `\n\n# Tools available to you right now\n${capabilities
       .map((c) => `- ${c}`)
       .join('\n')}\nUse them whenever they help. You also create shareable artifacts with the :::artifact protocol.`
+  }
+
+  // Collection scope: inject the chosen collection's artifacts as primary context.
+  if (collectionId) {
+    const collectionContext = await loadCollectionContext(db, collectionId, userId)
+    if (collectionContext) system += `\n\n---\n\n${collectionContext}`
   }
 
   // Guardrails (chat context): cheap utility-model pre-flight on the latest user

@@ -99,15 +99,52 @@ const TOOLS = [
   },
   {
     name: 'create_artifact',
-    description: 'Create a shareable artifact (document). Returns its link.',
+    description:
+      'Create a shareable artifact (document). Optionally file it into a collection (by name; created if missing) to centralize content from other systems — e.g. push a blog post or a YouTube transcript into a "Blog" or "YouTube" collection the team can chat with. Returns its link.',
     inputSchema: {
       type: 'object',
       properties: {
         title: { type: 'string' },
         content: { type: 'string' },
         type: { type: 'string', enum: ['markdown', 'code', 'html', 'text'] },
+        collection: {
+          type: 'string',
+          description: 'Optional collection name (or id) to file this artifact into; created if it does not exist.',
+        },
       },
       required: ['title', 'content'],
+    },
+  },
+  {
+    name: 'list_collections',
+    description: 'List the collections (named groups of artifacts) you can access.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_collection',
+    description:
+      'Create a collection: a named group of artifacts the user can later chat with as a focused context. Use this to centralize content from another system (blog posts, videos, notes) under one name.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        shared: { type: 'boolean', description: 'Share with the whole workspace (default private to you).' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'add_to_collection',
+    description:
+      'Add an existing artifact to a collection (both identified by name or id). The collection is created if it does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id.' },
+        artifact_id: { type: 'string', description: 'The artifact id to add.' },
+      },
+      required: ['collection', 'artifact_id'],
     },
   },
   {
@@ -241,6 +278,33 @@ async function ownerTables(db: DB, owner: string) {
   }>
 }
 
+// Resolve a collection by id or name for this owner (their own + workspace-shared);
+// optionally create it (owned by `owner`, private) when missing.
+async function resolveCollection(
+  db: DB,
+  owner: string,
+  ref: string,
+  createIfMissing: boolean,
+): Promise<{ id: string; name: string } | null> {
+  const r = ref.trim()
+  if (!r) return null
+  const { data } = await db
+    .from('collections')
+    .select('id, name, owner_id, visibility')
+    .or(`owner_id.eq.${owner},visibility.eq.workspace`)
+  const found = (data ?? []).find(
+    (c: { id: string; name: string }) => c.id === r || c.name.trim().toLowerCase() === r.toLowerCase(),
+  )
+  if (found) return { id: found.id, name: found.name }
+  if (!createIfMissing) return null
+  const { data: created } = await db
+    .from('collections')
+    .insert({ owner_id: owner, name: r, visibility: 'private' })
+    .select('id, name')
+    .single()
+  return created ? { id: created.id, name: created.name } : null
+}
+
 function slugifyKey(label: string): string {
   const s = String(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
   if (!s) return 'col'
@@ -330,7 +394,56 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         visibility: 'private',
       }).select('id').single()
       if (error) return text(`Error: ${error.message}`, true)
-      return text(`Created artifact "${args.title}" at /artifacts/${data.id}.`)
+      let note = ''
+      if (typeof args.collection === 'string' && args.collection.trim()) {
+        const col = await resolveCollection(db, owner, args.collection, true)
+        if (col) {
+          await db.from('collection_artifacts').upsert(
+            { collection_id: col.id, artifact_id: data.id, added_by: owner },
+            { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
+          )
+          note = ` Filed into collection "${col.name}".`
+        }
+      }
+      return text(`Created artifact "${args.title}" at /artifacts/${data.id}.${note}`)
+    }
+    case 'list_collections': {
+      const { data } = await db
+        .from('collections')
+        .select('id, name, description, visibility, owner_id')
+        .or(`owner_id.eq.${owner},visibility.eq.workspace`)
+        .order('name', { ascending: true })
+      if (!data || !data.length) return text('No collections yet. Use create_collection to make one.')
+      return text(
+        data
+          .map((c) => `• ${c.name} (${c.id}) [${c.visibility}]${c.description ? ` — ${c.description}` : ''}`)
+          .join('\n'),
+      )
+    }
+    case 'create_collection': {
+      const name = String(args.name ?? '').trim()
+      if (!name) return text('create_collection needs a name.', true)
+      const { data, error } = await db.from('collections').insert({
+        owner_id: owner,
+        name,
+        description: String(args.description ?? ''),
+        visibility: args.shared === true ? 'workspace' : 'private',
+      }).select('id, name, visibility').single()
+      if (error) return text(`Error: ${error.message}`, true)
+      return text(`Created collection "${data.name}" (id ${data.id}, ${data.visibility}). Add artifacts with add_to_collection.`)
+    }
+    case 'add_to_collection': {
+      const ref = String(args.collection ?? '').trim()
+      const artifactId = String(args.artifact_id ?? '').trim()
+      if (!ref || !artifactId) return text('add_to_collection needs collection and artifact_id.', true)
+      const col = await resolveCollection(db, owner, ref, true)
+      if (!col) return text(`Could not resolve collection "${ref}".`, true)
+      const { error } = await db.from('collection_artifacts').upsert(
+        { collection_id: col.id, artifact_id: artifactId, added_by: owner },
+        { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
+      )
+      if (error) return text(`Error: ${error.message}`, true)
+      return text(`Added artifact ${artifactId} to collection "${col.name}".`)
     }
     case 'upload_file': {
       if (!args.name || !args.mime_type || !args.content_base64) {

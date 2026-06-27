@@ -14,6 +14,7 @@ export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'
 export type WebhookEventStatus = 'received' | 'ok' | 'error' | 'blocked'
 export type ToolKind = 'http' | 'web' | 'builtin' | 'mcp'
+export type CollectionVisibility = 'private' | 'workspace'
 export type UserTableVisibility = 'private' | 'workspace'
 export type UserTableColumnType =
   | 'text'
@@ -127,6 +128,46 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['artifacts']['Insert']>
+        Relationships: []
+      }
+      collections: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          description: string
+          color: string | null
+          visibility: CollectionVisibility
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name: string
+          description?: string
+          color?: string | null
+          visibility?: CollectionVisibility
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collections']['Insert']>
+        Relationships: []
+      }
+      collection_artifacts: {
+        Row: {
+          collection_id: string
+          artifact_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          artifact_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_artifacts']['Insert']>
         Relationships: []
       }
       files: {

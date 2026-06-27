@@ -22,7 +22,13 @@ export interface ChatMessage {
 export async function streamChat(
   messages: ChatMessage[],
   onToken: (delta: string) => void,
-  options?: { system?: string; replaceSystem?: boolean; toolIds?: string[]; signal?: AbortSignal },
+  options?: {
+    system?: string
+    replaceSystem?: boolean
+    toolIds?: string[]
+    collectionId?: string
+    signal?: AbortSignal
+  },
 ): Promise<string> {
   const {
     data: { session },
@@ -41,6 +47,7 @@ export async function streamChat(
       system: options?.system,
       replaceSystem: options?.replaceSystem,
       toolIds: options?.toolIds,
+      collectionId: options?.collectionId,
     }),
     signal: options?.signal,
   })
