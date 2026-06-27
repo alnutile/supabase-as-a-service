@@ -52,6 +52,37 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   artifact updates the page live; an external/local AI app can also push HTML up (via MCP)
   to the same table and get the same URL. *(Planned: multi-file/bundled SPAs behind the
   same `p/‹slug›` URL via a public storage bucket; an MCP `publish_html` one-call helper.)*
+- **Collections (tag artifacts → chat with a focused set):** a `collections` row is a
+  named group ("tag") of artifacts; `collection_artifacts` is the many-to-many join
+  (migration 0033). On `ArtifactsPage` you multi-select artifacts (checkboxes) and file
+  them into one or more collections via the floating "Add to collection" bar (creating a
+  collection inline), and a filter bar scopes the grid to one collection. In **Chat** the
+  📚 picker selects **one or more** collections (multi-select; "Chat with this" deep-links
+  `/chat?collection=:id`, or `?collections=a,b`); `streamChat({ collectionIds })` passes them
+  to the chat function, which `loadCollectionsContext` gathers the **deduped** union of their
+  artifacts and injects them as a primary-context block in the system prompt.
+  Access mirrors `user_tables`: a collection is `private` (owner + admins) or `workspace`
+  (every member can read **and** collaborate — add/remove members); the join table's RLS
+  inherits the collection's visibility. The chat function runs as the service role so it
+  **re-enforces** access in code (collection visible to caller; only own/non-private
+  artifacts injected). Collections are also an **ingestion target**: MCP exposes
+  `create_collection` / `add_to_collection` / `list_collections` and `create_artifact` takes
+  an optional `collection` (name, created if missing), so an external Claude can push blog
+  posts / video transcripts / notes from other systems into a named collection the team can
+  chat with. **Context-window awareness:** each collection shows an estimated token count
+  (≈chars/4 — there's no single correct tokenizer) and, via `useOrchestratorContext` →
+  the live OpenRouter model's `context_length` (fetched from `/api/v1/models`), what % of
+  that window it would fill (`ContextMeter` on the Artifacts collection header + filter chips;
+  `ContextUsage` in the chat picker rows + active chips), so the user can judge fit and pick a
+  different model if needed. When several collections are scoped together, the chat picker shows
+  the **combined, deduped** size (the `collections_combined_chars(uuid[])` RPC, migration 0035)
+  so overlapping artifacts aren't double-counted. Single-collection sizes come from the RLS-aware
+  `collection_token_stats()` RPC (migration 0034, `security invoker`) on Chat, and a client-side
+  memo on the Artifacts page (which already holds the content). The chat function budgets the total
+  injected content to the model's real window minus a reserve for the conversation + reply (so the
+  meter matches what's sent).
+  *(Planned: collection-scoped retrieval/RAG + hybrid search as a core function instead of
+  full-content injection; collection visibility on the public share pages.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
 - **Tables (Airtable-but-real-Postgres):** `TablesPage` (route `/tables`, sidebar,
@@ -311,7 +342,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
@@ -332,7 +363,8 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
 config), `inbox_messages`, `plugins` (installed-plugin registry), `usage_events`
 (per-call token/cost accounting), `user_tables` (registry for the Tables feature;
-the actual user tables are real `ut_*` tables created at runtime). Enums: `visibility`
+the actual user tables are real `ut_*` tables created at runtime), `collections` +
+`collection_artifacts` (named groups of artifacts you can scope a chat to). Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**

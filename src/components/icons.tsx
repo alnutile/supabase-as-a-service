@@ -182,6 +182,19 @@ export const PluginIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const CollectionIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="7" width="18" height="13" rx="2" />
+    <path d="M6 7V5a1 1 0 0 1 1-1h3l2 3M16 11l3 3-3 3M12 14h7" />
+  </svg>
+)
+
+export const CheckIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+)
+
 export const HomeIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 11l9-8 9 8" />

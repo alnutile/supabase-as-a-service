@@ -145,6 +145,133 @@ async function logActivity(
   }
 }
 
+const CHARS_PER_TOKEN = 4
+
+// Cache OpenRouter's model catalog on the (warm) instance so we can budget the
+// injected collection content against the live model's real context window —
+// keeping the in-app token meter honest about what actually gets sent.
+let MODEL_CTX: Map<string, number> | null = null
+async function modelContextLength(slug: string): Promise<number | null> {
+  try {
+    if (!MODEL_CTX) {
+      const res = await fetch('https://openrouter.ai/api/v1/models')
+      const json = await res.json()
+      MODEL_CTX = new Map()
+      for (const m of json?.data ?? []) {
+        MODEL_CTX.set(String(m.id).toLowerCase(), Number(m?.context_length ?? 0))
+      }
+    }
+    const s = (slug || '').toLowerCase()
+    let v = MODEL_CTX.get(s)
+    if (!v) {
+      for (const [id, c] of MODEL_CTX) {
+        if (id === s || id.endsWith(`/${s}`)) {
+          v = c
+          break
+        }
+      }
+    }
+    return v && v > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
+// Build a context block from one or more collections' artifacts so the user can
+// "chat with" a focused set of content. Runs with the service role, so it
+// RE-ENFORCES access in code: each collection must be visible to the caller
+// (owner / workspace / admin) and only artifacts the caller could read (own or
+// non-private) are included. Artifacts shared across selected collections are
+// DEDUPED. The total injected size is budgeted to the model's context window
+// minus a reserve for the conversation + reply, so it matches the meter the user saw.
+async function loadCollectionsContext(
+  db: ReturnType<typeof createClient> | null,
+  collectionIds: string[],
+  userId: string | null,
+  model: string,
+): Promise<string> {
+  if (!db || !userId || !collectionIds.length) return ''
+  try {
+    const { data: cols } = await db
+      .from('collections')
+      .select('id, name, owner_id, visibility')
+      .in('id', collectionIds)
+    if (!cols?.length) return ''
+
+    // Resolve admin once only if some collection isn't owner/workspace-visible.
+    const needAdmin = (cols as Array<{ owner_id: string; visibility: string }>).some(
+      (c) => c.owner_id !== userId && c.visibility !== 'workspace',
+    )
+    let isAdmin = false
+    if (needAdmin) {
+      const { data: prof } = await db.from('profiles').select('is_admin').eq('id', userId).maybeSingle()
+      isAdmin = Boolean(prof?.is_admin)
+    }
+    const visible = (cols as Array<{ id: string; name: string; owner_id: string; visibility: string }>).filter(
+      (c) => c.owner_id === userId || c.visibility === 'workspace' || isAdmin,
+    )
+    if (!visible.length) return ''
+    const visibleIds = visible.map((c) => c.id)
+    const names = visible.map((c) => c.name)
+
+    const { data: links } = await db
+      .from('collection_artifacts')
+      .select('artifact_id')
+      .in('collection_id', visibleIds)
+    const ids = [...new Set((links ?? []).map((l: { artifact_id: string }) => l.artifact_id))]
+    if (!ids.length) return ''
+
+    const { data: arts } = await db
+      .from('artifacts')
+      .select('id, title, type, content, visibility, owner_id')
+      .in('id', ids)
+      .order('updated_at', { ascending: false })
+
+    const readable = (arts ?? []).filter(
+      (a: { owner_id: string; visibility: string }) => a.owner_id === userId || a.visibility !== 'private',
+    )
+    if (!readable.length) return ''
+
+    // Budget the injected content to the model's window. Reserve room (≈20%,
+    // clamped) for the running conversation + the reply; the rest is for the
+    // collection. Unknown window → a conservative static budget.
+    const ctxLen = await modelContextLength(model)
+    const reserveTokens = ctxLen ? Math.min(Math.max(Math.floor(ctxLen * 0.2), 8000), 32000) : 16000
+    const budgetTokens = ctxLen ? Math.max(ctxLen - reserveTokens, 8000) : 50000
+    const totalChars = budgetTokens * CHARS_PER_TOKEN
+
+    let total = 0
+    let omitted = 0
+    const parts: string[] = []
+    for (const a of readable as Array<{ title: string; type: string; content: string }>) {
+      const remaining = totalChars - total
+      if (remaining <= 0) {
+        omitted = readable.length - parts.length
+        break
+      }
+      const raw = a.content ?? ''
+      let body = raw.slice(0, remaining)
+      if (raw.length > body.length) body += '\n…(truncated to fit the context window)'
+      total += body.length
+      parts.push(`## ${a.title} (${a.type})\n${body}`)
+    }
+    if (omitted) {
+      parts.push(`…(${omitted} more item(s) omitted — the selection exceeds this model's context window.)`)
+    }
+
+    const label =
+      names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
+    return (
+      `# Collection context: ${names.map((n) => `"${n}"`).join(', ')}\n` +
+      `The user has scoped this chat to ${label} — ${readable.length} item(s) total. ` +
+      `Treat the following as the primary reference content for this conversation; ground your answers in it.\n\n` +
+      parts.join('\n\n---\n\n')
+    )
+  } catch {
+    return ''
+  }
+}
+
 async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): Promise<string> {
   if (!db) return DEFAULT_SYSTEM
   try {
@@ -249,6 +376,7 @@ Deno.serve(async (req: Request) => {
   let skillSystem = ''
   let replaceSystem = false
   let toolIds: string[] | undefined
+  let collectionIds: string[] = []
   try {
     const body = await req.json()
     inMessages = body.messages
@@ -258,6 +386,9 @@ Deno.serve(async (req: Request) => {
     if (typeof body.system === 'string') skillSystem = body.system
     replaceSystem = body.replaceSystem === true
     if (Array.isArray(body.toolIds)) toolIds = body.toolIds.map(String)
+    // Accept an array of collection ids (multi-scope) or a single legacy id.
+    if (Array.isArray(body.collectionIds)) collectionIds = body.collectionIds.map(String).filter(Boolean)
+    else if (typeof body.collectionId === 'string' && body.collectionId) collectionIds = [body.collectionId]
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
       status: 400,
@@ -283,6 +414,12 @@ Deno.serve(async (req: Request) => {
     system += `\n\n# Tools available to you right now\n${capabilities
       .map((c) => `- ${c}`)
       .join('\n')}\nUse them whenever they help. You also create shareable artifacts with the :::artifact protocol.`
+  }
+
+  // Collection scope: inject the chosen collection's artifacts as primary context.
+  if (collectionIds.length) {
+    const collectionContext = await loadCollectionsContext(db, collectionIds, userId, MODEL)
+    if (collectionContext) system += `\n\n---\n\n${collectionContext}`
   }
 
   // Guardrails (chat context): cheap utility-model pre-flight on the latest user

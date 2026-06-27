@@ -4,13 +4,18 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
 import { uploadPickedFile } from '../lib/upload'
+import { estimateTokensFromChars } from '../lib/tokens'
+import { useOrchestratorContext } from '../lib/useModelContext'
+import { ContextUsage } from '../components/ContextMeter'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import {
   AgentIcon,
   ArtifactIcon,
   ChatIcon,
+  CheckIcon,
   CloseIcon,
+  CollectionIcon,
   FileIcon,
   PaperclipIcon,
   PlusIcon,
@@ -36,6 +41,7 @@ type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
 type Agent = Database['public']['Tables']['agents']['Row']
+type Collection = Database['public']['Tables']['collections']['Row']
 
 export default function ChatPage() {
   const { conversationId } = useParams()
@@ -56,6 +62,12 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [feedback, setFeedback] = useState<Record<string, FeedbackRow>>({})
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [collectionTokens, setCollectionTokens] = useState<Record<string, number>>({})
+  const [collectionIds, setCollectionIds] = useState<string[]>([])
+  const [combinedTokens, setCombinedTokens] = useState(0)
+  const [showCollections, setShowCollections] = useState(false)
+  const model = useOrchestratorContext()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -90,6 +102,60 @@ export default function ChatPage() {
       .order('updated_at', { ascending: false })
       .then(({ data }) => setSkills(data ?? []))
   }, [])
+
+  // --- Load collections + their estimated size (for scoping the chat) ---
+  useEffect(() => {
+    let active = true
+    async function run() {
+      const [cRes, sRes] = await Promise.all([
+        supabase.from('collections').select('*').order('name', { ascending: true }),
+        supabase.rpc('collection_token_stats'),
+      ])
+      if (!active) return
+      setCollections(cRes.data ?? [])
+      const tok: Record<string, number> = {}
+      for (const s of sRes.data ?? []) tok[s.collection_id] = estimateTokensFromChars(Number(s.char_total))
+      setCollectionTokens(tok)
+    }
+    run()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  // --- Launched from Artifacts → "Chat with this" (?collection=id, or
+  //     ?collections=a,b for several): preselect them ---
+  const collectionParam = searchParams.get('collection')
+  const collectionsParam = searchParams.get('collections')
+  useEffect(() => {
+    const ids = collectionsParam
+      ? collectionsParam.split(',').map((s) => s.trim()).filter(Boolean)
+      : collectionParam
+        ? [collectionParam]
+        : []
+    if (ids.length) setCollectionIds(ids)
+  }, [collectionParam, collectionsParam])
+
+  // --- Combined deduped size of the scoped collections (for the context meter) ---
+  useEffect(() => {
+    if (collectionIds.length === 0) {
+      setCombinedTokens(0)
+      return
+    }
+    let active = true
+    supabase.rpc('collections_combined_chars', { p_ids: collectionIds }).then(({ data, error }) => {
+      if (!active) return
+      if (error || data == null) {
+        // Pre-migration fallback: sum per-collection sizes (may double-count overlap).
+        setCombinedTokens(collectionIds.reduce((sum, id) => sum + (collectionTokens[id] ?? 0), 0))
+      } else {
+        setCombinedTokens(estimateTokensFromChars(Number(data)))
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [collectionIds, collectionTokens])
 
   // --- If launched as an agent (?agent=id), load it and run chats with its prompt ---
   const agentId = searchParams.get('agent')
@@ -329,8 +395,12 @@ export default function ChatPage() {
         history,
         (delta) => setStreaming((s) => (s ?? '') + delta),
         // Running as an agent: layer its prompt onto the workspace context and
-        // scope the assistant to the agent's chosen tools.
-        agent ? { system: agent.instructions, toolIds: agent.tool_ids } : undefined,
+        // scope the assistant to the agent's chosen tools. A chosen collection
+        // injects its artifacts as primary context.
+        {
+          ...(agent ? { system: agent.instructions, toolIds: agent.tool_ids } : {}),
+          ...(collectionIds.length ? { collectionIds } : {}),
+        },
       )
       setStreaming(null)
       const finalText = await materializeArtifacts(convId, full)
@@ -677,6 +747,107 @@ export default function ChatPage() {
               </div>
             )}
 
+            {/* Collection picker menu (multi-select — combine several) */}
+            {showCollections && (
+              <div className="absolute bottom-full mb-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    Chat with collections {collectionIds.length > 0 && `(${collectionIds.length})`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/artifacts')}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Manage
+                  </button>
+                </div>
+                {collectionIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCollectionIds([])}
+                    className="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left text-sm text-muted hover:bg-surface-hover"
+                  >
+                    Clear all (chat the whole workspace)
+                  </button>
+                )}
+                {collections.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-faint">
+                    No collections yet — group artifacts on the Artifacts page.
+                  </p>
+                ) : (
+                  collections.map((c) => {
+                    const checked = collectionIds.includes(c.id)
+                    return (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onClick={() =>
+                          setCollectionIds((prev) =>
+                            prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id],
+                          )
+                        }
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-hover"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            checked ? 'border-primary bg-primary text-white' : 'border-border-strong text-transparent'
+                          }`}
+                        >
+                          <CheckIcon className="h-3 w-3" />
+                        </span>
+                        <CollectionIcon className="h-4 w-4 shrink-0 text-primary" />
+                        <span className="min-w-0 flex-1 truncate text-text">{c.name}</span>
+                        {(collectionTokens[c.id] ?? 0) > 0 && (
+                          <ContextUsage tokens={collectionTokens[c.id]} model={model} />
+                        )}
+                        {c.visibility === 'workspace' && (
+                          <span className="text-[10px] uppercase tracking-wide text-faint">shared</span>
+                        )}
+                      </button>
+                    )
+                  })
+                )}
+                {collectionIds.length > 1 && (
+                  <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-xs text-muted">
+                    <span>Combined</span>
+                    <ContextUsage tokens={combinedTokens} model={model} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Active collection scope (combined) */}
+            {collectionIds.length > 0 && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                {collectionIds.map((id) => (
+                  <span
+                    key={id}
+                    className="flex items-center gap-1.5 rounded-lg border border-brand-300 bg-primary-soft px-2 py-1 text-xs font-medium text-primary"
+                  >
+                    <CollectionIcon className="h-3.5 w-3.5" />
+                    <span className="max-w-[180px] truncate">
+                      {collections.find((c) => c.id === id)?.name ?? 'Collection'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCollectionIds((prev) => prev.filter((x) => x !== id))}
+                      title="Remove from scope"
+                      className="text-primary hover:text-primary-strong"
+                    >
+                      <CloseIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ))}
+                {combinedTokens > 0 && (
+                  <span className="flex items-center gap-1">
+                    {collectionIds.length > 1 && <span className="text-[11px] text-muted">total</span>}
+                    <ContextUsage tokens={combinedTokens} model={model} />
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Pending file attachments */}
             {attachments.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
@@ -702,7 +873,10 @@ export default function ChatPage() {
             <div className="flex items-end gap-2">
               <button
                 type="button"
-                onClick={() => setShowSkills((v) => !v)}
+                onClick={() => {
+                  setShowSkills((v) => !v)
+                  setShowCollections(false)
+                }}
                 title="Run a skill"
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${
                   skillMenuOpen
@@ -711,6 +885,26 @@ export default function ChatPage() {
                 }`}
               >
                 <SkillIcon className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCollections((v) => !v)
+                  setShowSkills(false)
+                }}
+                title="Chat with a collection"
+                className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${
+                  showCollections || collectionIds.length
+                    ? 'border-brand-300 bg-primary-soft text-primary'
+                    : 'border-border-strong text-muted hover:bg-surface-hover'
+                }`}
+              >
+                <CollectionIcon className="h-5 w-5" />
+                {collectionIds.length > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
+                    {collectionIds.length}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
