@@ -141,7 +141,7 @@ export default function ToolsPage() {
                   </div>
                   <p className="mt-0.5 line-clamp-1 text-xs text-muted">
                     {t.kind === 'mcp'
-                      ? `${((t.config as { tools?: unknown[] })?.tools ?? []).length} remote tools · ${(t.config as { url?: string })?.url ?? 'no endpoint'}`
+                      ? `External MCP server · ${(t.config as { url?: string })?.url ?? 'no endpoint'} — manage in Settings`
                       : t.description || (t.kind === 'http' ? (t.config as { url?: string })?.url || 'No endpoint set' : '')}
                   </p>
                 </button>

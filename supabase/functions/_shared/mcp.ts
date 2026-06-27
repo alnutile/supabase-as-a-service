@@ -1,14 +1,15 @@
 // Shared MCP (Model Context Protocol) client — lets the workspace act as an MCP
-// *client* against an external server (e.g. Zapier MCP fronting Gmail/Calendar).
-// Used by all the agent loops (chat, scheduler, webhook) so a single configured
-// MCP connection lights up everywhere.
+// *client* against external servers (e.g. Zapier MCP fronting Gmail/Calendar).
+// Used by all the agent loops (chat, scheduler, webhook). Each connected server
+// is an `mcp_servers` row with a kind='mcp' tools handle, so any number of them
+// light up everywhere at once.
 //
 // Transport: MCP Streamable HTTP (JSON-RPC 2.0 over POST). The server may answer
 // with `application/json` OR an SSE (`text/event-stream`) frame, and may hand
 // back an `Mcp-Session-Id` header during `initialize` that must be echoed on
-// subsequent calls — we handle both. The bearer token is read at call time from
-// Vault via the service-role-only `read_mcp_secret` RPC; it never lives in the
-// tool row, the model context, or any log.
+// subsequent calls — we handle both. Each server's bearer token is read at call
+// time from Vault via the service-role-only `read_mcp_secret(server_id)` RPC; it
+// never lives in the tool row, the model context, or any log.
 import { toORTool, type ORTool } from './openrouter.ts'
 
 // deno-lint-ignore no-explicit-any
@@ -30,13 +31,15 @@ export interface CachedTool {
   input_schema: Record<string, unknown>
 }
 
+// A kind='mcp' tools handle row. `config.server_id` links it to its mcp_servers
+// row, where the endpoint URL, Vault token pointer, and tool cache live.
 interface McpToolRow {
   id: string
   name: string
-  config: { url?: string; tools?: CachedTool[]; cached_at?: string }
+  config: { url?: string; server_id?: string }
 }
 
-export type McpRouter = Map<string, { url: string; remote: string }>
+export type McpRouter = Map<string, { url: string; serverId: string; remote: string }>
 
 function baseHeaders(server: Server, sessionId?: string): Record<string, string> {
   const h: Record<string, string> = {
@@ -145,9 +148,10 @@ function flattenContent(result: any): string {
   return JSON.stringify(result)
 }
 
-async function readToken(db: DB): Promise<string | null> {
+// Read one server's decrypted bearer token from Vault (service-role-only RPC).
+async function readToken(db: DB, serverId: string): Promise<string | null> {
   try {
-    const { data } = await db.rpc('read_mcp_secret')
+    const { data } = await db.rpc('read_mcp_secret', { p_server_id: serverId })
     return typeof data === 'string' && data ? data : null
   } catch {
     return null
@@ -160,10 +164,24 @@ function prefixOf(name: string): string {
   return p || 'mcp'
 }
 
-// Expand active `kind='mcp'` tool rows into OpenAI/OpenRouter function specs plus
-// a router (namespaced name → remote tool). Uses each row's cached `config.tools`
-// when fresh, otherwise re-discovers via `tools/list` and writes the cache back.
-// Discovery failures degrade gracefully to whatever cache exists (possibly none).
+// Discover a server's toolset and cache it on its mcp_servers row. Used by the
+// loops (lazy refresh) and the mcp-admin function (explicit "Connect & list").
+export async function refreshServer(db: DB, serverId: string, url: string): Promise<CachedTool[]> {
+  const token = await readToken(db, serverId)
+  if (!token) throw new Error('No token is stored for this MCP server.')
+  const tools = await listRemoteTools({ url, token })
+  await db
+    .from('mcp_servers')
+    .update({ cached_tools: tools, cached_at: new Date().toISOString() })
+    .eq('id', serverId)
+  return tools
+}
+
+// Expand active `kind='mcp'` tool handles into OpenAI/OpenRouter function specs
+// plus a router (namespaced name → server + remote tool). Each handle links to an
+// mcp_servers row (URL + Vault token + cache); uses the cached toolset when fresh,
+// otherwise re-discovers and writes the cache back. Discovery failures degrade
+// gracefully to whatever cache exists (possibly none).
 export async function expandMcpTools(
   db: DB,
   rows: McpToolRow[],
@@ -174,24 +192,24 @@ export async function expandMcpTools(
   if (!db || !rows.length) return { tools, router, capabilities }
 
   for (const row of rows) {
-    const url = row.config?.url
+    const serverId = row.config?.server_id
+    if (!serverId) continue
+    const { data: server } = await db
+      .from('mcp_servers')
+      .select('url, cached_tools, cached_at')
+      .eq('id', serverId)
+      .maybeSingle()
+    const url = (server?.url as string | undefined) ?? row.config?.url
     if (!url) continue
 
-    let cached = row.config?.tools ?? []
-    const at = row.config?.cached_at ? Date.parse(row.config.cached_at) : 0
+    let cached = (server?.cached_tools as CachedTool[] | undefined) ?? []
+    const at = server?.cached_at ? Date.parse(server.cached_at as string) : 0
     const stale = !cached.length || !Number.isFinite(at) || Date.now() - at > CACHE_TTL_MS
     if (stale) {
-      const token = await readToken(db)
-      if (token) {
-        try {
-          cached = await listRemoteTools({ url, token })
-          await db
-            .from('tools')
-            .update({ config: { ...row.config, tools: cached, cached_at: new Date().toISOString() } })
-            .eq('id', row.id)
-        } catch {
-          // keep the existing (stale/empty) cache
-        }
+      try {
+        cached = await refreshServer(db, serverId, url)
+      } catch {
+        // keep the existing (stale/empty) cache
       }
     }
 
@@ -199,7 +217,7 @@ export async function expandMcpTools(
     for (const t of cached) {
       const ns = `${prefix}${NS_SEP}${t.name}`.slice(0, 64)
       tools.push(toORTool(ns, t.description, t.input_schema))
-      router.set(ns, { url, remote: t.name })
+      router.set(ns, { url, serverId, remote: t.name })
       capabilities.push(`\`${ns}\` — ${t.description}`)
     }
   }
@@ -211,7 +229,7 @@ export async function expandMcpTools(
 export async function runMcpTool(db: DB, router: McpRouter, name: string, input: unknown): Promise<string> {
   const entry = router.get(name)
   if (!entry) return `Unknown MCP tool: ${name}`
-  const token = await readToken(db)
+  const token = await readToken(db, entry.serverId)
   if (!token) return 'The MCP server is not configured (no token available).'
   const server: Server = { url: entry.url, token }
   try {

@@ -206,35 +206,39 @@ function ModelProfileRow({ profile }: { profile: ModelProfile }) {
   )
 }
 
-// External MCP server (admin-only). Connect one MCP endpoint (e.g. Zapier MCP in
-// front of Gmail/Calendar) once; its remote tools then become callable by chat,
-// scheduled agents, and webhook agents. The bearer token is write-only — stored
-// in Vault via set_mcp_integration, never read back into the browser. "Connect &
-// list tools" validates the endpoint and caches the discovered toolset.
-type McpIntegration = {
-  config: { url?: string; label?: string } | null
+// External MCP servers (admin-only). Connect ANY number of MCP endpoints (e.g.
+// Zapier MCP in front of Gmail/Calendar, plus others); each server's remote tools
+// become callable by chat, scheduled agents, and webhook agents. Each bearer token
+// is write-only — stored in Vault via set_mcp_server, never read back into the
+// browser. "Connect & list tools" validates a server and caches its toolset.
+type McpServer = {
+  id: string
+  label: string
+  url: string
+  tool_id: string | null
+  cached_tools: { name: string }[] | null
+  is_active: boolean
 }
 
 function McpCard() {
-  const [existing, setExisting] = useState<McpIntegration | null>(null)
+  const [servers, setServers] = useState<McpServer[]>([])
   const [loading, setLoading] = useState(true)
-  const [url, setUrl] = useState('')
-  const [label, setLabel] = useState('zapier')
-  const [token, setToken] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [discovered, setDiscovered] = useState<{ ok: boolean; message: string; tools?: string[] } | null>(null)
+  const [editing, setEditing] = useState<string | 'new' | null>(null)
+  const [results, setResults] = useState<Record<string, { ok: boolean; message: string; tools?: string[] }>>({})
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('integrations').select('config').eq('kind', 'mcp').maybeSingle()
-    if (data) {
-      const row = data as McpIntegration
-      setExisting(row)
-      setUrl(row.config?.url ?? '')
-      setLabel(row.config?.label ?? 'zapier')
+    const { data: srv } = await supabase
+      .from('mcp_servers')
+      .select('id, label, url, tool_id, cached_tools')
+      .order('created_at', { ascending: true })
+    const rows = (srv ?? []) as Omit<McpServer, 'is_active'>[]
+    const toolIds = rows.map((r) => r.tool_id).filter((id): id is string => Boolean(id))
+    const active = new Map<string, boolean>()
+    if (toolIds.length) {
+      const { data: tools } = await supabase.from('tools').select('id, is_active').in('id', toolIds)
+      for (const t of tools ?? []) active.set(t.id, t.is_active)
     }
+    setServers(rows.map((r) => ({ ...r, is_active: r.tool_id ? (active.get(r.tool_id) ?? false) : false })))
     setLoading(false)
   }, [])
 
@@ -242,40 +246,17 @@ function McpCard() {
     load()
   }, [load])
 
-  async function save() {
-    setError(null)
-    if (!url.trim()) {
-      setError('An MCP endpoint URL is required.')
-      return
-    }
-    if (!existing && !token.trim()) {
-      setError('A bearer token is required to connect.')
-      return
-    }
-    setSaving(true)
-    const { error: rpcError } = await supabase.rpc('set_mcp_integration', {
-      p_url: url.trim(),
-      p_token: token.trim() || '', // empty = keep existing token
-      p_label: label.trim() || 'mcp',
-    })
-    setSaving(false)
-    if (rpcError) {
-      setError(rpcError.message)
-      return
-    }
-    setToken('')
-    setSaved(true)
-    setTimeout(() => setSaved(false), 1500)
-    await load()
+  async function toggleActive(s: McpServer) {
+    if (!s.tool_id) return
+    await supabase.from('tools').update({ is_active: !s.is_active }).eq('id', s.tool_id)
+    load()
   }
 
-  // Validates the endpoint server-side (reads the Vault token, runs the MCP
-  // handshake + tools/list) and caches the discovered toolset.
-  async function connect() {
-    setTesting(true)
-    setDiscovered(null)
-    const { data, error: invokeErr } = await supabase.functions.invoke('mcp-admin', { body: {} })
-    setTesting(false)
+  // Validate one server server-side (reads its Vault token, runs the MCP
+  // handshake + tools/list) and cache its toolset.
+  async function connect(id: string) {
+    setResults((r) => ({ ...r, [id]: { ok: false, message: 'Connecting…' } }))
+    const { data, error: invokeErr } = await supabase.functions.invoke('mcp-admin', { body: { server_id: id } })
     if (invokeErr) {
       const ctx = (invokeErr as { context?: Response }).context
       let message = invokeErr.message
@@ -284,102 +265,198 @@ function McpCard() {
       } catch {
         // keep the generic message
       }
-      setDiscovered({ ok: false, message })
+      setResults((r) => ({ ...r, [id]: { ok: false, message } }))
       return
     }
-    setDiscovered({
-      ok: !!data?.ok,
-      message: data?.ok ? `Connected — ${data.count} tool${data.count === 1 ? '' : 's'} available.` : data?.message ?? 'Failed.',
-      tools: data?.tools,
-    })
+    setResults((r) => ({
+      ...r,
+      [id]: {
+        ok: !!data?.ok,
+        message: data?.ok
+          ? `Connected — ${data.count} tool${data.count === 1 ? '' : 's'} available.`
+          : data?.message ?? 'Failed.',
+        tools: data?.tools,
+      },
+    }))
+    load()
+  }
+
+  async function remove(s: McpServer) {
+    if (!confirm(`Remove the MCP server "${s.label}"? Agents will lose its tools.`)) return
+    await supabase.rpc('delete_mcp_server', { p_id: s.id })
+    load()
   }
 
   return (
     <section className="mt-4 rounded-xl border border-border bg-surface p-5">
-      <h2 className="text-sm font-semibold text-text">External MCP server</h2>
+      <h2 className="text-sm font-semibold text-text">External MCP servers</h2>
       <p className="mt-1 text-sm text-muted">
-        Connect an MCP endpoint — e.g.{' '}
+        Connect MCP endpoints — e.g.{' '}
         <a href="https://mcp.zapier.com" target="_blank" rel="noreferrer" className="text-primary underline">
           Zapier MCP
         </a>{' '}
-        in front of Gmail, Calendar, and more — once, and its tools become callable by chat and your
-        agents. The bearer token is stored in Supabase Vault, never in the browser.
+        in front of Gmail, Calendar, and more. Each server's tools become callable by chat and your
+        agents. Tokens are stored in Supabase Vault, never in the browser.
       </p>
 
       {loading ? (
         <p className="mt-4 text-sm text-faint">Loading…</p>
       ) : (
-        <div className="mt-4 space-y-4">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">Endpoint URL</span>
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://mcp.zapier.com/api/v1/connect"
-              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">Label</span>
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="zapier"
-              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-            />
-            <span className="mt-1 block text-xs text-faint">
-              Used to namespace the remote tools (e.g. <code>zapier__gmail_find_email</code>).
-            </span>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">
-              Bearer token {existing && <span className="text-faint">(leave blank to keep current)</span>}
-            </span>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder={existing ? '••••••••' : 'Paste the MCP server token'}
-              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-            />
-          </label>
+        <div className="mt-4 space-y-3">
+          {servers.map((s) =>
+            editing === s.id ? (
+              <McpServerForm
+                key={s.id}
+                server={s}
+                onDone={() => {
+                  setEditing(null)
+                  load()
+                }}
+                onCancel={() => setEditing(null)}
+              />
+            ) : (
+              <div key={s.id} className="rounded-lg border border-border bg-surface-2 p-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleActive(s)}
+                    title={s.is_active ? 'Enabled' : 'Disabled'}
+                    className={`relative h-5 w-9 shrink-0 rounded-full transition ${s.is_active ? 'bg-primary' : 'bg-border-strong'}`}
+                  >
+                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition ${s.is_active ? 'left-[18px]' : 'left-0.5'}`} />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-mono text-sm font-medium text-text">{s.label}</p>
+                    <p className="truncate text-xs text-muted">
+                      {(s.cached_tools ?? []).length} tools · {s.url}
+                    </p>
+                  </div>
+                  <button onClick={() => connect(s.id)} className="shrink-0 rounded-lg border border-border-strong px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface">
+                    Connect &amp; list
+                  </button>
+                  <button onClick={() => setEditing(s.id)} className="shrink-0 rounded-lg px-2 py-1 text-xs text-muted transition hover:text-text">
+                    Edit
+                  </button>
+                  <button onClick={() => remove(s)} className="shrink-0 rounded-lg px-2 py-1 text-xs text-red-600 transition hover:text-red-700">
+                    Remove
+                  </button>
+                </div>
+                {results[s.id] && (
+                  <div className={`mt-2 rounded-md border px-2.5 py-1.5 text-xs ${results[s.id].ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                    <p>{results[s.id].message}</p>
+                    {results[s.id].tools && results[s.id].tools!.length > 0 && (
+                      <p className="mt-1 text-muted">{results[s.id].tools!.join(', ')}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ),
+          )}
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
-          <div className="flex flex-wrap items-center gap-2">
+          {editing === 'new' ? (
+            <McpServerForm
+              onDone={() => {
+                setEditing(null)
+                load()
+              }}
+              onCancel={() => setEditing(null)}
+            />
+          ) : (
             <button
-              onClick={save}
-              disabled={saving}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+              onClick={() => setEditing('new')}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
             >
-              {saving ? 'Saving…' : saved ? 'Saved!' : existing ? 'Update server' : 'Connect server'}
+              Add MCP server
             </button>
-            {existing && (
-              <button
-                onClick={connect}
-                disabled={testing}
-                className="rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-text transition hover:bg-surface-2 disabled:opacity-60"
-              >
-                {testing ? 'Connecting…' : 'Connect & list tools'}
-              </button>
-            )}
-          </div>
-
-          {discovered && (
-            <div
-              className={`rounded-lg border px-3 py-2 text-sm ${
-                discovered.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'
-              }`}
-            >
-              <p>{discovered.message}</p>
-              {discovered.tools && discovered.tools.length > 0 && (
-                <p className="mt-1 text-xs text-muted">{discovered.tools.join(', ')}</p>
-              )}
-            </div>
           )}
         </div>
       )}
     </section>
+  )
+}
+
+// Add/edit form for a single MCP server. The token is write-only: on edit, an
+// empty token keeps the existing one.
+function McpServerForm({ server, onDone, onCancel }: { server?: McpServer; onDone: () => void; onCancel: () => void }) {
+  const [label, setLabel] = useState(server?.label ?? '')
+  const [url, setUrl] = useState(server?.url ?? '')
+  const [token, setToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setError(null)
+    if (!url.trim()) {
+      setError('An MCP endpoint URL is required.')
+      return
+    }
+    if (!server && !token.trim()) {
+      setError('A bearer token is required to add a server.')
+      return
+    }
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('set_mcp_server', {
+      p_id: server?.id ?? null,
+      p_label: label.trim() || 'mcp',
+      p_url: url.trim(),
+      p_token: token.trim() || '', // empty = keep existing token (on edit)
+    })
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    onDone()
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border-strong bg-surface-2 p-3">
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-muted">Label</span>
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="zapier"
+          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+        />
+        <span className="mt-1 block text-xs text-faint">
+          Namespaces this server's tools (e.g. <code>zapier__gmail_find_email</code>).
+        </span>
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-muted">Endpoint URL</span>
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://mcp.zapier.com/api/v1/connect"
+          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-muted">
+          Bearer token {server && <span className="text-faint">(leave blank to keep current)</span>}
+        </span>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder={server ? '••••••••' : 'Paste the MCP server token'}
+          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+        />
+      </label>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : server ? 'Update server' : 'Add server'}
+        </button>
+        <button onClick={onCancel} className="rounded-lg px-3 py-2 text-sm text-muted transition hover:text-text">
+          Cancel
+        </button>
+      </div>
+    </div>
   )
 }
 
