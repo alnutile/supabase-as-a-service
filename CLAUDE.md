@@ -209,27 +209,32 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   see `docs/tasks/`: `upload_file` + a signed-URL pair to push files/PDFs into Files and
   the knowledge base, and a tabbed Code/Desktop connect UI.)*
 - **External MCP client (outbound):** the inverse of the MCP *server* above — the
-  workspace connects out to **one external MCP endpoint** (e.g. **Zapier MCP** in front of
-  Gmail/Calendar) so agents can call its tools. An admin pastes the endpoint URL + bearer
-  token once in **Settings → External MCP server**; the token lives ONLY in Supabase Vault
-  (same model as email — `set_mcp_integration` admin RPC writes it, service-role-only
-  `read_mcp_secret` reads it, `mcp_is_configured` boolean for the UI; migration 0032). A
-  single `tools` row of `kind='mcp'` is the in-app handle: activating it (ToolsPage, "MCP"
-  badge) or scoping it to an agent via `tool_ids` turns the whole remote toolset on/off
-  like any other tool. `supabase/functions/_shared/mcp.ts` is the **MCP client** (JSON-RPC
+  workspace connects out to **any number of external MCP endpoints** (e.g. **Zapier MCP** in
+  front of Gmail/Calendar, plus others) so agents can call their tools. An admin adds servers
+  in **Settings → External MCP servers**; each is a row in **`public.mcp_servers`** (label,
+  url, `secret_id`→Vault, `scope`, `tool_id`, `cached_tools`; migration 0036, which replaced
+  0032's single-row `integrations` model and migrated the existing row in place). Each token
+  lives ONLY in Supabase Vault — the admin RPC `set_mcp_server(id,label,url,token)` writes it
+  (token write-only), `delete_mcp_server(id)` removes a server, and the service-role-only
+  `read_mcp_secret(server_id)` reads it. Every server gets **one `tools` row of `kind='mcp'`
+  as its in-app handle** (`config.server_id`→`mcp_servers.id`): activating it (ToolsPage, "MCP"
+  badge) or scoping it to an agent via `tool_ids` turns *that server's* whole remote toolset
+  on/off like any other tool. `supabase/functions/_shared/mcp.ts` is the **MCP client** (JSON-RPC
   over Streamable HTTP — `initialize` handshake → optional `Mcp-Session-Id` → `tools/list`
-  / `tools/call`, parsing JSON or SSE replies). `expandMcpTools()` discovers the remote
-  tools, **expands each into a first-class namespaced function** (`‹label›__‹remote›`, e.g.
-  `zapier__gmail_find_email`) and caches the list on the tool row's `config.tools`
-  (10-min TTL) so the loops don't re-handshake every message; `runMcpTool()` executes a
-  call. Wired into the three agent loops (chat, scheduler, webhook) right beside `http`/
-  `builtin` dispatch, so it composes with every existing gate — admin activation, agent
-  `tool_ids` scoping, the `webhooks.allow_tools` lock, and the `runGuardrails` pre-flight.
-  The admin-only `mcp-admin` edge function (`verify_jwt: true`) powers Settings' "Connect &
-  list tools" — it validates the endpoint server-side and refreshes the cache. The remote
-  tools are exfiltration-capable (they can send mail), so they carry the same workspace-wide
-  trust as `send_email`. *(Planned: per-user tokens, multiple MCP servers, auto-refresh,
-  and wiring the eval `orchestrator`/`loop` loops.)*
+  / `tools/call`, parsing JSON or SSE replies). `expandMcpTools()` resolves each handle to its
+  server, discovers the remote tools, **expands each into a first-class namespaced function**
+  (`‹label›__‹remote›`, e.g. `zapier__gmail_find_email`) and caches the list on
+  `mcp_servers.cached_tools` (10-min TTL) so the loops don't re-handshake every message;
+  `runMcpTool()` executes a call (per-server token); `refreshServer()` re-discovers one server.
+  Wired into the three agent loops (chat, scheduler, webhook) right beside `http`/`builtin`
+  dispatch, so it composes with every existing gate — admin activation, agent `tool_ids`
+  scoping, the `webhooks.allow_tools` lock, and the `runGuardrails` pre-flight. The admin-only
+  `mcp-admin` edge function (`verify_jwt: true`) powers Settings' "Connect & list tools" — it
+  validates one server (`server_id`) server-side and refreshes its cache. The remote tools are
+  exfiltration-capable (they can send mail), so they carry the same workspace-wide trust as
+  `send_email`. The `mcp_servers.owner_id`/`scope` columns exist for **per-user servers
+  (Phase 2, not built)** — every row is workspace-wide for now. *(Planned: per-user tokens +
+  a member-facing UI, auto-refresh, and wiring the eval `orchestrator`/`loop` loops.)*
 - **Email:** two seeded `is_builtin` tools — `send_email` and `check_email` — let any
   user or agent use email once an admin configures a provider in **Settings → Email**.
   Sending goes through an HTTP provider (Postmark / Resend, not raw SMTP); receiving is

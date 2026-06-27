@@ -710,6 +710,36 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['integrations']['Insert']>
         Relationships: []
       }
+      mcp_servers: {
+        Row: {
+          id: string
+          label: string
+          url: string
+          secret_id: string
+          owner_id: string | null
+          scope: 'workspace' | 'private'
+          tool_id: string | null
+          cached_tools: Json
+          cached_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          label: string
+          url: string
+          secret_id: string
+          owner_id?: string | null
+          scope?: 'workspace' | 'private'
+          tool_id?: string | null
+          cached_tools?: Json
+          cached_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['mcp_servers']['Insert']>
+        Relationships: []
+      }
       inbox_messages: {
         Row: {
           id: string
@@ -930,17 +960,18 @@ export interface Database {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }
-      set_mcp_integration: {
+      set_mcp_server: {
         Args: {
+          p_id: string | null
+          p_label: string
           p_url: string
           p_token: string
-          p_label?: string
         }
-        Returns: undefined
+        Returns: string
       }
-      mcp_is_configured: {
-        Args: Record<PropertyKey, never>
-        Returns: boolean
+      delete_mcp_server: {
+        Args: { p_id: string }
+        Returns: undefined
       }
       usage_summary: {
         Args: { p_days?: number }
