@@ -273,3 +273,16 @@ export const EvalIcon = (p: SVGProps<SVGSVGElement>) => (
     <circle cx="12" cy="12" r="0.6" fill="currentColor" />
   </svg>
 )
+
+export const ApiIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </svg>
+)
+
+export const ChevronDownIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+)

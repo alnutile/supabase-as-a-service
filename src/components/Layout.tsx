@@ -5,8 +5,10 @@ import { supabase } from '../lib/supabase'
 import {
   ActivityIcon,
   AgentIcon,
+  ApiIcon,
   ArtifactIcon,
   ChatIcon,
+  ChevronDownIcon,
   CloseIcon,
   EvalIcon,
   FeedbackIcon,
@@ -29,26 +31,94 @@ import {
   WebhookIcon,
 } from './icons'
 
-const navItems = [
-  { to: '/home', label: 'Home', icon: HomeIcon, end: false, adminOnly: false },
-  { to: '/chat', label: 'Chat', icon: ChatIcon, end: false, adminOnly: false },
-  { to: '/tables', label: 'Tables', icon: TableIcon, end: false, adminOnly: false },
-  { to: '/agents', label: 'Agents', icon: AgentIcon, end: false, adminOnly: false },
-  { to: '/loops', label: 'Loops', icon: LoopIcon, end: false, adminOnly: false },
-  { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon, end: false, adminOnly: false },
-  { to: '/skills', label: 'Skills', icon: SkillIcon, end: false, adminOnly: false },
-  { to: '/tools', label: 'Tools', icon: ToolIcon, end: false, adminOnly: false },
-  { to: '/forge', label: 'Forge', icon: ForgeIcon, end: false, adminOnly: true },
-  { to: '/guardrails', label: 'Guardrails', icon: ShieldIcon, end: false, adminOnly: true },
-  { to: '/evals', label: 'Evals', icon: EvalIcon, end: false, adminOnly: true },
-  { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon, end: false, adminOnly: false },
-  { to: '/activity', label: 'Activity', icon: ActivityIcon, end: false, adminOnly: false },
-  { to: '/usage', label: 'Usage', icon: UsageIcon, end: false, adminOnly: true },
-  { to: '/feedback', label: 'Feedback', icon: FeedbackIcon, end: false, adminOnly: true },
-  { to: '/files', label: 'Files', icon: FileIcon, end: false, adminOnly: false },
-  { to: '/plugins', label: 'Plugins', icon: PluginIcon, end: false, adminOnly: false },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false, adminOnly: false },
+type NavItem = {
+  to: string
+  label: string
+  icon: (p: { className?: string }) => JSX.Element
+  end?: boolean
+  adminOnly?: boolean
+}
+
+// The sidebar is organized into labeled, collapsible groups. Items at the top
+// (Home, Chat) live in an unlabeled group that always shows. `Settings` is pinned
+// to the bottom (rendered separately), matching the dashboard layout.
+const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
+  {
+    label: null,
+    items: [
+      { to: '/home', label: 'Home', icon: HomeIcon },
+      { to: '/chat', label: 'Chat', icon: ChatIcon },
+    ],
+  },
+  {
+    label: 'Assets',
+    items: [
+      { to: '/files', label: 'Files', icon: FileIcon },
+      { to: '/tables', label: 'Tables', icon: TableIcon },
+      { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon },
+      { to: '/skills', label: 'Skills', icon: SkillIcon },
+    ],
+  },
+  {
+    label: 'Automation',
+    items: [
+      { to: '/agents', label: 'Agents', icon: AgentIcon },
+      { to: '/loops', label: 'Loops', icon: LoopIcon },
+      { to: '/tools', label: 'Tools', icon: ToolIcon },
+      { to: '/forge', label: 'Forge', icon: ForgeIcon, adminOnly: true },
+    ],
+  },
+  {
+    label: 'Connections',
+    items: [
+      { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon },
+      { to: '/api', label: 'API', icon: ApiIcon },
+      { to: '/plugins', label: 'Plugins', icon: PluginIcon },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { to: '/activity', label: 'Activity', icon: ActivityIcon },
+      { to: '/usage', label: 'Usage', icon: UsageIcon, adminOnly: true },
+      { to: '/feedback', label: 'Feedback', icon: FeedbackIcon, adminOnly: true },
+    ],
+  },
+  {
+    label: 'Governance',
+    items: [
+      { to: '/guardrails', label: 'Guardrails', icon: ShieldIcon, adminOnly: true },
+      { to: '/evals', label: 'Evals', icon: EvalIcon, adminOnly: true },
+    ],
+  },
 ]
+
+const settingsItem: NavItem = { to: '/settings', label: 'Settings', icon: SettingsIcon }
+
+// Persist which groups the user has collapsed, so it sticks across reloads.
+function useCollapsedGroups(): [Set<string>, (label: string) => void] {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('nav.collapsed')
+      return new Set<string>(raw ? JSON.parse(raw) : [])
+    } catch {
+      return new Set<string>()
+    }
+  })
+  const toggle = (label: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      try {
+        localStorage.setItem('nav.collapsed', JSON.stringify([...next]))
+      } catch {
+        // ignore
+      }
+      return next
+    })
+  return [collapsed, toggle]
+}
 
 type Theme = 'light' | 'dark'
 
@@ -84,10 +154,29 @@ export function Layout() {
       .then(({ data }) => setIsAdmin(Boolean(data?.is_admin)))
   }, [user])
 
-  const items = navItems.filter((i) => !i.adminOnly || isAdmin)
+  const [collapsed, toggleGroup] = useCollapsedGroups()
   const initial = (user?.email ?? '?').charAt(0).toUpperCase()
   const segBase =
     'flex h-[30px] w-[38px] items-center justify-center rounded-[9px] transition'
+
+  const renderItem = ({ to, label, icon: Icon, end }: NavItem) => (
+    <NavLink
+      key={to}
+      to={to}
+      end={end}
+      onClick={() => setDrawerOpen(false)}
+      className={({ isActive }) =>
+        `flex w-full items-center gap-[13px] rounded-[13px] px-[13px] py-[11px] text-[15px] transition ${
+          isActive
+            ? 'bg-primary-soft font-bold text-primary'
+            : 'font-medium text-muted hover:bg-surface-hover hover:text-text'
+        }`
+      }
+    >
+      <Icon className="h-5 w-5" />
+      {label}
+    </NavLink>
+  )
 
   return (
     <div className="flex h-full bg-bg text-text">
@@ -122,25 +211,32 @@ export function Layout() {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-[3px] overflow-y-auto px-[14px] py-2">
-          {items.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              onClick={() => setDrawerOpen(false)}
-              className={({ isActive }) =>
-                `flex w-full items-center gap-[13px] rounded-[13px] px-[13px] py-[11px] text-[15px] transition ${
-                  isActive
-                    ? 'bg-primary-soft font-bold text-primary'
-                    : 'font-medium text-muted hover:bg-surface-hover hover:text-text'
-                }`
-              }
-            >
-              <Icon className="h-5 w-5" />
-              {label}
-            </NavLink>
-          ))}
+        <nav className="flex-1 overflow-y-auto px-[14px] py-2">
+          {navGroups.map((group) => {
+            const visible = group.items.filter((i) => !i.adminOnly || isAdmin)
+            if (!visible.length) return null
+            const isCollapsed = group.label ? collapsed.has(group.label) : false
+            return (
+              <div key={group.label ?? 'top'} className="mb-1.5 space-y-[3px]">
+                {group.label && (
+                  <button
+                    onClick={() => toggleGroup(group.label!)}
+                    className="flex w-full items-center justify-between px-[13px] pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-faint transition hover:text-muted"
+                    aria-expanded={!isCollapsed}
+                  >
+                    {group.label}
+                    <ChevronDownIcon
+                      className={`h-3.5 w-3.5 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+                    />
+                  </button>
+                )}
+                {!isCollapsed && visible.map(renderItem)}
+              </div>
+            )
+          })}
+
+          <div className="my-2 border-t border-border" />
+          {renderItem(settingsItem)}
         </nav>
 
         <div className="flex flex-col gap-3 border-t border-border p-[14px]">

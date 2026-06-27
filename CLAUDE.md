@@ -60,7 +60,10 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   create/update accept `collection`/`collections` (name or id, created if missing) to **tag**
   artifacts into collections (additive), plus `visibility` (non‑private mints a `public_slug`
   + `share_url`). A bare `GET` with no `Authorization` (or `/artifacts/docs`) returns
-  plain‑text docs. Full reference: `docs/artifacts-api.md`.
+  plain‑text docs. Full reference: `docs/artifacts-api.md`. **In‑app docs:** `ApiPage`
+  (route `/api`, sidebar "API") is a tabbed area (first tab Artifacts; more later) that
+  renders the base URL, endpoints, body reference, and copy‑ready `curl` examples — and
+  lets you pick/create a bearer token (`mcp_tokens`) so the examples are paste‑ready.
 - **Collections (tag artifacts → chat with a focused set):** a `collections` row is a
   named group ("tag") of artifacts; `collection_artifacts` is the many-to-many join
   (migration 0033). On `ArtifactsPage` you multi-select artifacts (checkboxes) and file
@@ -343,7 +346,7 @@ src/
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
                                FilesPage, TablesPage, SkillsPage, WebhooksPage, ToolsPage,
-                               AgentsPage, PluginsPage, ActivityPage, SettingsPage
+                               AgentsPage, PluginsPage, ApiPage, ActivityPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
