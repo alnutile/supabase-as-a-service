@@ -24,6 +24,7 @@ const STOP_LABEL: Record<string, string> = {
   max_iterations: 'Reached iteration limit',
   converged: 'Agent converged',
   target_reached: 'Hit target score',
+  time: 'Stopped at time limit',
   error: 'Errored',
 }
 
@@ -580,7 +581,8 @@ function RunView({ loop, autoStart = false, onClose }: { loop: Loop; autoStart?:
 
           {isRunning && (
             <p className="animate-pulse text-center text-xs text-faint">
-              Running… proposing, scoring, refining. This stops at the iteration or price cap.
+              Running… proposing, scoring, refining. This runs in the background — you can close
+              this and check back. It stops at the iteration, price, or time cap.
             </p>
           )}
 
