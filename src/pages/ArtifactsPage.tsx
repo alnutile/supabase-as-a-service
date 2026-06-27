@@ -4,6 +4,9 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
+import { estimateTokensFromChars, formatCount } from '../lib/tokens'
+import { useOrchestratorContext } from '../lib/useModelContext'
+import { ContextMeter } from '../components/ContextMeter'
 import {
   ArtifactIcon,
   ChatIcon,
@@ -30,6 +33,7 @@ export default function ArtifactsPage() {
   // collectionId -> set of artifact ids that belong to it.
   const [members, setMembers] = useState<Record<string, Set<string>>>({})
   const [loading, setLoading] = useState(true)
+  const model = useOrchestratorContext()
 
   // Filter the grid to one collection (null = everything).
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -79,6 +83,19 @@ export default function ArtifactsPage() {
     const set = members[activeId] ?? new Set()
     return artifacts.filter((a) => set.has(a.id))
   }, [artifacts, members, activeId])
+
+  // Estimated tokens per collection (content chars ÷ ~4), kept in sync with
+  // membership automatically since we already hold every artifact's content.
+  const tokensByCollection = useMemo(() => {
+    const chars: Record<string, number> = {}
+    const byId = new Map(artifacts.map((a) => [a.id, a.content?.length ?? 0]))
+    for (const [cid, set] of Object.entries(members)) {
+      let total = 0
+      for (const id of set) total += byId.get(id) ?? 0
+      chars[cid] = estimateTokensFromChars(total)
+    }
+    return chars
+  }, [artifacts, members])
 
   async function create() {
     const { data, error } = await supabase
@@ -264,6 +281,9 @@ export default function ArtifactsPage() {
             >
               <CollectionIcon className="h-3.5 w-3.5" />
               {c.name} ({(members[c.id] ?? new Set()).size})
+              {(tokensByCollection[c.id] ?? 0) > 0 && (
+                <span className="text-[10px] text-faint">≈{formatCount(tokensByCollection[c.id])} tok</span>
+              )}
               {c.visibility === 'workspace' && (
                 <span className="text-[10px] uppercase tracking-wide text-faint">shared</span>
               )}
@@ -283,6 +303,9 @@ export default function ArtifactsPage() {
                 {activeCollection.description && (
                   <p className="mt-0.5 text-xs text-muted">{activeCollection.description}</p>
                 )}
+              </div>
+              <div className="w-full md:w-64 md:flex-none">
+                <ContextMeter tokens={tokensByCollection[activeCollection.id] ?? 0} model={model} />
               </div>
               <div className="ml-auto flex items-center gap-2">
                 <button

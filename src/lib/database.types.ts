@@ -950,6 +950,10 @@ export interface Database {
         Args: { p_days?: number }
         Returns: Json
       }
+      collection_token_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: { collection_id: string; artifact_count: number; char_total: number }[]
+      }
       create_user_table: {
         Args: {
           p_name: string

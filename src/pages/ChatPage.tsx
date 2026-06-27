@@ -4,6 +4,9 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
 import { uploadPickedFile } from '../lib/upload'
+import { estimateTokensFromChars } from '../lib/tokens'
+import { useOrchestratorContext } from '../lib/useModelContext'
+import { ContextUsage } from '../components/ContextMeter'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import {
@@ -59,8 +62,10 @@ export default function ChatPage() {
   const [uploading, setUploading] = useState(false)
   const [feedback, setFeedback] = useState<Record<string, FeedbackRow>>({})
   const [collections, setCollections] = useState<Collection[]>([])
+  const [collectionTokens, setCollectionTokens] = useState<Record<string, number>>({})
   const [collectionId, setCollectionId] = useState<string | null>(null)
   const [showCollections, setShowCollections] = useState(false)
+  const model = useOrchestratorContext()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -96,13 +101,24 @@ export default function ChatPage() {
       .then(({ data }) => setSkills(data ?? []))
   }, [])
 
-  // --- Load collections (for scoping the chat to a focused set of artifacts) ---
+  // --- Load collections + their estimated size (for scoping the chat) ---
   useEffect(() => {
-    supabase
-      .from('collections')
-      .select('*')
-      .order('name', { ascending: true })
-      .then(({ data }) => setCollections(data ?? []))
+    let active = true
+    async function run() {
+      const [cRes, sRes] = await Promise.all([
+        supabase.from('collections').select('*').order('name', { ascending: true }),
+        supabase.rpc('collection_token_stats'),
+      ])
+      if (!active) return
+      setCollections(cRes.data ?? [])
+      const tok: Record<string, number> = {}
+      for (const s of sRes.data ?? []) tok[s.collection_id] = estimateTokensFromChars(Number(s.char_total))
+      setCollectionTokens(tok)
+    }
+    run()
+    return () => {
+      active = false
+    }
   }, [])
 
   // --- Launched from Artifacts → "Chat with this" (?collection=id): preselect it ---
@@ -747,6 +763,9 @@ export default function ChatPage() {
                     >
                       <CollectionIcon className="h-4 w-4 shrink-0 text-primary" />
                       <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                      {(collectionTokens[c.id] ?? 0) > 0 && (
+                        <ContextUsage tokens={collectionTokens[c.id]} model={model} />
+                      )}
                       {c.visibility === 'workspace' && (
                         <span className="text-[10px] uppercase tracking-wide text-faint">shared</span>
                       )}
@@ -764,6 +783,11 @@ export default function ChatPage() {
                   <span className="max-w-[200px] truncate">
                     {collections.find((c) => c.id === collectionId)?.name ?? 'Collection'}
                   </span>
+                  {(collectionTokens[collectionId] ?? 0) > 0 && (
+                    <span className="border-l border-brand-300 pl-1.5">
+                      <ContextUsage tokens={collectionTokens[collectionId]} model={model} />
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => setCollectionId(null)}

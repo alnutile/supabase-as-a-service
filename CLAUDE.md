@@ -68,8 +68,17 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `create_collection` / `add_to_collection` / `list_collections` and `create_artifact` takes
   an optional `collection` (name, created if missing), so an external Claude can push blog
   posts / video transcripts / notes from other systems into a named collection the team can
-  chat with. *(Planned: collection-scoped retrieval/RAG instead of full-content injection;
-  collection visibility on the public share pages.)*
+  chat with. **Context-window awareness:** each collection shows an estimated token count
+  (≈chars/4 — there's no single correct tokenizer) and, via `useOrchestratorContext` →
+  the live OpenRouter model's `context_length` (fetched from `/api/v1/models`), what % of
+  that window it would fill (`ContextMeter` on the Artifacts collection header + filter chips;
+  `ContextUsage` in the chat picker + active chip), so the user can judge fit and pick a
+  different model if needed. Sizes come from the RLS-aware `collection_token_stats()` RPC
+  (migration 0034, `security invoker`) on Chat, and a client-side memo on the Artifacts page
+  (which already holds the content). The chat function budgets injected content to the model's
+  real window minus a reserve for the conversation + reply (so the meter matches what's sent).
+  *(Planned: collection-scoped retrieval/RAG + hybrid search as a core function instead of
+  full-content injection; collection visibility on the public share pages.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
 - **Tables (Airtable-but-real-Postgres):** `TablesPage` (route `/tables`, sidebar,
@@ -329,7 +338,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page

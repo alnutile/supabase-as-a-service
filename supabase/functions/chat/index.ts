@@ -145,18 +145,49 @@ async function logActivity(
   }
 }
 
-// Per-artifact and total caps so a big collection can't blow the context window.
-const COLLECTION_ITEM_CHARS = 8000
-const COLLECTION_TOTAL_CHARS = 40000
+const CHARS_PER_TOKEN = 4
+
+// Cache OpenRouter's model catalog on the (warm) instance so we can budget the
+// injected collection content against the live model's real context window —
+// keeping the in-app token meter honest about what actually gets sent.
+let MODEL_CTX: Map<string, number> | null = null
+async function modelContextLength(slug: string): Promise<number | null> {
+  try {
+    if (!MODEL_CTX) {
+      const res = await fetch('https://openrouter.ai/api/v1/models')
+      const json = await res.json()
+      MODEL_CTX = new Map()
+      for (const m of json?.data ?? []) {
+        MODEL_CTX.set(String(m.id).toLowerCase(), Number(m?.context_length ?? 0))
+      }
+    }
+    const s = (slug || '').toLowerCase()
+    let v = MODEL_CTX.get(s)
+    if (!v) {
+      for (const [id, c] of MODEL_CTX) {
+        if (id === s || id.endsWith(`/${s}`)) {
+          v = c
+          break
+        }
+      }
+    }
+    return v && v > 0 ? v : null
+  } catch {
+    return null
+  }
+}
 
 // Build a context block from a collection's artifacts so the user can "chat with"
 // a focused set of content. Runs with the service role, so it RE-ENFORCES access
 // in code: the collection must be visible to the caller (owner / workspace / admin)
 // and only artifacts the caller could read (own or non-private) are included.
+// The total injected size is budgeted to the model's context window minus a
+// reserve for the conversation + reply, so it matches the meter the user saw.
 async function loadCollectionContext(
   db: ReturnType<typeof createClient> | null,
   collectionId: string,
   userId: string | null,
+  model: string,
 ): Promise<string> {
   if (!db || !userId) return ''
   try {
@@ -189,17 +220,31 @@ async function loadCollectionContext(
     )
     if (!readable.length) return ''
 
+    // Budget the injected content to the model's window. Reserve room (≈20%,
+    // clamped) for the running conversation + the reply; the rest is for the
+    // collection. Unknown window → a conservative static budget.
+    const ctxLen = await modelContextLength(model)
+    const reserveTokens = ctxLen ? Math.min(Math.max(Math.floor(ctxLen * 0.2), 8000), 32000) : 16000
+    const budgetTokens = ctxLen ? Math.max(ctxLen - reserveTokens, 8000) : 50000
+    const totalChars = budgetTokens * CHARS_PER_TOKEN
+
     let total = 0
+    let omitted = 0
     const parts: string[] = []
     for (const a of readable as Array<{ title: string; type: string; content: string }>) {
-      if (total >= COLLECTION_TOTAL_CHARS) {
-        parts.push(`…(${readable.length - parts.length} more item(s) omitted to fit the context.)`)
+      const remaining = totalChars - total
+      if (remaining <= 0) {
+        omitted = readable.length - parts.length
         break
       }
-      let body = (a.content ?? '').slice(0, COLLECTION_ITEM_CHARS)
-      if ((a.content ?? '').length > COLLECTION_ITEM_CHARS) body += '\n…(truncated)'
+      const raw = a.content ?? ''
+      let body = raw.slice(0, remaining)
+      if (raw.length > body.length) body += '\n…(truncated to fit the context window)'
       total += body.length
       parts.push(`## ${a.title} (${a.type})\n${body}`)
+    }
+    if (omitted) {
+      parts.push(`…(${omitted} more item(s) omitted — the collection exceeds this model's context window.)`)
     }
 
     return (
@@ -358,7 +403,7 @@ Deno.serve(async (req: Request) => {
 
   // Collection scope: inject the chosen collection's artifacts as primary context.
   if (collectionId) {
-    const collectionContext = await loadCollectionContext(db, collectionId, userId)
+    const collectionContext = await loadCollectionContext(db, collectionId, userId, MODEL)
     if (collectionContext) system += `\n\n---\n\n${collectionContext}`
   }
 
