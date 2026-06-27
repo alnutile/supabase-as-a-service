@@ -109,6 +109,10 @@ jobs:
         uses: anthropics/claude-code-base-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Pin a current, low-cost model. The action's default is an older
+          # Sonnet snapshot this key 404s on; Haiku 4.5 is the cheapest current
+          # model and is plenty for diff-driven doc edits.
+          model: claude-haiku-4-5-20251001
           allowed_tools: "Read,Edit,Write,Glob,Grep,Bash(git -C docs-site diff:*)"
           max_turns: "40"
           prompt: |
