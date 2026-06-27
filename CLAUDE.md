@@ -81,7 +81,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `create_collection` / `add_to_collection` / `list_collections` and `create_artifact` takes
   an optional `collection` (name, created if missing), so an external Claude can push blog
   posts / video transcripts / notes from other systems into a named collection the team can
-  chat with. **Context-window awareness:** each collection shows an estimated token count
+  chat with. The **internal** assistant has the same authoring power as `is_builtin` tools
+  (`create_artifact` / `create_collection` / `add_to_collection` / `list_collections` / `add_note`
+  in `_shared/builtins.ts`, migration 0038), so chat + scheduled/webhook agents can ingest content
+  into artifacts + collections + the knowledge base too (e.g. an agent that files fetched articles
+  into a collection on a schedule or a GitHub webhook). **Context-window awareness:** each collection shows an estimated token count
   (≈chars/4 — there's no single correct tokenizer) and, via `useOrchestratorContext` →
   the live OpenRouter model's `context_length` (fetched from `/api/v1/models`), what % of
   that window it would fill (`ContextMeter` on the Artifacts collection header + filter chips;

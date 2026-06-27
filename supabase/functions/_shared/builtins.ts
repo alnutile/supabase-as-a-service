@@ -6,12 +6,18 @@
 //
 // Builtins: search_documents (RAG over the workspace knowledge base), send_email,
 // check_email, the user-table tools (list_tables / query_table / add_table_row /
-// create_table — the "Tables" feature), and the team-vault tools (list_secrets /
-// get_secret). send_email and get_secret are exfiltration-capable — send_email
-// enforces a recipient allowlist + rate limit and get_secret returns a raw
-// credential, so both log every use. The table and vault builtins run with the
-// service role, so they re-enforce the private/workspace access rule in code.
+// create_table — the "Tables" feature), the team-vault tools (list_secrets /
+// get_secret), and the content-authoring tools (create_artifact / list_collections /
+// create_collection / add_to_collection / add_note) — the in-app mirror of the MCP
+// server's authoring actions, so the internal AI/agents can push articles, notes, and
+// docs into artifacts + collections + the knowledge base (the "ingest GitHub articles
+// into a collection we can chat with" flow). send_email and get_secret are
+// exfiltration-capable — send_email enforces a recipient allowlist + rate limit and
+// get_secret returns a raw credential, so both log every use. The table, vault, and
+// authoring builtins run with the service role, so they re-enforce the
+// private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { ingestText } from './knowledge.ts'
 
 type DB = ReturnType<typeof createClient>
 
@@ -44,6 +50,16 @@ export async function runBuiltin(
       return listSecrets(db, userId)
     case 'get_secret':
       return getSecret(db, input, userId)
+    case 'create_artifact':
+      return createArtifact(db, input, userId)
+    case 'list_collections':
+      return listCollections(db, userId)
+    case 'create_collection':
+      return createCollection(db, input, userId)
+    case 'add_to_collection':
+      return addToCollection(db, input, userId)
+    case 'add_note':
+      return addNote(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -397,4 +413,149 @@ async function checkEmail(db: DB | null, input: Record<string, unknown>): Promis
       return `[${i + 1}] From: ${m.from_address}\nSubject: ${m.subject || '(no subject)'}\nDate: ${when} UTC\n${preview}`
     })
     .join('\n\n---\n\n')
+}
+
+// --- Content authoring (artifacts / collections / knowledge) -----------------
+// The in-app mirror of the MCP server's authoring actions, so the internal AI and
+// agents can centralize content the team can chat with. All run with the service
+// role and re-enforce access in code: artifacts/collections are created owned by
+// the caller; resolveCollection only ever resolves the caller's own or a
+// workspace-shared collection. The "ingest GitHub articles into a collection"
+// flow lives here, and — because all three loops share runBuiltin — a scheduled
+// or webhook-driven agent can keep that collection updated too.
+
+// Resolve a collection by id or name for this caller (own + workspace-shared);
+// optionally create it (owned by the caller, private) when missing.
+async function resolveCollection(
+  db: DB,
+  owner: string,
+  ref: string,
+  createIfMissing: boolean,
+): Promise<{ id: string; name: string } | null> {
+  const r = ref.trim()
+  if (!r) return null
+  const { data } = await db
+    .from('collections')
+    .select('id, name, owner_id, visibility')
+    .or(`owner_id.eq.${owner},visibility.eq.workspace`)
+  const found = (data ?? []).find(
+    (c: { id: string; name: string }) => c.id === r || c.name.trim().toLowerCase() === r.toLowerCase(),
+  )
+  if (found) return { id: found.id, name: found.name }
+  if (!createIfMissing) return null
+  const { data: created } = await db
+    .from('collections')
+    .insert({ owner_id: owner, name: r, visibility: 'private' })
+    .select('id, name')
+    .single()
+  return created ? { id: created.id, name: created.name } : null
+}
+
+async function createArtifact(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Creating artifacts is unavailable.'
+  const title = String(input?.title ?? '').trim()
+  const content = String(input?.content ?? '')
+  if (!title) return 'An artifact title is required.'
+  if (!content.trim()) return 'The artifact needs some content.'
+  const type = ['markdown', 'code', 'html', 'text'].includes(String(input?.type)) ? String(input?.type) : 'markdown'
+  const { data, error } = await db
+    .from('artifacts')
+    .insert({ owner_id: userId, title, type, content, visibility: 'private' })
+    .select('id')
+    .single()
+  if (error) return `Could not create the artifact: ${error.message}`
+  let note = ''
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (col) {
+      await db.from('collection_artifacts').upsert(
+        { collection_id: col.id, artifact_id: data.id, added_by: userId },
+        { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
+      )
+      note = ` Filed into collection "${col.name}".`
+    }
+  }
+  await logActivity(db, 'artifact.created', `Created artifact "${title}"`, { id: data.id, collection: ref || null }, userId)
+  return `Created artifact "${title}" at /artifacts/${data.id}.${note}`
+}
+
+async function listCollections(db: DB | null, userId: string | null): Promise<string> {
+  if (!db || !userId) return 'Collections are unavailable.'
+  const { data } = await db
+    .from('collections')
+    .select('id, name, description, visibility, owner_id')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .order('name', { ascending: true })
+  if (!data || !data.length) return 'No collections yet. Use create_collection to make one.'
+  return (data as Array<{ id: string; name: string; description: string; visibility: string }>)
+    .map((c) => `• ${c.name} (${c.id}) [${c.visibility}]${c.description ? ` — ${c.description}` : ''}`)
+    .join('\n')
+}
+
+async function createCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Collections are unavailable.'
+  const name = String(input?.name ?? '').trim()
+  if (!name) return 'A collection name is required.'
+  const { data, error } = await db
+    .from('collections')
+    .insert({
+      owner_id: userId,
+      name,
+      description: String(input?.description ?? ''),
+      visibility: input?.shared === true ? 'workspace' : 'private',
+    })
+    .select('id, name, visibility')
+    .single()
+  if (error) return `Could not create the collection: ${error.message}`
+  await logActivity(db, 'collection.created', `Created collection "${data.name}"`, { id: data.id }, userId)
+  return `Created collection "${data.name}" (id ${data.id}, ${data.visibility}). Add artifacts with create_artifact (collection: "${data.name}") or add_to_collection.`
+}
+
+async function addToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Collections are unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const artifactId = String(input?.artifact_id ?? '').trim()
+  if (!ref || !artifactId) return 'Pass both a collection (name or id) and an artifact_id.'
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_artifacts').upsert(
+    { collection_id: col.id, artifact_id: artifactId, added_by: userId },
+    { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added artifact ${artifactId} to collection "${col.name}".`
+}
+
+async function addNote(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'The knowledge base is unavailable.'
+  const title = String(input?.title ?? '').trim()
+  const content = String(input?.content ?? '')
+  if (!title) return 'A note title is required.'
+  if (content.trim().length < 20) return 'That note is too short to index — provide at least ~20 characters of text.'
+  const scope = input?.scope === 'private' ? 'private' : 'workspace'
+  try {
+    const { chunkCount } = await ingestText(db, { ownerId: userId, name: title, text: content, scope })
+    return `Added "${title}" to the knowledge base (${chunkCount} chunk${chunkCount === 1 ? '' : 's'}, ${
+      scope === 'workspace' ? 'searchable by the whole team' : 'visible only to you'
+    }). Find it later via search_documents.`
+  } catch (err) {
+    return `Could not add the note: ${err instanceof Error ? err.message : 'error'}`
+  }
 }
