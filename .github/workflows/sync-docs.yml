@@ -42,10 +42,10 @@ jobs:
   sync-docs:
     runs-on: ubuntu-latest
     permissions:
+      # The base action authenticates with the Anthropic API key directly (no
+      # OIDC), so only read access to this repo is needed here; the cross-repo
+      # push uses DOCS_REPO_TOKEN in the commit step.
       contents: read
-      # The Claude Code action authenticates via OIDC and needs to mint an
-      # id-token; without this it fails with "Could not fetch an OIDC token".
-      id-token: write
     env:
       DOCS_REPO: alnutile/supanet-docs
     steps:
@@ -100,13 +100,17 @@ jobs:
           fi
           echo "Diff size: $(wc -l < /tmp/app-changes.diff) lines"
 
+      # NOTE: use the BASE action here, not claude-code-action@v1. The latter
+      # only runs on PR/issue/review events and rejects a merge trigger with
+      # "Unsupported event type: push" (which is why this job failed on every
+      # merge). The base action runs Claude with a prompt regardless of the
+      # triggering event — exactly what a push-to-main docs sync needs.
       - name: Update docs with Claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-base-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: >-
-            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git -C docs-site diff:*)"
-            --max-turns 40
+          allowed_tools: "Read,Edit,Write,Glob,Grep,Bash(git -C docs-site diff:*)"
+          max_turns: "40"
           prompt: |
             A change just merged into `main` of the SupaNet app repository. Your
             job is to update the SupaNet documentation site so it reflects that
