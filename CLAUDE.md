@@ -134,6 +134,22 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   returns the document name for citations). Scope is **separate** from
   `files.visibility` — the raw PDF blob stays owner-private; only the text chunks
   are shared. Text-layer PDFs only for now (scanned → Stage 2 vision).
+- **Secrets vault (Governance):** `VaultPage` (route `/vault`, sidebar "Secrets" under
+  Governance, admin-only) lets admins store named secrets (API keys, tokens, passwords)
+  that the team — and the assistant — can use. Same Vault-backed pattern as the email key
+  and MCP tokens: the **value lives only in Supabase Vault** (`vault_secrets.secret_id`
+  pointer; migration 0037), never a table column, client payload, or log. Each secret is
+  `workspace` (shared with everyone) or `private` (owner + admins), mirroring collections /
+  user_tables. Writes go through admin-gated security-definer RPCs (`set_vault_secret`
+  upsert with write-only value — empty keeps the current one; `delete_vault_secret`); the
+  decrypted value is read **only** by the service role via `read_vault_secret(name, user_id)`,
+  which re-enforces the share rule in code (workspace → anyone; private → owner). Two seeded
+  `is_builtin` tools in `_shared/builtins.ts` expose it to all three agent loops:
+  `list_secrets` (names + descriptions, **never values**, for discovery) and `get_secret`
+  (one value by name). `get_secret` returns a raw credential into the conversation, so it's
+  exfiltration-capable like `send_email` — it's an ordinary `tools` row (admin activation,
+  agent `tool_ids` scoping, and the `webhooks.allow_tools` gate all apply) and logs every
+  read as `activity_log` type `secret.read`.
 - **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
   DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
   calls). RLS: you see your own rows, admins see all. Realtime-subscribed.
@@ -314,8 +330,15 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `.failed` / `.deleted`). *Planned follow-up (not built): DB-writing forged functions via
   admin-authored `security definer` RPCs; an `applies_to_forge` guardrail context; a
   `forge_tool` MCP action so Claude Code can forge tools too.*
+- **DB migrations on `main`:** a **GitHub Action** (`.github/workflows/deploy-migrations.yml`)
+  runs `supabase db push` whenever a file under `supabase/migrations/**` changes on `main`, so new
+  migrations go live automatically (the CLI's migration history makes re-runs apply only what's
+  pending). It needs `SUPABASE_ACCESS_TOKEN` (the same PAT as the functions workflow) **plus**
+  `SUPABASE_DB_PASSWORD` — `db push` connects straight to Postgres, so the access token alone can't
+  apply migrations. Project ref defaults in the workflow, overridable via the `SUPABASE_PROJECT_REF`
+  repo variable.
 - **In-app function deploys (edge functions don't ride `main` by default):** pushing to `main`
-  redeploys the **frontend** (Railway) and DB migrations are applied out-of-band, but the Supabase
+  redeploys the **frontend** (Railway), but the Supabase
   **edge functions** otherwise only update via a `functions deploy`. Two things close this gap:
   (1) a **GitHub Action** (`.github/workflows/deploy-functions.yml`) runs `supabase functions deploy`
   on pushes that touch `supabase/functions/**` or `config.toml` (needs repo secrets
@@ -359,7 +382,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
@@ -381,7 +404,8 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 config), `inbox_messages`, `plugins` (installed-plugin registry), `usage_events`
 (per-call token/cost accounting), `user_tables` (registry for the Tables feature;
 the actual user tables are real `ut_*` tables created at runtime), `collections` +
-`collection_artifacts` (named groups of artifacts you can scope a chat to). Enums: `visibility`
+`collection_artifacts` (named groups of artifacts you can scope a chat to), `mcp_servers`
+(external MCP endpoints), `vault_secrets` (Vault-backed team secrets vault). Enums: `visibility`
 (`private`/`unlisted`/`public`), `message_role`, `artifact_type`.
 
 **RLS is the security boundary — never weaken it:**

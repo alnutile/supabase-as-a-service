@@ -5,11 +5,12 @@
 // through the scheduler, so this is load-bearing, not a refactor nicety.
 //
 // Builtins: search_documents (RAG over the workspace knowledge base), send_email,
-// check_email, and the user-table tools (list_tables / query_table / add_table_row /
-// create_table — the "Tables" feature). send_email is exfiltration-capable — it
-// enforces an optional recipient allowlist, a per-hour rate limit, and logs every
-// send. The table builtins run with the service role, so they re-enforce the
-// private/workspace access rule in code.
+// check_email, the user-table tools (list_tables / query_table / add_table_row /
+// create_table — the "Tables" feature), and the team-vault tools (list_secrets /
+// get_secret). send_email and get_secret are exfiltration-capable — send_email
+// enforces a recipient allowlist + rate limit and get_secret returns a raw
+// credential, so both log every use. The table and vault builtins run with the
+// service role, so they re-enforce the private/workspace access rule in code.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 
 type DB = ReturnType<typeof createClient>
@@ -39,6 +40,10 @@ export async function runBuiltin(
       return addTableRow(db, input, userId)
     case 'create_table':
       return createTable(db, input, userId)
+    case 'list_secrets':
+      return listSecrets(db, userId)
+    case 'get_secret':
+      return getSecret(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -177,6 +182,44 @@ async function sendEmail(
 
   await logActivity(db, 'email.sent', `Emailed ${to}: ${subject || '(no subject)'}`, { to, subject }, userId)
   return `Email sent to ${to}.`
+}
+
+// --- Team secrets vault ------------------------------------------------------
+// Builtins run with the service role (RLS bypassed), so these re-enforce the
+// private/workspace share rule in code via the security-definer RPCs. `get_secret`
+// returns a raw credential into the conversation — exfiltration-capable, like
+// send_email — so every read is written to the activity log.
+
+async function listSecrets(db: DB | null, userId: string | null): Promise<string> {
+  if (!db) return 'The team vault is unavailable.'
+  const { data } = await db
+    .from('vault_secrets')
+    .select('name, description, scope, owner_id')
+    .order('name', { ascending: true })
+  const rows = (data ?? []) as Array<{ name: string; description: string; scope: string; owner_id: string | null }>
+  // Re-enforce the share rule: workspace secrets to anyone, private only to its owner.
+  const visible = rows.filter((r) => r.scope === 'workspace' || r.owner_id === userId)
+  if (!visible.length) return 'The team vault has no secrets you can access.'
+  return visible
+    .map((r) => `- ${r.name}${r.description ? ` — ${r.description}` : ''}`)
+    .join('\n')
+}
+
+async function getSecret(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db) return 'The team vault is unavailable.'
+  const name = String(input?.name ?? '').trim()
+  if (!name) return 'No secret name was provided.'
+  const { data, error } = await db.rpc('read_vault_secret', { p_name: name, p_user_id: userId })
+  if (error) return `Could not read the secret: ${error.message}`
+  if (!data || typeof data !== 'string') {
+    return `No secret named "${name}" is available to you. Use list_secrets to see what exists.`
+  }
+  await logActivity(db, 'secret.read', `Fetched secret: ${name}`, { name }, userId)
+  return data
 }
 
 // --- User tables ("Tables" feature) -----------------------------------------

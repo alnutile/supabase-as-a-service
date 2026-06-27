@@ -652,6 +652,30 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['guardrails']['Insert']>
         Relationships: []
       }
+      vault_secrets: {
+        Row: {
+          id: string
+          name: string
+          description: string
+          secret_id: string
+          scope: 'workspace' | 'private'
+          owner_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string
+          secret_id: string
+          scope?: 'workspace' | 'private'
+          owner_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['vault_secrets']['Insert']>
+        Relationships: []
+      }
       plugins: {
         Row: {
           id: string
@@ -972,6 +996,24 @@ export interface Database {
       delete_mcp_server: {
         Args: { p_id: string }
         Returns: undefined
+      }
+      set_vault_secret: {
+        Args: {
+          p_id: string | null
+          p_name: string
+          p_description: string
+          p_value: string
+          p_scope?: string
+        }
+        Returns: string
+      }
+      delete_vault_secret: {
+        Args: { p_id: string }
+        Returns: undefined
+      }
+      read_vault_secret: {
+        Args: { p_name: string; p_user_id: string | null }
+        Returns: string
       }
       usage_summary: {
         Args: { p_days?: number }
