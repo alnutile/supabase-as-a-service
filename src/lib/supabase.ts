@@ -40,3 +40,6 @@ export const forgeFunctionUrl = `${supabaseUrl}/functions/v1/forge`
 
 /** Standalone public page for a shared HTML artifact — raw HTML, no app chrome. */
 export const standalonePageUrl = (slug: string) => `${supabaseUrl}/functions/v1/p/${slug}`
+
+/** Base URL of the public Artifacts CRUD API (bearer-token auth via mcp_tokens). */
+export const artifactsApiUrl = `${supabaseUrl}/functions/v1/artifacts`
