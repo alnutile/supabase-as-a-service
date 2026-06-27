@@ -954,6 +954,10 @@ export interface Database {
         Args: Record<PropertyKey, never>
         Returns: { collection_id: string; artifact_count: number; char_total: number }[]
       }
+      collections_combined_chars: {
+        Args: { p_ids: string[] }
+        Returns: number
+      }
       create_user_table: {
         Args: {
           p_name: string

@@ -177,36 +177,48 @@ async function modelContextLength(slug: string): Promise<number | null> {
   }
 }
 
-// Build a context block from a collection's artifacts so the user can "chat with"
-// a focused set of content. Runs with the service role, so it RE-ENFORCES access
-// in code: the collection must be visible to the caller (owner / workspace / admin)
-// and only artifacts the caller could read (own or non-private) are included.
-// The total injected size is budgeted to the model's context window minus a
-// reserve for the conversation + reply, so it matches the meter the user saw.
-async function loadCollectionContext(
+// Build a context block from one or more collections' artifacts so the user can
+// "chat with" a focused set of content. Runs with the service role, so it
+// RE-ENFORCES access in code: each collection must be visible to the caller
+// (owner / workspace / admin) and only artifacts the caller could read (own or
+// non-private) are included. Artifacts shared across selected collections are
+// DEDUPED. The total injected size is budgeted to the model's context window
+// minus a reserve for the conversation + reply, so it matches the meter the user saw.
+async function loadCollectionsContext(
   db: ReturnType<typeof createClient> | null,
-  collectionId: string,
+  collectionIds: string[],
   userId: string | null,
   model: string,
 ): Promise<string> {
-  if (!db || !userId) return ''
+  if (!db || !userId || !collectionIds.length) return ''
   try {
-    const { data: col } = await db
+    const { data: cols } = await db
       .from('collections')
-      .select('id, name, description, owner_id, visibility')
-      .eq('id', collectionId)
-      .maybeSingle()
-    if (!col) return ''
-    if (col.owner_id !== userId && col.visibility !== 'workspace') {
+      .select('id, name, owner_id, visibility')
+      .in('id', collectionIds)
+    if (!cols?.length) return ''
+
+    // Resolve admin once only if some collection isn't owner/workspace-visible.
+    const needAdmin = (cols as Array<{ owner_id: string; visibility: string }>).some(
+      (c) => c.owner_id !== userId && c.visibility !== 'workspace',
+    )
+    let isAdmin = false
+    if (needAdmin) {
       const { data: prof } = await db.from('profiles').select('is_admin').eq('id', userId).maybeSingle()
-      if (!prof?.is_admin) return '' // not allowed to use this collection
+      isAdmin = Boolean(prof?.is_admin)
     }
+    const visible = (cols as Array<{ id: string; name: string; owner_id: string; visibility: string }>).filter(
+      (c) => c.owner_id === userId || c.visibility === 'workspace' || isAdmin,
+    )
+    if (!visible.length) return ''
+    const visibleIds = visible.map((c) => c.id)
+    const names = visible.map((c) => c.name)
 
     const { data: links } = await db
       .from('collection_artifacts')
       .select('artifact_id')
-      .eq('collection_id', collectionId)
-    const ids = (links ?? []).map((l: { artifact_id: string }) => l.artifact_id)
+      .in('collection_id', visibleIds)
+    const ids = [...new Set((links ?? []).map((l: { artifact_id: string }) => l.artifact_id))]
     if (!ids.length) return ''
 
     const { data: arts } = await db
@@ -244,13 +256,14 @@ async function loadCollectionContext(
       parts.push(`## ${a.title} (${a.type})\n${body}`)
     }
     if (omitted) {
-      parts.push(`…(${omitted} more item(s) omitted — the collection exceeds this model's context window.)`)
+      parts.push(`…(${omitted} more item(s) omitted — the selection exceeds this model's context window.)`)
     }
 
+    const label =
+      names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (
-      `# Collection context: "${col.name}"\n` +
-      (col.description ? `${col.description}\n` : '') +
-      `The user has scoped this chat to the "${col.name}" collection — ${readable.length} item(s). ` +
+      `# Collection context: ${names.map((n) => `"${n}"`).join(', ')}\n` +
+      `The user has scoped this chat to ${label} — ${readable.length} item(s) total. ` +
       `Treat the following as the primary reference content for this conversation; ground your answers in it.\n\n` +
       parts.join('\n\n---\n\n')
     )
@@ -363,7 +376,7 @@ Deno.serve(async (req: Request) => {
   let skillSystem = ''
   let replaceSystem = false
   let toolIds: string[] | undefined
-  let collectionId: string | undefined
+  let collectionIds: string[] = []
   try {
     const body = await req.json()
     inMessages = body.messages
@@ -373,7 +386,9 @@ Deno.serve(async (req: Request) => {
     if (typeof body.system === 'string') skillSystem = body.system
     replaceSystem = body.replaceSystem === true
     if (Array.isArray(body.toolIds)) toolIds = body.toolIds.map(String)
-    if (typeof body.collectionId === 'string' && body.collectionId) collectionId = body.collectionId
+    // Accept an array of collection ids (multi-scope) or a single legacy id.
+    if (Array.isArray(body.collectionIds)) collectionIds = body.collectionIds.map(String).filter(Boolean)
+    else if (typeof body.collectionId === 'string' && body.collectionId) collectionIds = [body.collectionId]
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
       status: 400,
@@ -402,8 +417,8 @@ Deno.serve(async (req: Request) => {
   }
 
   // Collection scope: inject the chosen collection's artifacts as primary context.
-  if (collectionId) {
-    const collectionContext = await loadCollectionContext(db, collectionId, userId, MODEL)
+  if (collectionIds.length) {
+    const collectionContext = await loadCollectionsContext(db, collectionIds, userId, MODEL)
     if (collectionContext) system += `\n\n---\n\n${collectionContext}`
   }
 
