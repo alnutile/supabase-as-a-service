@@ -15,6 +15,7 @@ import {
   FileIcon,
   ForgeIcon,
   HomeIcon,
+  LockIcon,
   LoopIcon,
   LogoutIcon,
   MenuIcon,
@@ -89,6 +90,7 @@ const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
     items: [
       { to: '/guardrails', label: 'Guardrails', icon: ShieldIcon, adminOnly: true },
       { to: '/evals', label: 'Evals', icon: EvalIcon, adminOnly: true },
+      { to: '/vault', label: 'Secrets', icon: LockIcon, adminOnly: true },
     ],
   },
 ]
