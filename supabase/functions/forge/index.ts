@@ -40,6 +40,7 @@ const CORE_SLUGS = new Set([
   'email-test',
   'mcp-admin',
   'p',
+  'artifacts',
   'forge',
   'loop',
   'evals',

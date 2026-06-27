@@ -52,6 +52,15 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   artifact updates the page live; an external/local AI app can also push HTML up (via MCP)
   to the same table and get the same URL. *(Planned: multi-file/bundled SPAs behind the
   same `p/‹slug›` URL via a public storage bucket; an MCP `publish_html` one-call helper.)*
+  **REST CRUD API (`artifacts` edge function, `verify_jwt: false`):** a plain‑REST API so
+  non‑Claude systems (scripts, Zaps, cron) can push/sync artifacts with a `curl` instead of
+  MCP. Auth is a per‑user **bearer token** — the same `mcp_tokens` from Settings → Connect
+  Claude; the function runs as the token's owner (service role) and re‑enforces ownership in
+  code. `GET/POST /functions/v1/artifacts`, `GET/PATCH/PUT/DELETE /functions/v1/artifacts/:id`;
+  create/update accept `collection`/`collections` (name or id, created if missing) to **tag**
+  artifacts into collections (additive), plus `visibility` (non‑private mints a `public_slug`
+  + `share_url`). A bare `GET` with no `Authorization` (or `/artifacts/docs`) returns
+  plain‑text docs. Full reference: `docs/artifacts-api.md`.
 - **Collections (tag artifacts → chat with a focused set):** a `collections` row is a
   named group ("tag") of artifacts; `collection_artifacts` is the many-to-many join
   (migration 0033). On `ArtifactsPage` you multi-select artifacts (checkboxes) and file

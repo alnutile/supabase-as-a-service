@@ -41,3 +41,9 @@ verify_jwt = false
 # anon key — only non-private artifacts are ever returned).
 [functions.p]
 verify_jwt = false
+
+# Plain-REST CRUD API around artifacts, gated by a per-user bearer token
+# (mcp_tokens) instead of a Supabase JWT, so external systems can push/sync
+# artifacts and tag them into collections.
+[functions.artifacts]
+verify_jwt = false
