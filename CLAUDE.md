@@ -330,8 +330,15 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `.failed` / `.deleted`). *Planned follow-up (not built): DB-writing forged functions via
   admin-authored `security definer` RPCs; an `applies_to_forge` guardrail context; a
   `forge_tool` MCP action so Claude Code can forge tools too.*
+- **DB migrations on `main`:** a **GitHub Action** (`.github/workflows/deploy-migrations.yml`)
+  runs `supabase db push` whenever a file under `supabase/migrations/**` changes on `main`, so new
+  migrations go live automatically (the CLI's migration history makes re-runs apply only what's
+  pending). It needs `SUPABASE_ACCESS_TOKEN` (the same PAT as the functions workflow) **plus**
+  `SUPABASE_DB_PASSWORD` — `db push` connects straight to Postgres, so the access token alone can't
+  apply migrations. Project ref defaults in the workflow, overridable via the `SUPABASE_PROJECT_REF`
+  repo variable.
 - **In-app function deploys (edge functions don't ride `main` by default):** pushing to `main`
-  redeploys the **frontend** (Railway) and DB migrations are applied out-of-band, but the Supabase
+  redeploys the **frontend** (Railway), but the Supabase
   **edge functions** otherwise only update via a `functions deploy`. Two things close this gap:
   (1) a **GitHub Action** (`.github/workflows/deploy-functions.yml`) runs `supabase functions deploy`
   on pushes that touch `supabase/functions/**` or `config.toml` (needs repo secrets
