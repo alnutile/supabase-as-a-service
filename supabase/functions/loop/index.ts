@@ -269,9 +269,11 @@ Deno.serve(async (req: Request) => {
   if (!orApiKey()) return json({ error: 'OPENROUTER_API_KEY is not configured' }, 500)
 
   let loopId: string
+  let bodyTriggeredBy = ''
   try {
     const body = await req.json()
     loopId = String(body.loop_id ?? body.loopId ?? '')
+    if (typeof body.triggered_by === 'string') bodyTriggeredBy = body.triggered_by
     if (!loopId) throw new Error('`loop_id` is required')
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Bad request' }, 400)
@@ -281,7 +283,11 @@ Deno.serve(async (req: Request) => {
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!url || !key) return json({ error: 'server not configured' }, 500)
   const db = createClient(url, key)
-  const userId = userIdFromAuth(req)
+  // A real user JWT carries `sub`, so it wins. Internal callers (the MCP server /
+  // in-app builtins) reach this with the service-role key — no `sub` — and pass
+  // the acting user explicitly so the run is attributed correctly. A member can't
+  // spoof another user because their own `sub` always takes precedence.
+  const userId = userIdFromAuth(req) ?? (bodyTriggeredBy || null)
 
   const { data: loop } = await db
     .from('loops')

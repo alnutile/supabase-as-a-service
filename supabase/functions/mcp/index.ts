@@ -7,6 +7,18 @@
 // action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from '../_shared/knowledge.ts'
+import {
+  createLoop,
+  findOrCreateLoopAgent,
+  formatRun,
+  getRun,
+  latestRunForLoop,
+  listLoopsText,
+  resolveAgent,
+  resolveFeedbackTool,
+  resolveLoop,
+  triggerLoopRun,
+} from '../_shared/loops.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -258,6 +270,58 @@ const TOOLS = [
         values: { type: 'object', description: 'Column key/value pairs.' },
       },
       required: ['table', 'values'],
+    },
+  },
+  {
+    name: 'list_loops',
+    description: 'List the goal-directed loops you can run (name, goal, budget, iteration cap).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_loop',
+    description:
+      'Create a loop: a goal-directed run that iterates toward a goal, scoring each candidate 0–100 and keeping the best, stopping when it hits its budget, iteration cap, target score, or converges. Give it a goal (the prompt) and a rubric (how to grade candidates). Runs against an agent — omit "agent" to use a default one. Appears in the Loops dashboard; run it with run_loop.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        goal: { type: 'string', description: 'The objective the loop optimizes toward (the prompt).' },
+        rubric: {
+          type: 'string',
+          description: 'How to grade each candidate 0–100. Used by the built-in judge when no feedback tool is set.',
+        },
+        name: { type: 'string', description: 'Optional label; defaults to the goal.' },
+        max_iterations: { type: 'integer', description: 'Max rounds, 1–50 (default 10).' },
+        budget_usd: { type: 'number', description: 'Hard model-cost cap in USD for the whole run (default 1).' },
+        target_score: { type: 'number', description: 'Stop early once the best score reaches this (0–100, optional).' },
+        agent: { type: 'string', description: 'Optional agent name/id to run; a default loop agent is used if omitted.' },
+        feedback_tool: {
+          type: 'string',
+          description: 'Optional http tool name/id that scores candidates ({score, detail}); the judge + rubric is used if omitted.',
+        },
+      },
+      required: ['goal'],
+    },
+  },
+  {
+    name: 'run_loop',
+    description:
+      'Start a run of an existing loop (by name or id). It runs in the background until it hits its budget, iteration cap, target score, or converges. Returns a run id — poll it with get_loop_run.',
+    inputSchema: {
+      type: 'object',
+      properties: { loop: { type: 'string', description: 'The loop name or id to run.' } },
+      required: ['loop'],
+    },
+  },
+  {
+    name: 'get_loop_run',
+    description:
+      "Check in on a loop run: its status, iterations, cost so far, best score, and (once done) the best output. Pass the run_id from run_loop, or a loop name/id to get its latest run.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'The run id returned by run_loop.' },
+        loop: { type: 'string', description: 'Or a loop name/id to check its latest run.' },
+      },
     },
   },
 ]
@@ -583,6 +647,67 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       const { error } = await db.from(t.physical_name).insert(row)
       if (error) return text(`Error: ${error.message}`, true)
       return text(`Added a row to "${t.name}".`)
+    }
+    case 'list_loops':
+      return text(await listLoopsText(db, owner))
+    case 'create_loop': {
+      const goal = String(args.goal ?? '').trim()
+      if (!goal) return text('create_loop needs a goal (the prompt the loop optimizes toward).', true)
+      let agentId = await resolveAgent(db, args.agent)
+      if (!agentId) {
+        if (args.agent) {
+          return text(`No agent named "${args.agent}". Omit "agent" to use the default loop agent, or create_agent first.`, true)
+        }
+        agentId = await findOrCreateLoopAgent(db, owner)
+      }
+      const feedbackToolId = args.feedback_tool ? await resolveFeedbackTool(db, String(args.feedback_tool)) : null
+      if (args.feedback_tool && !feedbackToolId) {
+        return text(`No http tool named "${args.feedback_tool}" to use as the feedback source.`, true)
+      }
+      try {
+        const loop = await createLoop(db, owner, {
+          name: args.name,
+          goal,
+          rubric: args.rubric,
+          max_iterations: args.max_iterations,
+          budget_usd: args.budget_usd,
+          target_score: args.target_score,
+          agent_id: agentId,
+          feedback_tool_id: feedbackToolId,
+        })
+        return text(`Created loop "${loop.name}" (id ${loop.id}). It's in the Loops dashboard — start it with run_loop "${loop.id}".`)
+      } catch (err) {
+        return text(`Error: ${err instanceof Error ? err.message : 'could not create the loop'}`, true)
+      }
+    }
+    case 'run_loop': {
+      const ref = String(args.loop ?? '').trim()
+      if (!ref) return text('run_loop needs a loop (name or id).', true)
+      const loop = await resolveLoop(db, owner, ref)
+      if (!loop) return text(`No loop named "${ref}" that you can run.`, true)
+      try {
+        const { run_id } = await triggerLoopRun(loop.id, owner)
+        return text(
+          `Started loop "${loop.name}". Run id: ${run_id}. It iterates in the background until it hits its budget, iteration cap, target score, or converges. Check on it with get_loop_run "${run_id}".`,
+        )
+      } catch (err) {
+        return text(`Error: ${err instanceof Error ? err.message : 'could not start the loop'}`, true)
+      }
+    }
+    case 'get_loop_run': {
+      const runId = String(args.run_id ?? '').trim()
+      const loopRef = String(args.loop ?? '').trim()
+      let run = null
+      if (runId) run = await getRun(db, runId)
+      else if (loopRef) {
+        const loop = await resolveLoop(db, owner, loopRef)
+        if (!loop) return text(`No loop named "${loopRef}" that you can access.`, true)
+        run = await latestRunForLoop(db, loop.id)
+      } else {
+        return text('get_loop_run needs a run_id (from run_loop) or a loop name/id.', true)
+      }
+      if (!run) return text('No run found yet.', true)
+      return text(formatRun(run))
     }
     default:
       return text(`Unknown tool: ${name}`, true)
