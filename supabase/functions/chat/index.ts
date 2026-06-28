@@ -219,51 +219,84 @@ async function loadCollectionsContext(
       .select('artifact_id')
       .in('collection_id', visibleIds)
     const ids = [...new Set((links ?? []).map((l: { artifact_id: string }) => l.artifact_id))]
-    if (!ids.length) return ''
 
-    const { data: arts } = await db
-      .from('artifacts')
-      .select('id, title, type, content, visibility, owner_id')
-      .in('id', ids)
-      .order('updated_at', { ascending: false })
+    let readable: Array<{ title: string; type: string; content: string }> = []
+    if (ids.length) {
+      const { data: arts } = await db
+        .from('artifacts')
+        .select('id, title, type, content, visibility, owner_id')
+        .in('id', ids)
+        .order('updated_at', { ascending: false })
+      readable = (arts ?? []).filter(
+        (a: { owner_id: string; visibility: string }) => a.owner_id === userId || a.visibility !== 'private',
+      ) as Array<{ title: string; type: string; content: string }>
+    }
 
-    const readable = (arts ?? []).filter(
-      (a: { owner_id: string; visibility: string }) => a.owner_id === userId || a.visibility !== 'private',
-    )
-    if (!readable.length) return ''
+    // To-dos filed into these collections — small (title + due + done), so no
+    // budgeting needed; readable when owned by the caller or workspace-shared.
+    const { data: todoLinks } = await db
+      .from('collection_todos')
+      .select('todo_id')
+      .in('collection_id', visibleIds)
+    const todoIds = [...new Set((todoLinks ?? []).map((l: { todo_id: string }) => l.todo_id))]
+    let todos: Array<{ title: string; due_date: string | null; done: boolean }> = []
+    if (todoIds.length) {
+      const { data: t } = await db
+        .from('todos')
+        .select('title, due_date, done, owner_id, visibility')
+        .in('id', todoIds)
+        .order('done', { ascending: true })
+        .order('due_date', { ascending: true, nullsFirst: false })
+      todos = (t ?? []).filter(
+        (td: { owner_id: string; visibility: string }) => td.owner_id === userId || td.visibility === 'workspace',
+      ) as Array<{ title: string; due_date: string | null; done: boolean }>
+    }
 
-    // Budget the injected content to the model's window. Reserve room (≈20%,
-    // clamped) for the running conversation + the reply; the rest is for the
-    // collection. Unknown window → a conservative static budget.
-    const ctxLen = await modelContextLength(model)
-    const reserveTokens = ctxLen ? Math.min(Math.max(Math.floor(ctxLen * 0.2), 8000), 32000) : 16000
-    const budgetTokens = ctxLen ? Math.max(ctxLen - reserveTokens, 8000) : 50000
-    const totalChars = budgetTokens * CHARS_PER_TOKEN
+    if (!readable.length && !todos.length) return ''
 
-    let total = 0
-    let omitted = 0
     const parts: string[] = []
-    for (const a of readable as Array<{ title: string; type: string; content: string }>) {
-      const remaining = totalChars - total
-      if (remaining <= 0) {
-        omitted = readable.length - parts.length
-        break
+
+    // Budget the injected artifact content to the model's window. Reserve room
+    // (≈20%, clamped) for the running conversation + the reply; the rest is for
+    // the collection. Unknown window → a conservative static budget.
+    if (readable.length) {
+      const ctxLen = await modelContextLength(model)
+      const reserveTokens = ctxLen ? Math.min(Math.max(Math.floor(ctxLen * 0.2), 8000), 32000) : 16000
+      const budgetTokens = ctxLen ? Math.max(ctxLen - reserveTokens, 8000) : 50000
+      const totalChars = budgetTokens * CHARS_PER_TOKEN
+
+      let total = 0
+      let omitted = 0
+      for (const a of readable) {
+        const remaining = totalChars - total
+        if (remaining <= 0) {
+          omitted = readable.length - parts.length
+          break
+        }
+        const raw = a.content ?? ''
+        let body = raw.slice(0, remaining)
+        if (raw.length > body.length) body += '\n…(truncated to fit the context window)'
+        total += body.length
+        parts.push(`## ${a.title} (${a.type})\n${body}`)
       }
-      const raw = a.content ?? ''
-      let body = raw.slice(0, remaining)
-      if (raw.length > body.length) body += '\n…(truncated to fit the context window)'
-      total += body.length
-      parts.push(`## ${a.title} (${a.type})\n${body}`)
-    }
-    if (omitted) {
-      parts.push(`…(${omitted} more item(s) omitted — the selection exceeds this model's context window.)`)
+      if (omitted) {
+        parts.push(`…(${omitted} more item(s) omitted — the selection exceeds this model's context window.)`)
+      }
     }
 
+    if (todos.length) {
+      const lines = todos
+        .map((t) => `- [${t.done ? 'x' : ' '}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''}`)
+        .join('\n')
+      parts.push(`## To-dos in this collection\n${lines}`)
+    }
+
+    const itemCount = readable.length + todos.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (
       `# Collection context: ${names.map((n) => `"${n}"`).join(', ')}\n` +
-      `The user has scoped this chat to ${label} — ${readable.length} item(s) total. ` +
+      `The user has scoped this chat to ${label} — ${itemCount} item(s) total. ` +
       `Treat the following as the primary reference content for this conversation; ground your answers in it.\n\n` +
       parts.join('\n\n---\n\n')
     )

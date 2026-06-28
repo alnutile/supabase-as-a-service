@@ -20,6 +20,25 @@ export const ChatIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const TodoIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M9 11l2 2 4-4" />
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 16h6" />
+  </svg>
+)
+
+export const DragHandleIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="9" cy="6" r="1" />
+    <circle cx="9" cy="12" r="1" />
+    <circle cx="9" cy="18" r="1" />
+    <circle cx="15" cy="6" r="1" />
+    <circle cx="15" cy="12" r="1" />
+    <circle cx="15" cy="18" r="1" />
+  </svg>
+)
+
 export const ArtifactIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />

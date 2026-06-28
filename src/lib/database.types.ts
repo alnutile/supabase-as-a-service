@@ -170,6 +170,52 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_artifacts']['Insert']>
         Relationships: []
       }
+      todos: {
+        Row: {
+          id: string
+          owner_id: string
+          title: string
+          notes: string
+          due_date: string | null
+          done: boolean
+          completed_at: string | null
+          position: number
+          visibility: CollectionVisibility
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          title: string
+          notes?: string
+          due_date?: string | null
+          done?: boolean
+          completed_at?: string | null
+          position?: number
+          visibility?: CollectionVisibility
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['todos']['Insert']>
+        Relationships: []
+      }
+      collection_todos: {
+        Row: {
+          collection_id: string
+          todo_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          todo_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_todos']['Insert']>
+        Relationships: []
+      }
       files: {
         Row: {
           id: string

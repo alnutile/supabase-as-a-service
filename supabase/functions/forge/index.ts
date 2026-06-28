@@ -41,6 +41,7 @@ const CORE_SLUGS = new Set([
   'mcp-admin',
   'p',
   'artifacts',
+  'todos',
   'forge',
   'loop',
   'evals',
