@@ -18,6 +18,18 @@
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from './knowledge.ts'
+import {
+  createLoop,
+  findOrCreateLoopAgent,
+  formatRun,
+  getRun,
+  latestRunForLoop,
+  listLoopsText,
+  resolveAgent,
+  resolveFeedbackTool,
+  resolveLoop,
+  triggerLoopRun,
+} from './loops.ts'
 
 type DB = ReturnType<typeof createClient>
 
@@ -60,6 +72,12 @@ export async function runBuiltin(
       return addToCollection(db, input, userId)
     case 'add_note':
       return addNote(db, input, userId)
+    case 'start_loop':
+      return startLoop(db, input, userId)
+    case 'check_loop':
+      return checkLoop(db, input, userId)
+    case 'list_loops':
+      return listLoops(db, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -236,6 +254,85 @@ async function getSecret(
   }
   await logActivity(db, 'secret.read', `Fetched secret: ${name}`, { name }, userId)
   return data
+}
+
+// --- Loops (goal-directed runs) ----------------------------------------------
+// Let the in-app assistant spin up a COMPILOT-style loop in one shot — "here's a
+// prompt + a rubric, iterate at this budget, then I'll check on it" — and poll it.
+// The loop runs in the background (the `loop` edge function streams to loop_runs),
+// so start_loop returns immediately with a run id and check_loop reads progress.
+// Shares createLoop/triggerLoopRun with the MCP server so both stay in lockstep.
+
+async function startLoop(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Loops are unavailable.'
+  const goal = String(input?.goal ?? '').trim()
+  if (!goal) return 'A goal is required — the prompt describing what the loop should optimize toward.'
+
+  let agentId = await resolveAgent(db, input?.agent as string | undefined)
+  if (!agentId) {
+    if (input?.agent) return `No agent named "${input.agent}". Omit "agent" to use the default loop agent.`
+    agentId = await findOrCreateLoopAgent(db, userId)
+  }
+  const feedbackToolId = input?.feedback_tool ? await resolveFeedbackTool(db, String(input.feedback_tool)) : null
+  if (input?.feedback_tool && !feedbackToolId) {
+    return `No http tool named "${input.feedback_tool}" to use as the feedback source.`
+  }
+
+  let loop: { id: string; name: string }
+  try {
+    loop = await createLoop(db, userId, {
+      name: input?.name,
+      goal,
+      rubric: input?.rubric,
+      max_iterations: input?.max_iterations,
+      budget_usd: input?.budget_usd,
+      target_score: input?.target_score,
+      agent_id: agentId,
+      feedback_tool_id: feedbackToolId,
+    })
+  } catch (err) {
+    return `Could not create the loop: ${err instanceof Error ? err.message : 'error'}`
+  }
+
+  try {
+    const { run_id } = await triggerLoopRun(loop.id, userId)
+    await logActivity(db, 'loop.started', `Started loop "${loop.name}"`, { loop_id: loop.id, run_id }, userId)
+    return `Started loop "${loop.name}" (run id ${run_id}). It iterates in the background up to its budget/iteration cap. Call check_loop with run_id "${run_id}" to see progress and the best result so far.`
+  } catch (err) {
+    return `Created the loop but could not start it: ${err instanceof Error ? err.message : 'error'}`
+  }
+}
+
+async function checkLoop(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Loops are unavailable.'
+  const runId = String(input?.run_id ?? '').trim()
+  const loopRef = String(input?.loop ?? '').trim()
+  // deno-lint-ignore no-explicit-any
+  let run: any = null
+  if (runId) run = await getRun(db, runId)
+  else if (loopRef) {
+    const loop = await resolveLoop(db, userId, loopRef)
+    if (!loop) return `No loop named "${loopRef}" that you can access.`
+    run = await latestRunForLoop(db, loop.id)
+  } else {
+    return 'Pass a run_id (from start_loop) or a loop name/id to check.'
+  }
+  if (!run) return 'No run found yet.'
+  return formatRun(run)
+}
+
+async function listLoops(db: DB | null, userId: string | null): Promise<string> {
+  if (!db || !userId) return 'Loops are unavailable.'
+  const out = await listLoopsText(db, userId)
+  return out === 'No loops yet.' ? 'No loops yet. Use start_loop to create and run one.' : out
 }
 
 // --- User tables ("Tables" feature) -----------------------------------------

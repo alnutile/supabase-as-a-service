@@ -83,7 +83,7 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   posts / video transcripts / notes from other systems into a named collection the team can
   chat with. The **internal** assistant has the same authoring power as `is_builtin` tools
   (`create_artifact` / `create_collection` / `add_to_collection` / `list_collections` / `add_note`
-  in `_shared/builtins.ts`, migration 0038), so chat + scheduled/webhook agents can ingest content
+  in `_shared/builtins.ts`, migration 0040), so chat + scheduled/webhook agents can ingest content
   into artifacts + collections + the knowledge base too (e.g. an agent that files fetched articles
   into a collection on a schedule or a GitHub webhook). **Context-window awareness:** each collection shows an estimated token count
   (≈chars/4 — there's no single correct tokenizer) and, via `useOrchestratorContext` →
@@ -237,9 +237,16 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   both snippets; the `Authorization:${AUTH_HEADER}` env split avoids mcp-remote's
   space-in-header bug). It exposes build tools (`create_agent`, `create_http_tool`,
   `create_skill`, `create_webhook`, `create_artifact`, `list_*`) so an outside Claude can
-  push agents/tools into the workspace, where they appear in the dashboard. *(Planned —
-  see `docs/tasks/`: `upload_file` + a signed-URL pair to push files/PDFs into Files and
-  the knowledge base, and a tabbed Code/Desktop connect UI.)*
+  push agents/tools into the workspace, where they appear in the dashboard. It also drives
+  the **looping system** (`create_loop` / `run_loop` / `get_loop_run` / `list_loops`): an
+  external Claude hands a loop a goal (prompt) + rubric + budget + iteration cap, kicks off a
+  run, then polls `get_loop_run` to "check in" until it's done — same machinery as the Loops
+  dashboard. The shared `_shared/loops.ts` helpers (create the loop, trigger the `loop` edge
+  function, format a run) back both this and the in-app builtins so they never drift; an
+  internal trigger passes `triggered_by` (honored only for the service-role caller, which has
+  no JWT `sub`) so the run is attributed to the right user. *(Planned — see `docs/tasks/`:
+  `upload_file` + a signed-URL pair to push files/PDFs into Files and the knowledge base, and
+  a tabbed Code/Desktop connect UI.)*
 - **External MCP client (outbound):** the inverse of the MCP *server* above — the
   workspace connects out to **any number of external MCP endpoints** (e.g. **Zapier MCP** in
   front of Gmail/Calendar, plus others) so agents can call their tools. An admin adds servers
@@ -340,7 +347,9 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   pending). It needs `SUPABASE_ACCESS_TOKEN` (the same PAT as the functions workflow) **plus**
   `SUPABASE_DB_PASSWORD` — `db push` connects straight to Postgres, so the access token alone can't
   apply migrations. Project ref defaults in the workflow, overridable via the `SUPABASE_PROJECT_REF`
-  repo variable.
+  repo variable. **Each migration filename must have a unique, contiguous numeric prefix**
+  (`0040_…` after `0039_…`): `db push` derives the version from the prefix, so two files sharing
+  a number (e.g. two `0032_*.sql`) collide and the push is rejected. Always use the next free number.
 - **In-app function deploys (edge functions don't ride `main` by default):** pushing to `main`
   redeploys the **frontend** (Railway), but the Supabase
   **edge functions** otherwise only update via a `functions deploy`. Two things close this gap:
@@ -386,11 +395,12 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
-  functions/_shared/builtins.ts  runBuiltin: search_documents, send_email, check_email (shared by all 3 loops)
+  functions/_shared/builtins.ts  runBuiltin: search_documents, send_email, check_email, tables/vault tools, + loop tools (start_loop/check_loop/list_loops) — shared by all 3 loops
+  functions/_shared/loops.ts   create/trigger/format helpers for the looping system, shared by the MCP server + builtins
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams the model via OpenRouter (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
   functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages

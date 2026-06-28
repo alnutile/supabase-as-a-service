@@ -17,6 +17,7 @@ import {
   LinkIcon,
   LockIcon,
   PlusIcon,
+  SearchIcon,
   TrashIcon,
 } from '../components/icons'
 
@@ -34,6 +35,12 @@ export default function ArtifactsPage() {
   const [members, setMembers] = useState<Record<string, Set<string>>>({})
   const [loading, setLoading] = useState(true)
   const model = useOrchestratorContext()
+
+  // Server-side search across every artifact (title or body), not just the
+  // page-loaded set. `searchResults` is null when no search is active.
+  const [search, setSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<Artifact[] | null>(null)
+  const [searching, setSearching] = useState(false)
 
   // Filter the grid to one collection (null = everything).
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -76,13 +83,39 @@ export default function ArtifactsPage() {
     return () => document.removeEventListener('mousedown', onClick)
   }, [showAdd])
 
+  // Debounced full-DB search by title or body. Hits Postgres (case-insensitive
+  // `ilike`) so it finds matches anywhere, not just in the already-loaded grid.
+  useEffect(() => {
+    const term = search.trim()
+    if (!term) {
+      setSearchResults(null)
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    const handle = setTimeout(async () => {
+      // Strip characters that would break PostgREST's `or` filter grammar.
+      const pattern = `%${term.replace(/[,()\\%]/g, ' ')}%`
+      const { data } = await supabase
+        .from('artifacts')
+        .select('*')
+        .or(`title.ilike.${pattern},content.ilike.${pattern}`)
+        .order('updated_at', { ascending: false })
+        .limit(200)
+      setSearchResults(data ?? [])
+      setSearching(false)
+    }, 250)
+    return () => clearTimeout(handle)
+  }, [search])
+
   const activeCollection = collections.find((c) => c.id === activeId) ?? null
 
   const visible = useMemo(() => {
-    if (!activeId) return artifacts
+    const base = searchResults ?? artifacts
+    if (!activeId) return base
     const set = members[activeId] ?? new Set()
-    return artifacts.filter((a) => set.has(a.id))
-  }, [artifacts, members, activeId])
+    return base.filter((a) => set.has(a.id))
+  }, [artifacts, searchResults, members, activeId])
 
   // Estimated tokens per collection (content chars ÷ ~4), kept in sync with
   // membership automatically since we already hold every artifact's content.
@@ -254,6 +287,26 @@ export default function ArtifactsPage() {
           </button>
         </div>
 
+        {/* Search the whole DB by title or body */}
+        <div className="relative mb-5">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search artifacts by title or content…"
+            className="w-full rounded-lg border border-border-strong bg-surface py-2 pl-9 pr-9 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-faint transition hover:bg-surface-hover hover:text-text"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         {/* Collection filter bar */}
         <div className="mb-5 flex flex-wrap items-center gap-2">
           <button
@@ -369,15 +422,19 @@ export default function ArtifactsPage() {
           </div>
         )}
 
-        {loading ? (
-          <p className="text-sm text-faint">Loading…</p>
+        {loading || (searching && !searchResults) ? (
+          <p className="text-sm text-faint">{searching ? 'Searching…' : 'Loading…'}</p>
         ) : visible.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border-strong py-16 text-center">
             <ArtifactIcon className="mx-auto mb-3 h-8 w-8 text-faint" />
             <p className="text-sm text-muted">
-              {activeId ? 'No artifacts in this collection yet.' : 'No artifacts yet.'}
+              {searchResults
+                ? `No artifacts match “${search.trim()}”.`
+                : activeId
+                  ? 'No artifacts in this collection yet.'
+                  : 'No artifacts yet.'}
             </p>
-            {!activeId && (
+            {!activeId && !searchResults && (
               <button onClick={create} className="mt-3 text-sm font-medium text-primary hover:underline">
                 Create your first one
               </button>

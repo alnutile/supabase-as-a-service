@@ -269,9 +269,11 @@ Deno.serve(async (req: Request) => {
   if (!orApiKey()) return json({ error: 'OPENROUTER_API_KEY is not configured' }, 500)
 
   let loopId: string
+  let bodyTriggeredBy = ''
   try {
     const body = await req.json()
     loopId = String(body.loop_id ?? body.loopId ?? '')
+    if (typeof body.triggered_by === 'string') bodyTriggeredBy = body.triggered_by
     if (!loopId) throw new Error('`loop_id` is required')
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Bad request' }, 400)
@@ -281,7 +283,11 @@ Deno.serve(async (req: Request) => {
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!url || !key) return json({ error: 'server not configured' }, 500)
   const db = createClient(url, key)
-  const userId = userIdFromAuth(req)
+  // A real user JWT carries `sub`, so it wins. Internal callers (the MCP server /
+  // in-app builtins) reach this with the service-role key — no `sub` — and pass
+  // the acting user explicitly so the run is attributed correctly. A member can't
+  // spoof another user because their own `sub` always takes precedence.
+  const userId = userIdFromAuth(req) ?? (bodyTriggeredBy || null)
 
   const { data: loop } = await db
     .from('loops')
@@ -326,6 +332,70 @@ Deno.serve(async (req: Request) => {
     .single()
   const runId = run!.id as string
 
+  // Run the loop OUTSIDE the request so we don't hit the 150s request idle
+  // timeout: respond immediately with the run id and let it stream progress to
+  // loop_runs (the UI subscribes over Realtime). EdgeRuntime.waitUntil keeps the
+  // worker alive for the background task; the loop self-stops before the
+  // wall-clock limit so a run always finalizes (see runLoop / WALL_CLOCK_MS).
+  const task = runLoop(db, { loop, agent, feedbackTool, userId, runId })
+  // deno-lint-ignore no-explicit-any
+  const er = (globalThis as any).EdgeRuntime
+  if (er && typeof er.waitUntil === 'function') er.waitUntil(task)
+  else await task // local/dev without background-task support
+  return json({ run_id: runId, status: 'running' }, 202)
+})
+
+interface RunParams {
+  // deno-lint-ignore no-explicit-any
+  loop: any
+  // deno-lint-ignore no-explicit-any
+  agent: any
+  feedbackTool: ToolRow | null
+  userId: string | null
+  runId: string
+}
+
+// In-flight runs, so a worker shutdown (beforeunload) can finalize them instead
+// of leaving the row stuck on 'running' forever.
+interface ActiveRun {
+  db: DB
+  runId: string
+  finalized: { done: boolean }
+  // deno-lint-ignore no-explicit-any
+  snapshot: () => { costSpent: number; bestScore: number; bestOutput: string; transcript: any[] }
+}
+const ACTIVE = new Set<ActiveRun>()
+
+addEventListener('beforeunload', () => {
+  for (const a of ACTIVE) {
+    if (a.finalized.done) continue
+    a.finalized.done = true
+    const s = a.snapshot()
+    // Best-effort during shutdown — the in-loop wall-clock self-stop is the
+    // primary guarantee; this just catches a worker retired early.
+    a.db
+      .from('loop_runs')
+      .update({
+        status: 'done',
+        stop_reason: 'time',
+        iterations: s.transcript.length,
+        cost_spent: s.costSpent,
+        best_score: s.bestScore < 0 ? null : s.bestScore,
+        best_output: s.bestOutput || null,
+        transcript: s.transcript,
+        ended_at: new Date().toISOString(),
+      })
+      .eq('id', a.runId)
+  }
+})
+
+// Stop a loop this many ms in, before the platform wall-clock limit (150s free /
+// 400s paid) would kill the worker. Override with LOOP_MAX_WALL_MS (raise on paid
+// plans). The run then finalizes cleanly with stop_reason 'time'.
+const WALL_CLOCK_MS = Number(Deno.env.get('LOOP_MAX_WALL_MS') ?? 130_000)
+
+async function runLoop(db: DB, { loop, agent, feedbackTool, userId, runId }: RunParams) {
+  const startedAt = Date.now()
   const model = await resolveModel(db, 'orchestrator')
   const { tools, httpTools, builtins, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   const plugins = webEnabled ? [WEB_PLUGIN] : undefined
@@ -344,7 +414,16 @@ Deno.serve(async (req: Request) => {
   let costSpent = 0
   let bestScore = -1
   let bestOutput = ''
-  let stopReason: 'budget' | 'max_iterations' | 'converged' | 'target_reached' | 'error' = 'max_iterations'
+  let stopReason: 'budget' | 'max_iterations' | 'converged' | 'target_reached' | 'time' | 'error' = 'max_iterations'
+
+  const active: ActiveRun = {
+    db,
+    runId,
+    finalized: { done: false },
+    snapshot: () => ({ costSpent, bestScore, bestOutput, transcript }),
+  }
+  ACTIVE.add(active)
+  const outOfTime = () => Date.now() - startedAt > WALL_CLOCK_MS
 
   async function persist(status: 'running' | 'done' | 'error', extra: Record<string, unknown> = {}) {
     await db
@@ -366,6 +445,12 @@ Deno.serve(async (req: Request) => {
       // Budget gate — fail-closed, checked before spending on this iteration.
       if (costSpent >= budget) {
         stopReason = 'budget'
+        break
+      }
+      // Wall-clock gate — stop before the platform kills the worker, so the run
+      // finalizes cleanly with the best result so far.
+      if (outOfTime()) {
+        stopReason = 'time'
         break
       }
 
@@ -424,20 +509,25 @@ Deno.serve(async (req: Request) => {
         stopReason = 'budget'
         break
       }
+      if (outOfTime()) {
+        stopReason = 'time'
+        break
+      }
 
       messages.push({ role: 'user', content: feedbackMessage(sc.score, sc.detail) })
     }
 
+    active.finalized.done = true
     await persist('done', { stop_reason: stopReason, ended_at: new Date().toISOString() })
+    const phrase = stopReason === 'budget' ? 'hit its budget' : stopReason === 'time' ? 'stopped at the time limit' : 'finished'
     await db.from('activity_log').insert({
       type: stopReason === 'budget' ? 'loop.budget_capped' : 'loop.completed',
-      summary: `Loop "${loop.name}" ${stopReason === 'budget' ? 'hit its budget' : 'finished'} — best ${bestScore < 0 ? 'n/a' : bestScore + '/100'} in ${transcript.length} iteration(s)`,
+      summary: `Loop "${loop.name}" ${phrase} — best ${bestScore < 0 ? 'n/a' : bestScore + '/100'} in ${transcript.length} iteration(s)`,
       detail: { loop_id: loop.id, run_id: runId, stop_reason: stopReason, cost_spent: round(costSpent), best_score: bestScore < 0 ? null : bestScore },
       actor_id: userId,
     })
-
-    return json({ run_id: runId, stop_reason: stopReason, iterations: transcript.length, best_score: bestScore < 0 ? null : bestScore, cost_spent: round(costSpent), best_output: bestOutput })
   } catch (err) {
+    active.finalized.done = true
     const message = err instanceof Error ? err.message : 'loop failed'
     await persist('error', { stop_reason: 'error', error: message, ended_at: new Date().toISOString() })
     await db.from('activity_log').insert({
@@ -446,9 +536,10 @@ Deno.serve(async (req: Request) => {
       detail: { loop_id: loop.id, run_id: runId, error: message },
       actor_id: userId,
     })
-    return json({ run_id: runId, error: message }, 500)
+  } finally {
+    ACTIVE.delete(active)
   }
-})
+}
 
 function round(n: number): number {
   return Math.round(n * 10000) / 10000

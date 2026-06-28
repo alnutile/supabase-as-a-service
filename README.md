@@ -128,7 +128,9 @@ cp .env.example .env.local
 
 # 3. Apply the database schema
 supabase link --project-ref <your-project-ref>
-supabase db push                 # or paste supabase/migrations/0001_init.sql into the SQL editor
+supabase db push                 # applies every file in supabase/migrations/ in order
+#   (after this, you never run it by hand again — CI applies new migrations on
+#    merge to main; see "Database migrations" below)
 
 # 4. Deploy the AI edge function + its secret
 supabase secrets set OPENROUTER_API_KEY=sk-or-...
@@ -164,6 +166,12 @@ Two pieces go live: the **Supabase backend** (schema, auth, storage, realtime, t
 2. Add service variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 3. Deploy. Railway runs `npm install` → `npm run build` → `npm run start` (serves `dist/` with SPA fallback).
 4. Add your deployed URL to Supabase **Authentication → URL Configuration** (Site URL + Redirect URLs) so email/magic-link redirects land back on your app.
+
+**Pushing to `main` updates everything automatically.** Railway rebuilds the frontend,
+and two GitHub Actions keep the backend in sync: `deploy-functions.yml` redeploys edge
+functions that changed, and `deploy-migrations.yml` applies new database migrations (see
+[Database migrations](#database-migrations)). After the one-time secret setup, you don't
+run `supabase` commands by hand.
 
 Full details — including the Site URL gotcha — are in [`DEPLOY.md`](./DEPLOY.md).
 
@@ -222,6 +230,50 @@ After changing the schema, refresh the typed client:
 ```bash
 npm run gen:types        # supabase gen types typescript --linked > src/lib/database.types.ts
 ```
+
+## Database migrations
+
+The database schema lives in [`supabase/migrations/`](./supabase/migrations) as
+sequentially-numbered SQL files (`0001_init.sql`, `0002_skills.sql`, …). They are the
+single source of truth: a fresh project becomes a working backend with one
+`supabase db push`, and from then on **you never apply migrations by hand**.
+
+**How new migrations go live (CI):** a GitHub Action
+([`.github/workflows/deploy-migrations.yml`](./.github/workflows/deploy-migrations.yml))
+runs `supabase db push` whenever a file under `supabase/migrations/**` lands on `main`.
+`db push` only applies what's *pending* (the remote tracks applied versions in
+`supabase_migrations.schema_migrations`), so merging a PR that adds `0040_*.sql` applies
+exactly that file — no manual step, safe to re-run.
+
+It needs two repository secrets (**Settings → Secrets and variables → Actions**):
+
+| Secret | What |
+| --- | --- |
+| `SUPABASE_ACCESS_TOKEN` | A Supabase personal access token (Dashboard → Account → Access Tokens) — the same one the functions workflow uses. |
+| `SUPABASE_DB_PASSWORD` | Your project's database password (Dashboard → Project Settings → Database). `db push` connects straight to Postgres, so the token alone isn't enough. |
+
+The project ref defaults in the workflow and is overridable with a repository **variable**
+`SUPABASE_PROJECT_REF`.
+
+**Adding a migration:**
+
+```bash
+# 1. Create the next sequential file (keep numbers unique and contiguous).
+#    Write it idempotently where practical (create … if not exists, drop … if exists).
+$EDITOR supabase/migrations/0040_my_change.sql
+
+# 2. (Optional) try it locally / against your linked project before merging.
+supabase db push
+
+# 3. Refresh the typed client and open a PR.
+npm run gen:types
+```
+
+Merging the PR to `main` triggers the Action, which applies it to the live database.
+
+> **One rule:** every migration filename must have a **unique** numeric prefix. Two files
+> sharing a number (e.g. two `0032_*.sql`) collide — `db push` derives the version from the
+> prefix and will refuse the push. Always use the next free number.
 
 ## Roadmap
 
