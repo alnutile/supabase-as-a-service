@@ -343,7 +343,9 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   pending). It needs `SUPABASE_ACCESS_TOKEN` (the same PAT as the functions workflow) **plus**
   `SUPABASE_DB_PASSWORD` — `db push` connects straight to Postgres, so the access token alone can't
   apply migrations. Project ref defaults in the workflow, overridable via the `SUPABASE_PROJECT_REF`
-  repo variable.
+  repo variable. **Each migration filename must have a unique, contiguous numeric prefix**
+  (`0040_…` after `0039_…`): `db push` derives the version from the prefix, so two files sharing
+  a number (e.g. two `0032_*.sql`) collide and the push is rejected. Always use the next free number.
 - **In-app function deploys (edge functions don't ride `main` by default):** pushing to `main`
   redeploys the **frontend** (Railway), but the Supabase
   **edge functions** otherwise only update via a `functions deploy`. Two things close this gap:
