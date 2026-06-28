@@ -7,6 +7,7 @@ import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
 import ArtifactsPage from './pages/ArtifactsPage'
 import ArtifactEditorPage from './pages/ArtifactEditorPage'
+import TodosPage from './pages/TodosPage'
 import PublicArtifactPage from './pages/PublicArtifactPage'
 import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="chat/:conversationId" element={<ChatPage />} />
         <Route path="artifacts" element={<ArtifactsPage />} />
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
+        <Route path="todos" element={<TodosPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="webhooks" element={<WebhooksPage />} />
         <Route path="tools" element={<ToolsPage />} />

@@ -26,6 +26,7 @@ const VERIFY_JWT: Record<string, boolean> = {
   ingest: false,
   p: false,
   artifacts: false,
+  todos: false,
   chat: true,
   forge: true,
   loop: true,

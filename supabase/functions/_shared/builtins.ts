@@ -78,6 +78,16 @@ export async function runBuiltin(
       return checkLoop(db, input, userId)
     case 'list_loops':
       return listLoops(db, userId)
+    case 'create_todo':
+      return createTodo(db, input, userId)
+    case 'list_todos':
+      return listTodos(db, input, userId)
+    case 'complete_todo':
+      return completeTodo(db, input, userId)
+    case 'update_todo':
+      return updateTodo(db, input, userId)
+    case 'add_todo_to_collection':
+      return addTodoToCollection(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -655,4 +665,154 @@ async function addNote(
   } catch (err) {
     return `Could not add the note: ${err instanceof Error ? err.message : 'error'}`
   }
+}
+
+// Accept YYYY-MM-DD (or null to clear); returns undefined for invalid input.
+function normalizeDue(v: unknown): string | null | undefined {
+  if (v === null) return null
+  if (typeof v !== 'string') return undefined
+  const s = v.trim()
+  if (!s) return null
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined
+}
+
+async function createTodo(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'To-dos are unavailable.'
+  const title = String(input?.title ?? '').trim()
+  if (!title) return 'A to-do title is required.'
+  const due = normalizeDue(input?.due_date)
+  if (due === undefined && input?.due_date !== undefined) return 'due_date must be YYYY-MM-DD.'
+  const { data, error } = await db
+    .from('todos')
+    .insert({
+      owner_id: userId,
+      title,
+      notes: String(input?.notes ?? ''),
+      due_date: due ?? null,
+      visibility: 'private',
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not create the to-do: ${error.message}`
+  let note = ''
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (col) {
+      await db.from('collection_todos').upsert(
+        { collection_id: col.id, todo_id: data.id, added_by: userId },
+        { onConflict: 'collection_id,todo_id', ignoreDuplicates: true },
+      )
+      note = ` Filed into collection "${col.name}".`
+    }
+  }
+  await logActivity(db, 'todo.created', `Created to-do "${title}"`, { id: data.id, collection: ref || null }, userId)
+  return `Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''}.${note}`
+}
+
+async function listTodos(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'To-dos are unavailable.'
+  let query = db
+    .from('todos')
+    .select('id, title, due_date, done')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .order('done', { ascending: true })
+    .order('due_date', { ascending: true, nullsFirst: false })
+  if (input?.status === 'done') query = query.eq('done', true)
+  else if (input?.status === 'open') query = query.eq('done', false)
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, false)
+    if (!col) return `Collection "${ref}" not found.`
+    const { data: members } = await db.from('collection_todos').select('todo_id').eq('collection_id', col.id)
+    const ids = (members ?? []).map((m: { todo_id: string }) => m.todo_id)
+    if (!ids.length) return `No to-dos in collection "${col.name}".`
+    query = query.in('id', ids)
+  }
+  const { data } = await query
+  if (!data || !data.length) return 'No to-dos.'
+  return (data as Array<{ id: string; title: string; due_date: string | null; done: boolean }>)
+    .map((t) => `• [${t.done ? 'x' : ' '}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''} — ${t.id}`)
+    .join('\n')
+}
+
+async function completeTodo(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'To-dos are unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A to-do id is required.'
+  const { data, error } = await db
+    .from('todos')
+    .update({ done: true, completed_at: new Date().toISOString() })
+    .eq('id', id)
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .select('id')
+    .maybeSingle()
+  if (error) return `Could not complete the to-do: ${error.message}`
+  if (!data) return `To-do ${id} not found (or not yours).`
+  await logActivity(db, 'todo.completed', `Completed a to-do`, { id }, userId)
+  return `Marked to-do ${id} as done.`
+}
+
+async function updateTodo(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'To-dos are unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A to-do id is required.'
+  const patch: Record<string, unknown> = {}
+  if (typeof input?.title === 'string' && input.title.trim()) patch.title = input.title.trim()
+  if (typeof input?.notes === 'string') patch.notes = input.notes
+  if (input?.due_date !== undefined) {
+    const due = normalizeDue(input.due_date)
+    if (due === undefined) return 'due_date must be YYYY-MM-DD or null.'
+    patch.due_date = due
+  }
+  if (typeof input?.done === 'boolean') {
+    patch.done = input.done
+    patch.completed_at = input.done ? new Date().toISOString() : null
+  }
+  if (Object.keys(patch).length === 0) return 'No fields to update.'
+  const { data, error } = await db
+    .from('todos')
+    .update(patch)
+    .eq('id', id)
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .select('id')
+    .maybeSingle()
+  if (error) return `Could not update the to-do: ${error.message}`
+  if (!data) return `To-do ${id} not found (or not yours).`
+  return `Updated to-do ${id}.`
+}
+
+async function addTodoToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'To-dos are unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const todoId = String(input?.todo_id ?? '').trim()
+  if (!ref || !todoId) return 'Pass both a collection (name or id) and a todo_id.'
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_todos').upsert(
+    { collection_id: col.id, todo_id: todoId, added_by: userId },
+    { onConflict: 'collection_id,todo_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added to-do ${todoId} to collection "${col.name}".`
 }

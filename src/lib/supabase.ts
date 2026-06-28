@@ -43,3 +43,6 @@ export const standalonePageUrl = (slug: string) => `${supabaseUrl}/functions/v1/
 
 /** Base URL of the public Artifacts CRUD API (bearer-token auth via mcp_tokens). */
 export const artifactsApiUrl = `${supabaseUrl}/functions/v1/artifacts`
+
+/** Base URL of the public To-dos CRUD API (bearer-token auth via mcp_tokens). */
+export const todosApiUrl = `${supabaseUrl}/functions/v1/todos`

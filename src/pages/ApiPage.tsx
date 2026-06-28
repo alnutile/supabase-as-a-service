@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
-import { artifactsApiUrl, supabase } from '../lib/supabase'
+import { artifactsApiUrl, todosApiUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
 import { CheckIcon, CopyIcon, PlusIcon } from '../components/icons'
@@ -10,7 +10,10 @@ type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
 
 // The API area is built around tabs so we can add more surfaces here over time
 // (Collections, Files, …). For now it holds the Artifacts CRUD API.
-const TABS = [{ id: 'artifacts', label: 'Artifacts' }] as const
+const TABS = [
+  { id: 'artifacts', label: 'Artifacts' },
+  { id: 'todos', label: 'To-dos' },
+] as const
 type TabId = (typeof TABS)[number]['id']
 
 export default function ApiPage() {
@@ -42,6 +45,7 @@ export default function ApiPage() {
         </div>
 
         {active === 'artifacts' && <ArtifactsApiTab />}
+        {active === 'todos' && <TodosApiTab />}
       </div>
     </div>
   )
@@ -80,6 +84,14 @@ const ENDPOINTS: Array<{ method: string; path: string; desc: string }> = [
   { method: 'GET', path: '/artifacts/:id', desc: 'Read one (with content + collections).' },
   { method: 'PATCH', path: '/artifacts/:id', desc: 'Update fields you send; add collection tags.' },
   { method: 'DELETE', path: '/artifacts/:id', desc: 'Delete one.' },
+]
+
+const TODO_ENDPOINTS: Array<{ method: string; path: string; desc: string }> = [
+  { method: 'GET', path: '/todos', desc: 'List your to-dos (filters below).' },
+  { method: 'POST', path: '/todos', desc: 'Create a to-do.' },
+  { method: 'GET', path: '/todos/:id', desc: 'Read one (with its collections).' },
+  { method: 'PATCH', path: '/todos/:id', desc: 'Update fields you send (done:true completes it); add collection tags.' },
+  { method: 'DELETE', path: '/todos/:id', desc: 'Delete one.' },
 ]
 
 const METHOD_COLORS: Record<string, string> = {
@@ -304,6 +316,198 @@ function ArtifactsApiTab() {
             {base}/docs
           </a>{' '}
           returns these docs as plain text, so they’re reachable straight from the endpoint too.
+        </p>
+      </section>
+    </div>
+  )
+}
+
+function TodosApiTab() {
+  const { user } = useAuth()
+  const [tokens, setTokens] = useState<McpToken[]>([])
+  const [selected, setSelected] = useState<string>('')
+  const [creating, setCreating] = useState(false)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('mcp_tokens').select('*').order('created_at', { ascending: false })
+    setTokens(data ?? [])
+    setSelected((cur) => cur || (data && data[0]?.token) || '')
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function createToken() {
+    if (!user) return
+    setCreating(true)
+    const { data } = await supabase.from('mcp_tokens').insert({ owner_id: user.id, name: 'API' }).select('*').single()
+    setCreating(false)
+    if (data) {
+      await load()
+      setSelected(data.token)
+    }
+  }
+
+  const tokenForExamples = selected || '$TOKEN'
+  const base = todosApiUrl
+
+  const createExample =
+    `curl -X POST "${base}" \\\n` +
+    `  -H "Authorization: Bearer ${tokenForExamples}" \\\n` +
+    `  -H "Content-Type: application/json" \\\n` +
+    `  -d '{"title":"Ship the thing","due_date":"2026-07-01","collection":"Work"}'`
+
+  const listExample = `curl "${base}?collection=Work&status=open&sort=due" \\\n  -H "Authorization: Bearer ${tokenForExamples}"`
+
+  const readExample = `curl "${base}/<id>" \\\n  -H "Authorization: Bearer ${tokenForExamples}"`
+
+  const completeExample =
+    `curl -X PATCH "${base}/<id>" \\\n` +
+    `  -H "Authorization: Bearer ${tokenForExamples}" \\\n` +
+    `  -H "Content-Type: application/json" \\\n` +
+    `  -d '{"done":true}'`
+
+  const deleteExample = `curl -X DELETE "${base}/<id>" \\\n  -H "Authorization: Bearer ${tokenForExamples}"`
+
+  return (
+    <div className="mt-6 space-y-6">
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">To-dos CRUD API</h2>
+        <p className="mt-1 text-sm text-muted">
+          Capture, list, complete, and delete to-dos over plain REST — from a script, a Zap, a cron job,
+          or any other system. Set a <strong>due date</strong>, mark them <strong>done</strong>, and tag
+          each into a <strong>collection</strong> (the named groups you chat with) by name or id.
+        </p>
+        <div className="mt-3">
+          <span className="mb-1 block text-xs font-medium text-muted">Base URL</span>
+          <CodeBlock code={base} />
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Authentication</h2>
+        <p className="mt-1 text-sm text-muted">
+          Send a personal bearer token in the <code className="rounded bg-surface-2 px-1">Authorization</code>{' '}
+          header — the same connection tokens as{' '}
+          <Link to="/settings" className="font-medium text-primary hover:underline">
+            Settings → Connect Claude
+          </Link>
+          . Every call runs as you; you only see and modify your own to-dos.
+        </p>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {tokens.length > 0 ? (
+            <label className="flex items-center gap-2 text-sm text-muted">
+              Use token in examples:
+              <select
+                value={selected}
+                onChange={(e) => setSelected(e.target.value)}
+                className="rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none focus:border-primary"
+              >
+                {tokens.map((t) => (
+                  <option key={t.id} value={t.token}>
+                    {t.name} · {t.last_used_at ? `used ${formatDate(t.last_used_at)}` : 'never used'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="text-sm text-muted">No tokens yet — create one to get ready-to-run examples.</span>
+          )}
+          <button
+            onClick={createToken}
+            disabled={creating}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
+          >
+            <PlusIcon className="h-4 w-4" /> {creating ? 'Creating…' : 'New token'}
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Endpoints</h2>
+        <div className="mt-3 overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-left text-sm">
+            <tbody>
+              {TODO_ENDPOINTS.map((e, i) => (
+                <tr key={e.method + e.path} className={i > 0 ? 'border-t border-border' : ''}>
+                  <td className="whitespace-nowrap px-3 py-2 align-top">
+                    <span
+                      className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-bold ${
+                        METHOD_COLORS[e.method] ?? 'bg-surface-2 text-muted'
+                      }`}
+                    >
+                      {e.method}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-[12px] text-text">{e.path}</td>
+                  <td className="px-3 py-2 align-top text-muted">{e.desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-xs text-muted">
+          List filters (query params): <code className="rounded bg-surface-2 px-1">collection</code>,{' '}
+          <code className="rounded bg-surface-2 px-1">status=open|done</code>,{' '}
+          <code className="rounded bg-surface-2 px-1">q</code>,{' '}
+          <code className="rounded bg-surface-2 px-1">sort=position|due</code>,{' '}
+          <code className="rounded bg-surface-2 px-1">limit</code>,{' '}
+          <code className="rounded bg-surface-2 px-1">offset</code>.
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Create / update body</h2>
+        <div className="mt-3 overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-surface-2 text-xs text-muted">
+              <tr>
+                <th className="px-3 py-2 font-medium">Field</th>
+                <th className="px-3 py-2 font-medium">Notes</th>
+              </tr>
+            </thead>
+            <tbody className="text-muted">
+              {[
+                ['title', 'Required on create.'],
+                ['notes', 'Optional longer text.'],
+                ['due_date', 'YYYY-MM-DD, or null to clear.'],
+                ['done', 'true completes it (sets completed_at); false reopens.'],
+                ['visibility', 'private (default) | workspace (whole team can see & collaborate).'],
+                ['collection', 'Collection name or id to file into — created if missing.'],
+                ['collections', 'Array of names/ids, same rules (additive).'],
+              ].map(([field, note], i) => (
+                <tr key={field} className={i > 0 ? 'border-t border-border' : ''}>
+                  <td className="whitespace-nowrap px-3 py-2 align-top font-mono text-[12px] text-text">{field}</td>
+                  <td className="px-3 py-2 align-top">{note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-xs text-muted">
+          On update, only the fields you send change; passing{' '}
+          <code className="rounded bg-surface-2 px-1">collection</code>/
+          <code className="rounded bg-surface-2 px-1">collections</code> <strong>adds</strong> tags (existing ones kept).
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Examples</h2>
+        <div className="mt-3 space-y-4">
+          <CodeBlock label="Create a to-do with a due date and tag it into “Work”" code={createExample} />
+          <CodeBlock label="List open to-dos in a collection, by due date" code={listExample} />
+          <CodeBlock label="Read one with its collections" code={readExample} />
+          <CodeBlock label="Mark one done" code={completeExample} />
+          <CodeBlock label="Delete" code={deleteExample} />
+        </div>
+        <p className="mt-4 text-xs text-muted">
+          Tip: opening{' '}
+          <a href={`${base}/docs`} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+            {base}/docs
+          </a>{' '}
+          returns these docs as plain text too.
         </p>
       </section>
     </div>

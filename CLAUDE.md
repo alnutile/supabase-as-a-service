@@ -99,6 +99,23 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   meter matches what's sent).
   *(Planned: collection-scoped retrieval/RAG + hybrid search as a core function instead of
   full-content injection; collection visibility on the public share pages.)*
+- **To-dos:** `TodosPage` (route `/todos`, sidebar under **Assets**, any member) is a
+  simple task list that plugs into the collections concept. A `todos` row (migration 0041)
+  is `title` + optional `notes` + optional `due_date` + a `done` flag + a `position` for
+  manual **drag-to-reorder** (dnd-kit; order by `position asc, created_at desc`, with a
+  "Due date" sort toggle). Visibility mirrors collections/`user_tables`: `private` (owner +
+  admins) or `workspace` (every member can see **and** collaborate — check off / edit /
+  reorder), enforced by RLS. To-dos are filed into collections via `collection_todos` (the
+  exact mirror of `collection_artifacts`, same visibility-inherited RLS), so the same
+  multi-select "Add to collection" bar + filter as `ArtifactsPage`, and a collection you
+  chat with carries its tasks alongside its docs (the chat function's
+  `loadCollectionsContext` injects each collection's to-dos as a checklist block). Like
+  artifacts, to-dos have a **REST API** (`todos` edge function, `verify_jwt:false`,
+  bearer-token `mcp_tokens`, full CRUD + `collection`/`collections` tagging; docs at
+  `docs/todos-api.md` and the "To-dos" tab in `ApiPage`) and are exposed to the assistant +
+  MCP: seeded `is_builtin` tools `create_todo` / `list_todos` / `complete_todo` /
+  `update_todo` / `add_todo_to_collection` (in `_shared/builtins.ts`; same names on the MCP
+  server) so chat/scheduler/webhook agents and an external Claude can manage tasks.
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
 - **Tables (Airtable-but-real-Postgres):** `TablesPage` (route `/tables`, sidebar,
@@ -386,7 +403,7 @@ src/
     icons.tsx                  Inline SVG icons (no icon dependency)
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
-                               FilesPage, TablesPage, SkillsPage, WebhooksPage, ToolsPage,
+                               TodosPage, FilesPage, TablesPage, SkillsPage, WebhooksPage, ToolsPage,
                                AgentsPage, PluginsPage, ApiPage, ActivityPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
@@ -395,7 +412,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page

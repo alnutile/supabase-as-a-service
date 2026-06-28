@@ -47,3 +47,9 @@ verify_jwt = false
 # artifacts and tag them into collections.
 [functions.artifacts]
 verify_jwt = false
+
+# Plain-REST CRUD API around to-dos, same bearer-token (mcp_tokens) auth as the
+# artifacts function, so external systems can capture/sync tasks and tag them
+# into collections.
+[functions.todos]
+verify_jwt = false
