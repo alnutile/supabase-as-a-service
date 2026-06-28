@@ -81,7 +81,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `create_collection` / `add_to_collection` / `list_collections` and `create_artifact` takes
   an optional `collection` (name, created if missing), so an external Claude can push blog
   posts / video transcripts / notes from other systems into a named collection the team can
-  chat with. **Context-window awareness:** each collection shows an estimated token count
+  chat with. The **internal** assistant has the same authoring power as `is_builtin` tools
+  (`create_artifact` / `create_collection` / `add_to_collection` / `list_collections` / `add_note`
+  in `_shared/builtins.ts`, migration 0040), so chat + scheduled/webhook agents can ingest content
+  into artifacts + collections + the knowledge base too (e.g. an agent that files fetched articles
+  into a collection on a schedule or a GitHub webhook). **Context-window awareness:** each collection shows an estimated token count
   (≈chars/4 — there's no single correct tokenizer) and, via `useOrchestratorContext` →
   the live OpenRouter model's `context_length` (fetched from `/api/v1/models`), what % of
   that window it would fill (`ContextMeter` on the Artifacts collection header + filter chips;
@@ -391,7 +395,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
