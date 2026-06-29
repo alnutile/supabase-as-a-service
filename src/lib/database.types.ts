@@ -542,6 +542,7 @@ export interface Database {
           description: string
           instructions: string
           tool_ids: string[]
+          collection_ids: string[]
           is_active: boolean
           created_at: string
           updated_at: string
@@ -553,6 +554,7 @@ export interface Database {
           description?: string
           instructions?: string
           tool_ids?: string[]
+          collection_ids?: string[]
           is_active?: boolean
           created_at?: string
           updated_at?: string

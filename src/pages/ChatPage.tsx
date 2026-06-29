@@ -395,12 +395,15 @@ export default function ChatPage() {
         history,
         (delta) => setStreaming((s) => (s ?? '') + delta),
         // Running as an agent: layer its prompt onto the workspace context and
-        // scope the assistant to the agent's chosen tools. A chosen collection
-        // injects its artifacts as primary context.
-        {
-          ...(agent ? { system: agent.instructions, toolIds: agent.tool_ids } : {}),
-          ...(collectionIds.length ? { collectionIds } : {}),
-        },
+        // scope the assistant to the agent's chosen tools. The chat is scoped to
+        // the user-picked collections PLUS any the agent is bound to.
+        (() => {
+          const merged = [...new Set([...collectionIds, ...(agent?.collection_ids ?? [])])]
+          return {
+            ...(agent ? { system: agent.instructions, toolIds: agent.tool_ids } : {}),
+            ...(merged.length ? { collectionIds: merged } : {}),
+          }
+        })(),
       )
       setStreaming(null)
       const finalText = await materializeArtifacts(convId, full)

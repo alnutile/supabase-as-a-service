@@ -239,10 +239,18 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `artifacts` row, and replaces the block with an `/artifacts/:id` share link.
   `SkillsPage` manages all of the above (always-on editing is admin-gated).
 - **Agents:** an `agents` row is a deployable unit — a name + system prompt
-  (`instructions`) + `tool_ids` it may use. `AgentsPage` is the dashboard (CRUD,
-  workspace-visible). "Chat" opens `/chat?agent=:id`, where `ChatPage` layers the
-  agent's prompt on the conversation and scopes the toolset to the agent's tools
+  (`instructions`) + `tool_ids` it may use + `collection_ids` it can **use**
+  (migration 0043). `AgentsPage` is the dashboard (CRUD, workspace-visible).
+  "Chat" opens `/chat?agent=:id`, where `ChatPage` layers the agent's prompt on the
+  conversation and scopes the toolset to the agent's tools
   (`streamChat({ system, toolIds })` → chat function's `loadTools(restrictIds)`).
+  **Collections an agent uses:** the agent's bound `collection_ids` are injected as
+  primary context (artifacts/files/to-dos) whenever it runs — chat (merged with the
+  user's picked collections), webhook, and scheduler all call the shared
+  `_shared/collections.ts` `loadCollectionsContext` (moved out of the chat function
+  so every loop shares it). Agents *add into* collections via the existing `is_builtin`
+  authoring tools (`create_collection` / `add_to_collection` / `create_artifact` /
+  `add_todo_to_collection`), scoped by `tool_ids` like any tool.
   A webhook can also **target an agent** (`webhooks.agent_id`): the webhook function
   then runs the agent (its prompt + tools) over the payload via its own tool loop
   instead of the bare prompt. **Scheduled agents:** a `schedules` row (agent + input +
