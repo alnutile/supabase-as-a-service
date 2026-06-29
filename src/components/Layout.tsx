@@ -11,6 +11,7 @@ import {
   ChatIcon,
   ChevronDownIcon,
   CloseIcon,
+  CollectionIcon,
   EvalIcon,
   FeedbackIcon,
   FileIcon,
@@ -55,6 +56,7 @@ const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
   {
     label: 'Assets',
     items: [
+      { to: '/collections', label: 'Collections', icon: CollectionIcon },
       { to: '/files', label: 'Files', icon: FileIcon },
       { to: '/tables', label: 'Tables', icon: TableIcon },
       { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon },
