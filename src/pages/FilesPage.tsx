@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase'
 import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { formatBytes, formatDate } from '../lib/util'
-import { FileIcon, LinkIcon, TrashIcon, UploadIcon } from '../components/icons'
+import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon } from '../components/icons'
+import { AddToCollectionBar } from '../components/AddToCollectionBar'
 
 type FileRow = Database['public']['Tables']['files']['Row']
 type Doc = Database['public']['Tables']['documents']['Row']
@@ -17,7 +18,17 @@ export default function FilesPage() {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [linkFor, setLinkFor] = useState<{ id: string; url: string } | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const inputRef = useRef<HTMLInputElement>(null)
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const [docs, setDocs] = useState<Record<string, Doc>>({})
 
@@ -127,7 +138,7 @@ export default function FilesPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-text">Files</h1>
             <p className="mt-1 text-sm text-muted">
-              Private by default. Create a share link when you want to hand one out.
+              Private by default. Create a share link, or select files to add them to a collection to chat with.
             </p>
           </div>
           <button
@@ -162,7 +173,22 @@ export default function FilesPage() {
             {files.map((f) => {
               const doc = docs[f.id]
               return (
-              <div key={f.id} className="flex items-center gap-3 px-4 py-3">
+              <div
+                key={f.id}
+                className={`flex items-center gap-3 px-4 py-3 ${selected.has(f.id) ? 'bg-primary-soft/40' : ''}`}
+              >
+                <button
+                  onClick={() => toggleSelect(f.id)}
+                  aria-label={selected.has(f.id) ? 'Deselect' : 'Select'}
+                  title="Select to add to a collection"
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition ${
+                    selected.has(f.id)
+                      ? 'border-primary bg-primary text-white'
+                      : 'border-border-strong text-transparent hover:text-faint'
+                  }`}
+                >
+                  <CheckIcon className="h-3.5 w-3.5" />
+                </button>
                 <FileIcon className="h-5 w-5 shrink-0 text-faint" />
                 <button
                   onClick={() => download(f)}
@@ -205,6 +231,12 @@ export default function FilesPage() {
           </p>
         )}
       </div>
+
+      <AddToCollectionBar
+        kind="file"
+        selectedIds={[...selected]}
+        onClear={() => setSelected(new Set())}
+      />
     </div>
   )
 }
