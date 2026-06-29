@@ -72,7 +72,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   📚 picker selects **one or more** collections (multi-select; "Chat with this" deep-links
   `/chat?collection=:id`, or `?collections=a,b`); `streamChat({ collectionIds })` passes them
   to the chat function, which `loadCollectionsContext` gathers the **deduped** union of their
-  artifacts and injects them as a primary-context block in the system prompt.
+  **multi-content** items and injects them as a primary-context block in the system prompt:
+  artifacts (text), files (`collection_files`, migration 0042 — text files inlined, PDFs via
+  their indexed knowledge chunks, via `fileToText`; images/binaries skipped), and to-dos.
+  The shared `AddToCollectionBar` component drives "select items → Add to collection" on the
+  Artifacts and Files pages; `_file_chars` folds files into the size meter RPCs.
   Access mirrors `user_tables`: a collection is `private` (owner + admins) or `workspace`
   (every member can read **and** collaborate — add/remove members); the join table's RLS
   inherits the collection's visibility. The chat function runs as the service role so it
@@ -412,7 +416,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page

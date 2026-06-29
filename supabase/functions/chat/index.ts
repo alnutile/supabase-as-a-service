@@ -232,6 +232,27 @@ async function loadCollectionsContext(
       ) as Array<{ title: string; type: string; content: string }>
     }
 
+    // Files filed into these collections — text files inlined, PDFs via their
+    // indexed knowledge text; images/binaries skipped. Budgeted like artifacts.
+    const { data: fileLinks } = await db
+      .from('collection_files')
+      .select('file_id')
+      .in('collection_id', visibleIds)
+    const fileIds = [...new Set((fileLinks ?? []).map((l: { file_id: string }) => l.file_id))]
+    const fileDocs: Array<{ label: string; body: string }> = []
+    if (fileIds.length) {
+      const { data: files } = await db
+        .from('files')
+        .select('id, name, mime_type, bucket, path, owner_id, visibility')
+        .in('id', fileIds)
+      for (const f of (files ?? []).filter(
+        (f: { owner_id: string; visibility: string }) => f.owner_id === userId || f.visibility !== 'private',
+      ) as Array<{ id: string; name: string; mime_type: string | null; bucket: string | null; path: string }>) {
+        const text = await fileToText(db, f, userId)
+        if (text) fileDocs.push({ label: `## ${f.name} (file)`, body: text })
+      }
+    }
+
     // To-dos filed into these collections — small (title + due + done), so no
     // budgeting needed; readable when owned by the caller or workspace-shared.
     const { data: todoLinks } = await db
@@ -252,14 +273,18 @@ async function loadCollectionsContext(
       ) as Array<{ title: string; due_date: string | null; done: boolean }>
     }
 
-    if (!readable.length && !todos.length) return ''
+    if (!readable.length && !todos.length && !fileDocs.length) return ''
 
     const parts: string[] = []
 
-    // Budget the injected artifact content to the model's window. Reserve room
-    // (≈20%, clamped) for the running conversation + the reply; the rest is for
-    // the collection. Unknown window → a conservative static budget.
-    if (readable.length) {
+    // Budget the large items (artifacts + files) to the model's window. Reserve
+    // room (≈20%, clamped) for the running conversation + the reply; the rest is
+    // for the collection. Unknown window → a conservative static budget.
+    const budgeted: Array<{ label: string; body: string }> = [
+      ...readable.map((a) => ({ label: `## ${a.title} (${a.type})`, body: a.content ?? '' })),
+      ...fileDocs,
+    ]
+    if (budgeted.length) {
       const ctxLen = await modelContextLength(model)
       const reserveTokens = ctxLen ? Math.min(Math.max(Math.floor(ctxLen * 0.2), 8000), 32000) : 16000
       const budgetTokens = ctxLen ? Math.max(ctxLen - reserveTokens, 8000) : 50000
@@ -267,17 +292,16 @@ async function loadCollectionsContext(
 
       let total = 0
       let omitted = 0
-      for (const a of readable) {
+      for (const d of budgeted) {
         const remaining = totalChars - total
         if (remaining <= 0) {
-          omitted = readable.length - parts.length
+          omitted = budgeted.length - parts.length
           break
         }
-        const raw = a.content ?? ''
-        let body = raw.slice(0, remaining)
-        if (raw.length > body.length) body += '\n…(truncated to fit the context window)'
+        let body = (d.body ?? '').slice(0, remaining)
+        if ((d.body ?? '').length > body.length) body += '\n…(truncated to fit the context window)'
         total += body.length
-        parts.push(`## ${a.title} (${a.type})\n${body}`)
+        parts.push(`${d.label}\n${body}`)
       }
       if (omitted) {
         parts.push(`…(${omitted} more item(s) omitted — the selection exceeds this model's context window.)`)
@@ -291,7 +315,7 @@ async function loadCollectionsContext(
       parts.push(`## To-dos in this collection\n${lines}`)
     }
 
-    const itemCount = readable.length + todos.length
+    const itemCount = readable.length + fileDocs.length + todos.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (
@@ -302,6 +326,51 @@ async function loadCollectionsContext(
     )
   } catch {
     return ''
+  }
+}
+
+// Turn a collection file into injectable text: an indexed PDF/doc → its
+// extracted knowledge text (chunks, scope re-enforced); a text-like file →
+// its decoded contents; anything else (images, binaries) → null (skipped).
+async function fileToText(
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  f: { id: string; name: string; mime_type: string | null; bucket: string | null; path: string },
+  userId: string,
+): Promise<string | null> {
+  const mime = (f.mime_type ?? '').toLowerCase()
+  const MAX = 60000
+  try {
+    if (mime.includes('pdf') || /\.pdf$/i.test(f.name)) {
+      const { data: doc } = await db
+        .from('documents')
+        .select('id, owner_id, scope, status')
+        .eq('file_id', f.id)
+        .maybeSingle()
+      if (!doc) return '(PDF not indexed yet — its text isn’t available.)'
+      if (doc.owner_id !== userId && doc.scope !== 'workspace') return null // not allowed
+      const { data: chunks } = await db
+        .from('document_chunks')
+        .select('content')
+        .eq('document_id', doc.id)
+        .limit(400)
+      const text = (chunks ?? []).map((c: { content: string }) => c.content).join('\n').slice(0, MAX)
+      return text || (doc.status === 'done' ? '(no extractable text)' : '(PDF still being indexed.)')
+    }
+    const textLike =
+      mime.startsWith('text/') ||
+      ['application/json', 'application/xml', 'application/csv', 'text/csv'].includes(mime) ||
+      /\.(md|markdown|txt|csv|tsv|json|ya?ml|log|html?|xml)$/i.test(f.name)
+    if (textLike) {
+      const { data: blob } = await db.storage.from(f.bucket ?? 'files').download(f.path)
+      if (!blob) return null
+      const buf = new Uint8Array(await blob.arrayBuffer())
+      if (buf.byteLength > 4_000_000) return '(file too large to include inline)'
+      return new TextDecoder().decode(buf).slice(0, MAX)
+    }
+    return null // image / unsupported binary — not injectable as text
+  } catch {
+    return null
   }
 }
 
