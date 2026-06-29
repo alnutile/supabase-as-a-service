@@ -10,6 +10,7 @@ type Agent = Database['public']['Tables']['agents']['Row']
 type Tool = Database['public']['Tables']['tools']['Row']
 type Schedule = Database['public']['Tables']['schedules']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
+type Collection = Database['public']['Tables']['collections']['Row']
 
 const INTERVALS = [
   { label: 'Every 15 minutes', minutes: 15 },
@@ -152,6 +153,8 @@ function AgentEditor({
   const [description, setDescription] = useState(agent.description)
   const [instructions, setInstructions] = useState(agent.instructions)
   const [toolIds, setToolIds] = useState<string[]>(agent.tool_ids)
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [collectionIds, setCollectionIds] = useState<string[]>(agent.collection_ids ?? [])
   const [isActive, setIsActive] = useState(agent.is_active)
   const [saving, setSaving] = useState(false)
   const [schedules, setSchedules] = useState<Schedule[]>([])
@@ -170,6 +173,14 @@ function AgentEditor({
       .eq('is_builtin', false)
       .order('name')
       .then(({ data }) => setSkills(data ?? []))
+  }, [])
+
+  useEffect(() => {
+    supabase
+      .from('collections')
+      .select('*')
+      .order('name')
+      .then(({ data }) => setCollections(data ?? []))
   }, [])
 
   function detectSlash(el: HTMLTextAreaElement) {
@@ -232,6 +243,10 @@ function AgentEditor({
     loadSchedules()
   }
 
+  function toggleCollection(id: string) {
+    setCollectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
   function toggleTool(id: string) {
     setToolIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
@@ -245,6 +260,7 @@ function AgentEditor({
         description,
         instructions,
         tool_ids: toolIds,
+        collection_ids: collectionIds,
         is_active: isActive,
         updated_at: new Date().toISOString(),
       })
@@ -361,6 +377,34 @@ function AgentEditor({
                       className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
                     />
                     <span className="font-mono text-xs">{t.kind === 'web' ? 'web_browsing' : t.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <span className="mb-1 block text-xs font-medium text-muted">Collections it can use</span>
+            <p className="mb-1.5 text-xs text-faint">
+              The content of these collections (artifacts, files, to-dos) is injected as context whenever
+              the agent runs — in chat, on a schedule, or from a webhook.
+            </p>
+            {collections.length === 0 ? (
+              <p className="text-xs text-faint">No collections yet. Create some on the Collections page.</p>
+            ) : (
+              <div className="space-y-1">
+                {collections.map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm text-text">
+                    <input
+                      type="checkbox"
+                      checked={collectionIds.includes(c.id)}
+                      onChange={() => toggleCollection(c.id)}
+                      className="h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
+                    />
+                    <span className="truncate">{c.name}</span>
+                    {c.visibility === 'workspace' && (
+                      <span className="text-[10px] uppercase tracking-wide text-faint">shared</span>
+                    )}
                   </label>
                 ))}
               </div>

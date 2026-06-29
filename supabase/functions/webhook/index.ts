@@ -9,6 +9,7 @@ import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
+import { loadCollectionsContext } from '../_shared/collections.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -248,9 +249,13 @@ Deno.serve(async (req: Request) => {
     let mcpRouter: McpRouter = new Map()
     let webEnabled = false
     if (webhook.agent_id) {
-      const { data: agent } = await db.from('agents').select('instructions, tool_ids').eq('id', webhook.agent_id).maybeSingle()
+      const { data: agent } = await db.from('agents').select('instructions, tool_ids, collection_ids').eq('id', webhook.agent_id).maybeSingle()
       if (agent) {
         systemPrompt = agent.instructions || systemPrompt
+        // Inject the agent's bound collections as context (reading, not a tool —
+        // so it's allowed even when the webhook runs the agent read-only).
+        const collCtx = await loadCollectionsContext(db, agent.collection_ids ?? [], webhook.owner_id, MODEL)
+        if (collCtx) systemPrompt += `\n\n---\n\n${collCtx}`
         if (webhook.allow_tools) {
           const loaded = await loadAgentTools(db, agent.tool_ids ?? [])
           tools = loaded.tools

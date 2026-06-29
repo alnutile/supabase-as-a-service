@@ -6,6 +6,7 @@ import { resolveModel } from '../_shared/models.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
+import { loadCollectionsContext } from '../_shared/collections.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -90,9 +91,17 @@ function scheduledRunGuidance(ownerEmail: string | null): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(db: any, agent: { instructions: string; tool_ids: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null) {
+async function runAgent(db: any, agent: { instructions: string; tool_ids: string[]; collection_ids?: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null) {
   const { tools, httpTools, builtins, mcpRouter, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
-  const system = [agent.instructions || 'You are a scheduled agent. Do the task described.', scheduledRunGuidance(ownerEmail)].join('\n\n')
+  // Inject the agent's bound collections (artifacts/files/to-dos) as context.
+  const collCtx = await loadCollectionsContext(db, agent.collection_ids ?? [], ownerId, model)
+  const system = [
+    agent.instructions || 'You are a scheduled agent. Do the task described.',
+    collCtx,
+    scheduledRunGuidance(ownerEmail),
+  ]
+    .filter(Boolean)
+    .join('\n\n---\n\n')
   // The schedule's input is optional. When it's blank, drive the agent with a
   // clear directive so it runs its own instructions (the system prompt) rather
   // than being handed a meaningless turn.
@@ -160,7 +169,7 @@ Deno.serve(async (req: Request) => {
   for (const s of due ?? []) {
     const next = new Date(Date.now() + s.interval_minutes * 60_000).toISOString()
     try {
-      const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, is_active').eq('id', s.agent_id).maybeSingle()
+      const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, collection_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
         const { data: owner } = await db.from('profiles').select('email').eq('id', s.owner_id).maybeSingle()
         const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id)
