@@ -142,9 +142,11 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   authenticated callers, so owner can't be spoofed) and `notify pgrst, 'reload schema'`
   after DDL so new tables/columns are queryable immediately. The assistant can use tables
   too: seeded `is_builtin` tools `list_tables` / `query_table` / `add_table_row` /
-  `create_table` (in `_shared/builtins.ts`, so chat/agents/scheduler all get them) run
-  with the service role and **re-enforce the private/workspace rule in code**; MCP exposes
-  `list_tables` / `create_table` / `add_table_row` for an external Claude. *(Planned: a
+  `update_table_row` / `create_table` (in `_shared/builtins.ts`, so chat/agents/scheduler all
+  get them; `update_table_row` seeded in migration 0044) run with the service role and
+  **re-enforce the private/workspace rule in code** — and `update_table_row` requires a
+  `match` filter so it can't rewrite a whole table; MCP exposes `list_tables` / `create_table` /
+  `add_table_row` / `update_table_row` for an external Claude. *(Planned: a
   fuller query surface — sorting, richer filters/joins — and column reordering/rename.)*
 - **PDF knowledge (RAG):** uploading a PDF enqueues a `documents` row (trigger on
   `files`). A `pg_cron` tick calls the `ingest` edge function, which extracts the
