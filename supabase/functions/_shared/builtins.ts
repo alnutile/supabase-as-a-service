@@ -6,7 +6,7 @@
 //
 // Builtins: search_documents (RAG over the workspace knowledge base), send_email,
 // check_email, the user-table tools (list_tables / query_table / add_table_row /
-// create_table — the "Tables" feature), the team-vault tools (list_secrets /
+// update_table_row / create_table — the "Tables" feature), the team-vault tools (list_secrets /
 // get_secret), and the content-authoring tools (create_artifact / list_collections /
 // create_collection / add_to_collection / add_note) — the in-app mirror of the MCP
 // server's authoring actions, so the internal AI/agents can push articles, notes, and
@@ -56,6 +56,8 @@ export async function runBuiltin(
       return queryTable(db, input, userId)
     case 'add_table_row':
       return addTableRow(db, input, userId)
+    case 'update_table_row':
+      return updateTableRow(db, input, userId)
     case 'create_table':
       return createTable(db, input, userId)
     case 'list_secrets':
@@ -456,6 +458,58 @@ async function addTableRow(
   if (error) return `Could not add the row: ${error.message}`
   const note = skipped.length ? ` (ignored unknown columns: ${skipped.join(', ')})` : ''
   return `Added a row to "${t.name}".${note}`
+}
+
+async function updateTableRow(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Tables are unavailable.'
+  const ref = String(input?.table ?? '').trim()
+  if (!ref) return 'Which table? Pass a table name.'
+  const t = findTable(await accessibleTables(db, userId), ref)
+  if (!t) return `No table named "${ref}" that you can access.`
+
+  const values = (input?.values ?? null) as Record<string, unknown> | null
+  if (!values || typeof values !== 'object' || !Object.keys(values).length) {
+    return 'Pass the columns to change as a "values" object.'
+  }
+  // Require a filter so we never rewrite the whole table by accident.
+  const filters = (input?.match ?? input?.filters ?? null) as Record<string, unknown> | null
+  if (!filters || typeof filters !== 'object' || !Object.keys(filters).length) {
+    return 'Pass a "match" object (e.g. {"id": 3}) identifying which row(s) to update.'
+  }
+
+  const allowed = new Set((t.columns ?? []).map((c) => c.key))
+  const patch: Record<string, unknown> = {}
+  const skipped: string[] = []
+  for (const [k, v] of Object.entries(values)) {
+    if (allowed.has(k)) patch[k] = v
+    else skipped.push(k)
+  }
+  if (!Object.keys(patch).length) return 'None of the given values match this table\'s columns.'
+
+  const matchable = new Set([...allowed, 'id', 'owner_id'])
+  // deno-lint-ignore no-explicit-any
+  let q: any = db.from(t.physical_name).update(patch)
+  const badFilters: string[] = []
+  for (const [k, v] of Object.entries(filters)) {
+    if (matchable.has(k)) q = q.eq(k, v)
+    else badFilters.push(k)
+  }
+  if (badFilters.length === Object.keys(filters).length) {
+    return `None of the match columns exist on "${t.name}" (${badFilters.join(', ')}).`
+  }
+  const { data, error } = await q.select('id')
+  if (error) return `Could not update "${t.name}": ${error.message}`
+  const count = Array.isArray(data) ? data.length : 0
+  if (!count) return `No matching rows in "${t.name}" — nothing updated.`
+  const notes: string[] = []
+  if (skipped.length) notes.push(`ignored unknown columns: ${skipped.join(', ')}`)
+  if (badFilters.length) notes.push(`ignored unknown match columns: ${badFilters.join(', ')}`)
+  const note = notes.length ? ` (${notes.join('; ')})` : ''
+  return `Updated ${count} row${count === 1 ? '' : 's'} in "${t.name}".${note}`
 }
 
 async function createTable(

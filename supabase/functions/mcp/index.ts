@@ -338,6 +338,20 @@ const TOOLS = [
     },
   },
   {
+    name: 'update_table_row',
+    description:
+      'Update existing row(s) in a user data table. Identify the table by name, pass a "match" object of column=value filters selecting which row(s) to change (e.g. {"id": 3}), and a "values" object with the columns to set.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: 'The table name (or id).' },
+        match: { type: 'object', description: 'Column=value equality filters identifying which row(s) to update.' },
+        values: { type: 'object', description: 'Column key/value pairs to set.' },
+      },
+      required: ['table', 'match', 'values'],
+    },
+  },
+  {
     name: 'list_loops',
     description: 'List the goal-directed loops you can run (name, goal, budget, iteration cap).',
     inputSchema: { type: 'object', properties: {} },
@@ -818,6 +832,34 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       const { error } = await db.from(t.physical_name).insert(row)
       if (error) return text(`Error: ${error.message}`, true)
       return text(`Added a row to "${t.name}".`)
+    }
+    case 'update_table_row': {
+      const ref = String(args.table ?? '').trim()
+      const values = (args.values ?? null) as Record<string, unknown> | null
+      const match = (args.match ?? null) as Record<string, unknown> | null
+      if (!ref || !values || typeof values !== 'object' || !Object.keys(values).length) {
+        return text('update_table_row needs table and values.', true)
+      }
+      if (!match || typeof match !== 'object' || !Object.keys(match).length) {
+        return text('update_table_row needs a "match" object identifying which row(s) to update.', true)
+      }
+      const r = ref.toLowerCase()
+      const t = (await ownerTables(db, owner)).find((x) => x.id === ref || x.name.trim().toLowerCase() === r)
+      if (!t) return text(`No table named "${ref}" that you can access.`, true)
+      const allowed = new Set((t.columns ?? []).map((c) => c.key))
+      const patch: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(values)) if (allowed.has(k)) patch[k] = v
+      if (!Object.keys(patch).length) return text('None of the given values match this table\'s columns.', true)
+      const matchable = new Set([...allowed, 'id', 'owner_id'])
+      // deno-lint-ignore no-explicit-any
+      let q: any = db.from(t.physical_name).update(patch)
+      let applied = 0
+      for (const [k, v] of Object.entries(match)) if (matchable.has(k)) { q = q.eq(k, v); applied++ }
+      if (!applied) return text(`None of the match columns exist on "${t.name}".`, true)
+      const { data, error } = await q.select('id')
+      if (error) return text(`Error: ${error.message}`, true)
+      const count = Array.isArray(data) ? data.length : 0
+      return text(count ? `Updated ${count} row${count === 1 ? '' : 's'} in "${t.name}".` : `No matching rows in "${t.name}".`)
     }
     case 'list_loops':
       return text(await listLoopsText(db, owner))
