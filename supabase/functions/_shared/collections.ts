@@ -110,6 +110,33 @@ export async function loadCollectionsContext(
       }
     }
 
+    // Tables — a preview of each user table's rows, injected as JSON text.
+    // Re-enforce user_tables access (own or workspace-shared) in code.
+    const { data: tableLinks } = await db
+      .from('collection_tables')
+      .select('table_id')
+      .in('collection_id', visibleIds)
+    const tableIds = [...new Set((tableLinks ?? []).map((l: { table_id: string }) => l.table_id))]
+    const tableDocs: Array<{ label: string; body: string }> = []
+    if (tableIds.length) {
+      const { data: uts } = await db
+        .from('user_tables')
+        .select('id, name, physical_name, owner_id, visibility')
+        .in('id', tableIds)
+      for (const t of (uts ?? []).filter(
+        (t: { owner_id: string; visibility: string }) => t.owner_id === userId || t.visibility === 'workspace',
+      ) as Array<{ name: string; physical_name: string }>) {
+        try {
+          const { data: rows } = await db.from(t.physical_name).select('*').limit(50)
+          if (rows && rows.length) {
+            tableDocs.push({ label: `## ${t.name} (table — ${rows.length} row(s))`, body: JSON.stringify(rows, null, 2) })
+          }
+        } catch {
+          // skip an unreadable table
+        }
+      }
+    }
+
     // To-dos — small (title + due + done), so no budgeting needed.
     const { data: todoLinks } = await db
       .from('collection_todos')
@@ -129,13 +156,14 @@ export async function loadCollectionsContext(
       ) as Array<{ title: string; due_date: string | null; done: boolean }>
     }
 
-    if (!readable.length && !todos.length && !fileDocs.length) return ''
+    if (!readable.length && !todos.length && !fileDocs.length && !tableDocs.length) return ''
 
     const parts: string[] = []
 
     const budgeted: Array<{ label: string; body: string }> = [
       ...readable.map((a) => ({ label: `## ${a.title} (${a.type})`, body: a.content ?? '' })),
       ...fileDocs,
+      ...tableDocs,
     ]
     if (budgeted.length) {
       const ctxLen = await modelContextLength(model)
@@ -168,7 +196,7 @@ export async function loadCollectionsContext(
       parts.push(`## To-dos in this collection\n${lines}`)
     }
 
-    const itemCount = readable.length + fileDocs.length + todos.length
+    const itemCount = readable.length + fileDocs.length + tableDocs.length + todos.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (

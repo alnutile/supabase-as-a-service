@@ -186,6 +186,22 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_files']['Insert']>
         Relationships: []
       }
+      collection_tables: {
+        Row: {
+          collection_id: string
+          table_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          table_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_tables']['Insert']>
+        Relationships: []
+      }
       todos: {
         Row: {
           id: string

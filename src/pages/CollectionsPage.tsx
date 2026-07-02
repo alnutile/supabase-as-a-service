@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
+import { streamChat, type ChatMessage } from '../lib/chat'
 import { useAuth } from '../contexts/AuthContext'
+import { Markdown } from '../components/Markdown'
 import { formatBytes, formatDate } from '../lib/util'
 import { estimateTokensFromChars } from '../lib/tokens'
 import { useOrchestratorContext } from '../lib/useModelContext'
@@ -17,47 +19,56 @@ import {
   GlobeIcon,
   LockIcon,
   PlusIcon,
+  SendIcon,
+  TableIcon,
   TodoIcon,
   TrashIcon,
 } from '../components/icons'
 
 type Collection = Database['public']['Tables']['collections']['Row']
+type Kind = 'artifact' | 'file' | 'table' | 'todo'
 
-// One collection's contents, loaded on demand for the detail pane.
-type Items = {
-  artifacts: Array<{ id: string; title: string; type: string; updated_at: string }>
-  files: Array<{ id: string; name: string; size_bytes: number | null }>
-  todos: Array<{ id: string; title: string; done: boolean; due_date: string | null }>
+// Per-kind wiring: the base table it lives in, the join table, and the join's
+// item column — so one set of helpers handles every content type.
+const KINDS: Record<
+  Kind,
+  { title: string; icon: (p: { className?: string }) => JSX.Element; base: string; link: string; col: string; label: string }
+> = {
+  todo: { title: 'To-dos', icon: TodoIcon, base: 'todos', link: 'collection_todos', col: 'todo_id', label: 'title' },
+  artifact: { title: 'Artifacts', icon: ArtifactIcon, base: 'artifacts', link: 'collection_artifacts', col: 'artifact_id', label: 'title' },
+  file: { title: 'Files', icon: FileIcon, base: 'files', link: 'collection_files', col: 'file_id', label: 'name' },
+  table: { title: 'Tables', icon: TableIcon, base: 'user_tables', link: 'collection_tables', col: 'table_id', label: 'name' },
 }
+const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table']
+
+type Item = { id: string; label: string; meta?: string }
+type Items = Record<Kind, Item[]>
 
 export default function CollectionsPage() {
   const { user } = useAuth()
   const model = useOrchestratorContext()
 
   const [collections, setCollections] = useState<Collection[]>([])
-  const [counts, setCounts] = useState<Record<string, { artifacts: number; files: number; todos: number }>>({})
+  const [counts, setCounts] = useState<Record<string, number>>({})
   const [tokens, setTokens] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   const load = useCallback(async () => {
-    const [cRes, caRes, cfRes, ctRes, stats] = await Promise.all([
+    const [cRes, caRes, cfRes, ctRes, cuRes, stats] = await Promise.all([
       supabase.from('collections').select('*').order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id'),
       supabase.from('collection_files').select('collection_id'),
       supabase.from('collection_todos').select('collection_id'),
+      supabase.from('collection_tables').select('collection_id'),
       supabase.rpc('collection_token_stats'),
     ])
     setCollections(cRes.data ?? [])
-    const c: Record<string, { artifacts: number; files: number; todos: number }> = {}
-    const bump = (id: string, k: 'artifacts' | 'files' | 'todos') => {
-      const row = (c[id] ??= { artifacts: 0, files: 0, todos: 0 })
-      row[k] += 1
+    const c: Record<string, number> = {}
+    for (const res of [caRes, cfRes, ctRes, cuRes]) {
+      for (const r of res.data ?? []) c[r.collection_id] = (c[r.collection_id] ?? 0) + 1
     }
-    for (const r of caRes.data ?? []) bump(r.collection_id, 'artifacts')
-    for (const r of cfRes.data ?? []) bump(r.collection_id, 'files')
-    for (const r of ctRes.data ?? []) bump(r.collection_id, 'todos')
     setCounts(c)
     const tok: Record<string, number> = {}
     for (const s of stats.data ?? []) tok[s.collection_id] = estimateTokensFromChars(Number(s.char_total))
@@ -92,11 +103,7 @@ export default function CollectionsPage() {
   return (
     <div className="flex h-full min-h-0">
       {/* List pane */}
-      <div
-        className={`w-full shrink-0 flex-col border-r border-border bg-surface ${
-          selected ? 'hidden md:flex md:w-80' : 'flex md:w-80'
-        }`}
-      >
+      <div className={`w-full shrink-0 flex-col border-r border-border bg-surface ${selected ? 'hidden md:flex md:w-72' : 'flex md:w-72'}`}>
         <div className="flex items-center gap-2 border-b border-border px-5 py-4">
           <h1 className="flex-1 text-lg font-semibold tracking-tight text-text">Collections</h1>
           <button
@@ -113,48 +120,42 @@ export default function CollectionsPage() {
             <div className="px-2 py-6 text-center">
               <CollectionIcon className="mx-auto mb-2 h-8 w-8 text-faint" />
               <p className="text-sm text-muted">No collections yet.</p>
-              <p className="mt-1 text-xs text-faint">
-                Group artifacts, files and to-dos into a collection, then chat with the whole set at once.
-              </p>
+              <p className="mt-1 text-xs text-faint">Group content into a collection, then chat with the whole set at once.</p>
             </div>
           ) : (
             <div className="space-y-1">
-              {collections.map((c) => {
-                const n = counts[c.id] ?? { artifacts: 0, files: 0, todos: 0 }
-                const total = n.artifacts + n.files + n.todos
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedId(c.id)}
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition ${
-                      c.id === selectedId ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover hover:text-text'
-                    }`}
-                  >
-                    <CollectionIcon className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{c.name}</span>
-                      <span className="block truncate text-[11px] text-faint">
-                        {total} item{total === 1 ? '' : 's'}
-                        {tokens[c.id] ? ` · ≈${Math.round(tokens[c.id] / 100) / 10}k tok` : ''}
-                      </span>
+              {collections.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedId(c.id)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition ${
+                    c.id === selectedId ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover hover:text-text'
+                  }`}
+                >
+                  <CollectionIcon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{c.name}</span>
+                    <span className="block truncate text-[11px] text-faint">
+                      {counts[c.id] ?? 0} item{(counts[c.id] ?? 0) === 1 ? '' : 's'}
+                      {tokens[c.id] ? ` · ≈${Math.round(tokens[c.id] / 100) / 10}k tok` : ''}
                     </span>
-                    {c.visibility === 'workspace' ? (
-                      <GlobeIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                    ) : (
-                      <LockIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                    )}
-                  </button>
-                )
-              })}
+                  </span>
+                  {c.visibility === 'workspace' ? (
+                    <GlobeIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                  ) : (
+                    <LockIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                  )}
+                </button>
+              ))}
             </div>
           )}
         </div>
       </div>
 
       {/* Detail pane */}
-      <div className={`min-w-0 flex-1 ${selected ? 'flex' : 'hidden md:flex'} flex-col bg-bg`}>
+      <div className={`relative min-w-0 flex-1 ${selected ? 'flex' : 'hidden md:flex'} flex-col bg-bg`}>
         {selected ? (
-          <CollectionDetail
+          <CollectionDashboard
             key={selected.id}
             collection={selected}
             isOwner={selected.owner_id === user?.id}
@@ -175,8 +176,7 @@ export default function CollectionsPage() {
               </div>
               <h2 className="text-lg font-semibold text-text">Your collections</h2>
               <p className="mt-2 text-sm text-muted">
-                A collection groups artifacts, files and to-dos so you can chat with a focused set at once.
-                Pick one to see what's inside, or add items from the Artifacts, Files and To-dos pages.
+                A collection groups to-dos, artifacts, files and tables so you can see them on one dashboard and chat with the whole set at once.
               </p>
             </div>
           </div>
@@ -187,9 +187,9 @@ export default function CollectionsPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Detail: a collection's contents, grouped by type
+// Dashboard: a collection's contents as cards, + a floating chat bubble
 // ---------------------------------------------------------------------------
-function CollectionDetail({
+function CollectionDashboard({
   collection,
   isOwner,
   tokens,
@@ -211,17 +211,27 @@ function CollectionDetail({
   const [editing, setEditing] = useState(false)
 
   const loadItems = useCallback(async () => {
-    const [a, f, t] = await Promise.all([
+    const [a, f, t, u] = await Promise.all([
       supabase.from('collection_artifacts').select('artifacts(id, title, type, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_files').select('files(id, name, size_bytes)').eq('collection_id', collection.id),
       supabase.from('collection_todos').select('todos(id, title, done, due_date)').eq('collection_id', collection.id),
+      supabase.from('collection_tables').select('user_tables(id, name, updated_at)').eq('collection_id', collection.id),
     ])
     const pluck = (rows: unknown, key: string) =>
-      ((rows ?? []) as Array<Record<string, unknown>>).map((r) => r[key]).filter(Boolean)
+      ((rows ?? []) as Array<Record<string, unknown>>).map((r) => r[key]).filter(Boolean) as Array<Record<string, unknown>>
     setItems({
-      artifacts: pluck(a.data, 'artifacts') as Items['artifacts'],
-      files: pluck(f.data, 'files') as Items['files'],
-      todos: pluck(t.data, 'todos') as Items['todos'],
+      todo: pluck(t.data, 'todos').map((x) => ({
+        id: String(x.id),
+        label: String(x.title),
+        meta: `${x.done ? 'done' : 'open'}${x.due_date ? ` · due ${x.due_date}` : ''}`,
+      })),
+      artifact: pluck(a.data, 'artifacts').map((x) => ({
+        id: String(x.id),
+        label: String(x.title),
+        meta: `${x.type} · ${formatDate(String(x.updated_at))}`,
+      })),
+      file: pluck(f.data, 'files').map((x) => ({ id: String(x.id), label: String(x.name), meta: formatBytes(Number(x.size_bytes ?? 0)) })),
+      table: pluck(u.data, 'user_tables').map((x) => ({ id: String(x.id), label: String(x.name), meta: `updated ${formatDate(String(x.updated_at))}` })),
     })
   }, [collection.id])
 
@@ -239,12 +249,22 @@ function CollectionDetail({
     if (data) onChanged()
   }
 
-  async function removeItem(table: 'collection_artifacts' | 'collection_files' | 'collection_todos', col: string, id: string) {
+  async function removeItem(kind: Kind, id: string) {
+    const cfg = KINDS[kind]
     await supabase
-      .from(table as 'collection_artifacts')
+      .from(cfg.link as 'collection_artifacts')
       .delete()
       .eq('collection_id', collection.id)
-      .eq(col as 'artifact_id', id)
+      .eq(cfg.col as 'artifact_id', id)
+    loadItems()
+    onChanged()
+  }
+
+  async function addItem(kind: Kind, id: string) {
+    const cfg = KINDS[kind]
+    await supabase
+      .from(cfg.link as 'collection_artifacts')
+      .upsert({ collection_id: collection.id, [cfg.col]: id } as never, { onConflict: `collection_id,${cfg.col}`, ignoreDuplicates: true })
     loadItems()
     onChanged()
   }
@@ -255,7 +275,12 @@ function CollectionDetail({
     onDeleted()
   }
 
-  const total = items ? items.artifacts.length + items.files.length + items.todos.length : 0
+  const openItem = (kind: Kind, id: string) => {
+    if (kind === 'artifact') navigate(`/artifacts/${id}`)
+    else if (kind === 'file') navigate('/files')
+    else if (kind === 'table') navigate('/tables')
+    else navigate('/todos')
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -271,9 +296,10 @@ function CollectionDetail({
           </h2>
           <button
             onClick={() => navigate(`/chat?collection=${collection.id}`)}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
+            className="hidden items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover sm:flex"
+            title="Open the full chat scoped to this collection"
           >
-            <ChatIcon className="h-4 w-4" /> Chat with this
+            <ChatIcon className="h-4 w-4" /> Full chat
           </button>
           {isOwner && (
             <button
@@ -284,9 +310,7 @@ function CollectionDetail({
             </button>
           )}
         </div>
-        {collection.description && !editing && (
-          <p className="mt-1.5 text-sm text-muted">{collection.description}</p>
-        )}
+        {collection.description && !editing && <p className="mt-1.5 text-sm text-muted">{collection.description}</p>}
         <div className="mt-3 max-w-sm">
           <ContextMeter tokens={tokens} model={model} />
         </div>
@@ -331,105 +355,244 @@ function CollectionDetail({
         )}
       </div>
 
-      {/* Contents */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      {/* Cards */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 pb-28">
         {!items ? (
           <p className="text-sm text-faint">Loading…</p>
-        ) : total === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border-strong py-14 text-center">
-            <p className="text-sm text-muted">This collection is empty.</p>
-            <p className="mt-1 text-xs text-faint">
-              Add items from the Artifacts, Files and To-dos pages (select → “Add to collection”).
-            </p>
-          </div>
         ) : (
-          <div className="space-y-6">
-            <Section title="Artifacts" icon={ArtifactIcon} count={items.artifacts.length}>
-              {items.artifacts.map((a) => (
-                <Row
-                  key={a.id}
-                  onOpen={() => navigate(`/artifacts/${a.id}`)}
-                  onRemove={() => removeItem('collection_artifacts', 'artifact_id', a.id)}
-                  title={a.title}
-                  meta={`${a.type} · ${formatDate(a.updated_at)}`}
-                />
-              ))}
-            </Section>
-            <Section title="Files" icon={FileIcon} count={items.files.length}>
-              {items.files.map((f) => (
-                <Row
-                  key={f.id}
-                  onOpen={() => navigate('/files')}
-                  onRemove={() => removeItem('collection_files', 'file_id', f.id)}
-                  title={f.name}
-                  meta={formatBytes(f.size_bytes)}
-                />
-              ))}
-            </Section>
-            <Section title="To-dos" icon={TodoIcon} count={items.todos.length}>
-              {items.todos.map((t) => (
-                <Row
-                  key={t.id}
-                  onOpen={() => navigate('/todos')}
-                  onRemove={() => removeItem('collection_todos', 'todo_id', t.id)}
-                  title={t.title}
-                  meta={`${t.done ? 'done' : 'open'}${t.due_date ? ` · due ${t.due_date}` : ''}`}
-                />
-              ))}
-            </Section>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {KIND_ORDER.map((kind) => (
+              <Card
+                key={kind}
+                kind={kind}
+                collectionId={collection.id}
+                items={items[kind]}
+                onOpen={(id) => openItem(kind, id)}
+                onRemove={(id) => removeItem(kind, id)}
+                onAdd={(id) => addItem(kind, id)}
+              />
+            ))}
           </div>
         )}
       </div>
+
+      {/* Floating chat bubble — chat with this collection, add things to it */}
+      <CollectionChat collection={collection} onChanged={() => { loadItems(); onChanged() }} />
     </div>
   )
 }
 
-function Section({
-  title,
-  icon: Icon,
-  count,
-  children,
-}: {
-  title: string
-  icon: (p: { className?: string }) => JSX.Element
-  count: number
-  children: React.ReactNode
-}) {
-  if (count === 0) return null
-  return (
-    <div>
-      <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
-        <Icon className="h-4 w-4" /> {title} ({count})
-      </h3>
-      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">{children}</div>
-    </div>
-  )
-}
-
-function Row({
-  title,
-  meta,
+// A single content-type card: its items + a picker to add more.
+function Card({
+  kind,
+  collectionId,
+  items,
   onOpen,
   onRemove,
+  onAdd,
 }: {
-  title: string
-  meta: string
-  onOpen: () => void
-  onRemove: () => void
+  kind: Kind
+  collectionId: string
+  items: Item[]
+  onOpen: (id: string) => void
+  onRemove: (id: string) => void
+  onAdd: (id: string) => void
 }) {
+  const cfg = KINDS[kind]
+  const Icon = cfg.icon
+  const [adding, setAdding] = useState(false)
+  const [candidates, setCandidates] = useState<Item[] | null>(null)
+  const present = useMemo(() => new Set(items.map((i) => i.id)), [items])
+
+  async function openPicker() {
+    setAdding((v) => !v)
+    if (candidates) return
+    const { data } = await supabase.from(cfg.base as 'artifacts').select(`id, ${cfg.label}`).limit(200)
+    setCandidates(((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), label: String(r[cfg.label]) })))
+  }
+
+  const addable = (candidates ?? []).filter((c) => !present.has(c.id))
+
   return (
-    <div className="group flex items-center gap-3 px-4 py-2.5">
-      <button onClick={onOpen} className="min-w-0 flex-1 text-left">
-        <p className="truncate text-sm font-medium text-text group-hover:text-primary">{title}</p>
-        <p className="truncate text-[11px] uppercase tracking-wide text-faint">{meta}</p>
-      </button>
+    <div className="flex flex-col rounded-xl border border-border bg-surface">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        <Icon className="h-4 w-4 text-primary" />
+        <span className="text-sm font-semibold text-text">{cfg.title}</span>
+        <span className="text-xs text-faint">{items.length}</span>
+        <button
+          onClick={openPicker}
+          className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary-soft"
+        >
+          <PlusIcon className="h-3.5 w-3.5" /> Add
+        </button>
+      </div>
+
+      {adding && (
+        <div className="max-h-48 overflow-y-auto border-b border-border bg-surface-2/40">
+          {candidates === null ? (
+            <p className="px-4 py-3 text-xs text-faint">Loading…</p>
+          ) : addable.length === 0 ? (
+            <p className="px-4 py-3 text-xs text-faint">Nothing to add.</p>
+          ) : (
+            addable.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => {
+                  onAdd(c.id)
+                  setAdding(false)
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-text hover:bg-surface-hover"
+              >
+                <PlusIcon className="h-3.5 w-3.5 shrink-0 text-faint" />
+                <span className="truncate">{c.label}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      <div className="min-h-[3rem] divide-y divide-border">
+        {items.length === 0 ? (
+          <p className="px-4 py-4 text-xs text-faint">None yet.</p>
+        ) : (
+          items.map((i) => (
+            <div key={i.id} className="group flex items-center gap-3 px-4 py-2">
+              <button onClick={() => onOpen(i.id)} className="min-w-0 flex-1 text-left">
+                <p className="truncate text-sm font-medium text-text group-hover:text-primary">{i.label}</p>
+                {i.meta && <p className="truncate text-[11px] uppercase tracking-wide text-faint">{i.meta}</p>}
+              </button>
+              <button
+                onClick={() => onRemove(i.id)}
+                title="Remove from this collection"
+                aria-label="Remove"
+                className="rounded-md p-1 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+              >
+                <CloseIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <span className="sr-only">{collectionId}</span>
+    </div>
+  )
+}
+
+// Floating "chat with this collection" bubble. Scopes the chat to the
+// collection's content and nudges the assistant to file new items into it.
+function CollectionChat({ collection, onChanged }: { collection: Collection; onChanged: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+  const [input, setInput] = useState('')
+  const [streaming, setStreaming] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+  }, [messages, streaming])
+
+  const system =
+    `You are the assistant for the "${collection.name}" collection. Its current contents (to-dos, artifacts, files, tables) are provided as context. ` +
+    `When the user asks to add a task, note, or document, USE YOUR TOOLS (create_todo, add_note, create_artifact, …) and file it into the "${collection.name}" collection (pass collection: "${collection.name}"). ` +
+    `Prefer tools over emitting artifact blocks. Keep replies short and practical.`
+
+  async function send() {
+    const text = input.trim()
+    if (!text || sending) return
+    setInput('')
+    const history: ChatMessage[] = [...messages.map((m) => ({ role: m.role, content: m.content })), { role: 'user', content: text }]
+    setMessages((prev) => [...prev, { role: 'user', content: text }])
+    setSending(true)
+    setStreaming('')
+    try {
+      const full = await streamChat(history, (d) => setStreaming((s) => (s ?? '') + d), {
+        system,
+        collectionIds: [collection.id],
+      })
+      setMessages((prev) => [...prev, { role: 'assistant', content: full }])
+      onChanged() // the assistant may have added a to-do / artifact to the collection
+    } catch (err) {
+      setMessages((prev) => [...prev, { role: 'assistant', content: `⚠️ ${err instanceof Error ? err.message : 'Chat failed'}` }])
+    } finally {
+      setStreaming(null)
+      setSending(false)
+    }
+  }
+
+  if (!open) {
+    return (
       <button
-        onClick={onRemove}
-        title="Remove from this collection"
-        className="rounded-md p-1 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+        onClick={() => setOpen(true)}
+        title={`Chat with "${collection.name}"`}
+        className="absolute bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-lg transition hover:bg-primary-strong"
+        style={{ boxShadow: '0 10px 30px rgba(99,84,232,.45)' }}
       >
-        <CloseIcon className="h-4 w-4" />
+        <ChatIcon className="h-6 w-6" />
       </button>
+    )
+  }
+
+  return (
+    <div className="absolute bottom-5 right-5 z-30 flex h-[70%] max-h-[560px] w-[calc(100%-2.5rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        <CollectionIcon className="h-4 w-4 text-primary" />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{collection.name}</span>
+        <button onClick={() => setOpen(false)} className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-text" aria-label="Close chat">
+          <CloseIcon className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
+        {messages.length === 0 && streaming === null && (
+          <p className="px-2 py-6 text-center text-xs text-faint">
+            Ask about this collection, or say “add a task to …”, “make a note that …”. New items land back in this collection.
+          </p>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                m.role === 'user' ? 'bg-primary text-white' : 'border border-border bg-surface text-text'
+              }`}
+            >
+              {m.role === 'user' ? <span className="whitespace-pre-wrap">{m.content}</span> : <Markdown>{m.content}</Markdown>}
+            </div>
+          </div>
+        ))}
+        {streaming !== null && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-2xl border border-border bg-surface px-3 py-2 text-sm text-text">
+              <Markdown>{streaming || '…'}</Markdown>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-border p-2">
+        <div className="flex items-end gap-2">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                send()
+              }
+            }}
+            rows={1}
+            placeholder={`Message “${collection.name}”…`}
+            className="max-h-28 min-h-[38px] flex-1 resize-none rounded-xl border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+          />
+          <button
+            onClick={send}
+            disabled={sending || !input.trim()}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-strong disabled:opacity-50"
+          >
+            <SendIcon className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
