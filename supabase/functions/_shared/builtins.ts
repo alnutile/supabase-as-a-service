@@ -90,6 +90,8 @@ export async function runBuiltin(
       return updateTodo(db, input, userId)
     case 'add_todo_to_collection':
       return addTodoToCollection(db, input, userId)
+    case 'add_table_to_collection':
+      return addTableToCollection(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -869,4 +871,25 @@ async function addTodoToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added to-do ${todoId} to collection "${col.name}".`
+}
+
+async function addTableToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Tables are unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const tableRef = String(input?.table ?? '').trim()
+  if (!ref || !tableRef) return 'Pass both a collection (name or id) and a table (name or id).'
+  const t = findTable(await accessibleTables(db, userId), tableRef)
+  if (!t) return `No table named "${tableRef}" that you can access.`
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_tables').upsert(
+    { collection_id: col.id, table_id: t.id, added_by: userId },
+    { onConflict: 'collection_id,table_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added table "${t.name}" to collection "${col.name}".`
 }
