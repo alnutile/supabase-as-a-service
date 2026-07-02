@@ -257,7 +257,7 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `_shared/collections.ts` `loadCollectionsContext` (moved out of the chat function
   so every loop shares it). Agents *add into* collections via the existing `is_builtin`
   authoring tools (`create_collection` / `add_to_collection` / `create_artifact` /
-  `add_todo_to_collection`), scoped by `tool_ids` like any tool.
+  `add_todo_to_collection` / `add_table_to_collection`), scoped by `tool_ids` like any tool.
   A webhook can also **target an agent** (`webhooks.agent_id`): the webhook function
   then runs the agent (its prompt + tools) over the payload via its own tool loop
   instead of the bare prompt. **Scheduled agents:** a `schedules` row (agent + input +

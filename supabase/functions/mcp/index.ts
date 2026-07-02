@@ -225,6 +225,18 @@ const TOOLS = [
     },
   },
   {
+    name: 'add_table_to_collection',
+    description: 'Add an existing data table to a collection (both by name or id). The collection is created if it does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id.' },
+        table: { type: 'string', description: 'The table name or id to add.' },
+      },
+      required: ['collection', 'table'],
+    },
+  },
+  {
     name: 'upload_file',
     description:
       'Upload a file (PDF, image, text, etc.) into the workspace Files area. PDFs are automatically indexed into the shared knowledge base. Provide the content base64-encoded; max 10 MB. For files larger than ~10 MB use create_file_upload + finalize_file_upload instead.',
@@ -693,6 +705,22 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       )
       if (error) return text(`Error: ${error.message}`, true)
       return text(`Added to-do ${todoId} to collection "${col.name}".`)
+    }
+    case 'add_table_to_collection': {
+      const ref = String(args.collection ?? '').trim()
+      const tableRef = String(args.table ?? '').trim()
+      if (!ref || !tableRef) return text('add_table_to_collection needs collection and table.', true)
+      const r = tableRef.toLowerCase()
+      const t = (await ownerTables(db, owner)).find((x) => x.id === tableRef || x.name.trim().toLowerCase() === r)
+      if (!t) return text(`No table named "${tableRef}" that you can access.`, true)
+      const col = await resolveCollection(db, owner, ref, true)
+      if (!col) return text(`Could not resolve collection "${ref}".`, true)
+      const { error } = await db.from('collection_tables').upsert(
+        { collection_id: col.id, table_id: t.id, added_by: owner },
+        { onConflict: 'collection_id,table_id', ignoreDuplicates: true },
+      )
+      if (error) return text(`Error: ${error.message}`, true)
+      return text(`Added table "${t.name}" to collection "${col.name}".`)
     }
     case 'upload_file': {
       if (!args.name || !args.mime_type || !args.content_base64) {
