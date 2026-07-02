@@ -6,6 +6,7 @@ import {
   ActivityIcon,
   AgentIcon,
   ApiIcon,
+  ArrowRightIcon,
   ArtifactIcon,
   TodoIcon,
   ChatIcon,
@@ -126,6 +127,30 @@ function useCollapsedGroups(): [Set<string>, (label: string) => void] {
   return [collapsed, toggle]
 }
 
+// Desktop "rail" mode: collapse the sidebar to an icons-only strip to reclaim
+// horizontal room in the triple-column pages. Persisted; only affects md+ (the
+// mobile drawer always shows full labels).
+function useRail(): [boolean, () => void] {
+  const [railed, setRailed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('nav.rail') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggle = () =>
+    setRailed((v) => {
+      const next = !v
+      try {
+        localStorage.setItem('nav.rail', next ? '1' : '0')
+      } catch {
+        // ignore
+      }
+      return next
+    })
+  return [railed, toggle]
+}
+
 type Theme = 'light' | 'dark'
 
 function useTheme(): [Theme, (t: Theme) => void] {
@@ -161,9 +186,12 @@ export function Layout() {
   }, [user])
 
   const [collapsed, toggleGroup] = useCollapsedGroups()
+  const [railed, toggleRail] = useRail()
   const initial = (user?.email ?? '?').charAt(0).toUpperCase()
   const segBase =
     'flex h-[30px] w-[38px] items-center justify-center rounded-[9px] transition'
+  // When railed, hide this element on desktop but keep it in the mobile drawer.
+  const railHide = railed ? 'md:hidden' : ''
 
   const renderItem = ({ to, label, icon: Icon, end }: NavItem) => (
     <NavLink
@@ -171,16 +199,19 @@ export function Layout() {
       to={to}
       end={end}
       onClick={() => setDrawerOpen(false)}
+      title={label}
       className={({ isActive }) =>
         `flex w-full items-center gap-[13px] rounded-[13px] px-[13px] py-[11px] text-[15px] transition ${
+          railed ? 'md:justify-center md:gap-0 md:px-0' : ''
+        } ${
           isActive
             ? 'bg-primary-soft font-bold text-primary'
             : 'font-medium text-muted hover:bg-surface-hover hover:text-text'
         }`
       }
     >
-      <Icon className="h-5 w-5" />
-      {label}
+      <Icon className="h-5 w-5 shrink-0" />
+      <span className={railHide}>{label}</span>
     </NavLink>
   )
 
@@ -196,18 +227,22 @@ export function Layout() {
 
       {/* Sidebar: static on md+, slide-in drawer on mobile */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[266px] flex-col border-r border-border bg-surface transition-transform duration-200 md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[266px] flex-col border-r border-border bg-surface transition-[width,transform] duration-200 md:static md:translate-x-0 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${railed ? 'md:w-[70px]' : 'md:w-[266px]'}`}
       >
-        <div className="flex items-center gap-3 px-[22px] pb-[14px] pt-[22px]">
+        <div
+          className={`flex items-center gap-3 px-[22px] pb-[14px] pt-[22px] ${
+            railed ? 'md:justify-center md:px-0' : ''
+          }`}
+        >
           <div
-            className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] bg-gradient-to-br from-primary to-primary-strong text-white"
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] bg-gradient-to-br from-primary to-primary-strong text-white"
             style={{ boxShadow: '0 4px 12px rgba(99,84,232,.35)' }}
           >
             <SparkleIcon className="h-[18px] w-[18px]" />
           </div>
-          <span className="text-[20px] font-extrabold tracking-tight">Intranet</span>
+          <span className={`text-[20px] font-extrabold tracking-tight ${railHide}`}>Intranet</span>
           <button
             className="ml-auto rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text md:hidden"
             onClick={() => setDrawerOpen(false)}
@@ -227,7 +262,7 @@ export function Layout() {
                 {group.label && (
                   <button
                     onClick={() => toggleGroup(group.label!)}
-                    className="flex w-full items-center justify-between px-[13px] pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-faint transition hover:text-muted"
+                    className={`flex w-full items-center justify-between px-[13px] pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-faint transition hover:text-muted ${railHide}`}
                     aria-expanded={!isCollapsed}
                   >
                     {group.label}
@@ -236,7 +271,8 @@ export function Layout() {
                     />
                   </button>
                 )}
-                {!isCollapsed && visible.map(renderItem)}
+                {/* When railed, headers are hidden, so always show the items. */}
+                {(railed || !isCollapsed) && visible.map(renderItem)}
               </div>
             )
           })}
@@ -246,8 +282,21 @@ export function Layout() {
         </nav>
 
         <div className="flex flex-col gap-3 border-t border-border p-[14px]">
+          {/* Desktop rail toggle (icons-only ↔ icons+text) */}
+          <button
+            onClick={toggleRail}
+            title={railed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`hidden items-center gap-[13px] rounded-[13px] px-[13px] py-[9px] text-sm font-medium text-muted transition hover:bg-surface-hover hover:text-text md:flex ${
+              railed ? 'md:justify-center md:gap-0 md:px-0' : ''
+            }`}
+          >
+            <ArrowRightIcon className={`h-5 w-5 shrink-0 transition-transform ${railed ? '' : 'rotate-180'}`} />
+            <span className={railHide}>Collapse</span>
+          </button>
+
           {/* Theme toggle */}
-          <div className="flex w-max items-center gap-1 rounded-[13px] bg-surface-2 p-1">
+          <div className={`flex w-max items-center gap-1 rounded-[13px] bg-surface-2 p-1 ${railHide}`}>
             <button
               onClick={() => setTheme('light')}
               title="Light"
@@ -268,11 +317,11 @@ export function Layout() {
             </button>
           </div>
 
-          <div className="flex items-center gap-[11px]">
+          <div className={`flex items-center gap-[11px] ${railed ? 'md:flex-col md:gap-2' : ''}`}>
             <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-primary-soft text-[15px] font-bold text-primary">
               {initial}
             </div>
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-muted">
+            <span className={`min-w-0 flex-1 truncate text-sm font-semibold text-muted ${railHide}`}>
               {user?.email}
             </span>
             <button
