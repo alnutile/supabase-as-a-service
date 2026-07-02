@@ -74,9 +74,14 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   to the chat function, which `loadCollectionsContext` gathers the **deduped** union of their
   **multi-content** items and injects them as a primary-context block in the system prompt:
   artifacts (text), files (`collection_files`, migration 0042 — text files inlined, PDFs via
-  their indexed knowledge chunks, via `fileToText`; images/binaries skipped), and to-dos.
+  their indexed knowledge chunks, via `fileToText`; images/binaries skipped), to-dos, and
+  **tables** (`collection_tables`, migration 0045 — a preview of the `ut_*` rows as JSON).
   The shared `AddToCollectionBar` component drives "select items → Add to collection" on the
-  Artifacts and Files pages; `_file_chars` folds files into the size meter RPCs.
+  Artifacts and Files pages; `_file_chars` folds files into the size meter RPCs. **`CollectionsPage`
+  (route `/collections`, Assets) is a per-collection dashboard**: a card per content type
+  (to-dos/artifacts/files/tables) with add/remove, the context-window meter, and a floating
+  chat bubble (`streamChat({ collectionIds:[id] })`) that answers about the collection and files
+  new to-dos/notes/artifacts back into it via the builtin authoring tools.
   Access mirrors `user_tables`: a collection is `private` (owner + admins) or `workspace`
   (every member can read **and** collaborate — add/remove members); the join table's RLS
   inherits the collection's visibility. The chat function runs as the service role so it
