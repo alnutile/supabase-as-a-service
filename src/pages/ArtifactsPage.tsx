@@ -459,7 +459,7 @@ export default function ArtifactsPage() {
                     className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border transition ${
                       isSelected
                         ? 'border-primary bg-primary text-white'
-                        : 'border-border-strong bg-surface text-transparent opacity-0 hover:text-faint group-hover:opacity-100'
+                        : 'border-border-strong bg-surface text-transparent opacity-100 hover:text-faint md:opacity-0 md:group-hover:opacity-100'
                     }`}
                   >
                     <CheckIcon className="h-3.5 w-3.5" />
@@ -482,7 +482,7 @@ export default function ArtifactsPage() {
                     <button
                       onClick={() => removeFromActive(a.id)}
                       title="Remove from this collection"
-                      className="absolute right-2 top-2 rounded-md p-1 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+                      className="absolute right-2 top-2 rounded-md p-1 text-faint opacity-100 transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100"
                     >
                       <CloseIcon className="h-4 w-4" />
                     </button>

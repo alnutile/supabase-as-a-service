@@ -591,7 +591,7 @@ function Card({
                 onClick={() => onRemove(i.id)}
                 title="Remove from this collection"
                 aria-label="Remove"
-                className="rounded-md p-1 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+                className="rounded-md p-1 text-faint opacity-100 transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100"
               >
                 <CloseIcon className="h-4 w-4" />
               </button>
