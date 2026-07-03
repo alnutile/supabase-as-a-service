@@ -18,6 +18,7 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import {
+  CalendarIcon,
   CheckIcon,
   CollectionIcon,
   DragHandleIcon,
@@ -43,6 +44,35 @@ function dueLabel(due: string | null): string {
   if (!due) return ''
   const d = new Date(due + 'T00:00:00')
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Short form for the compact due pill ("Jul 5" — no year).
+function shortDue(due: string): string {
+  return new Date(due + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+// Compact due-date control: a small pill showing the date (or "Due"), with a
+// transparent native date input laid over it so a tap opens the picker. Much
+// smaller than a full date field — the fix for cramped mobile rows.
+function DuePill({ due, overdue, onChange }: { due: string | null; overdue: boolean; onChange: (d: string) => void }) {
+  return (
+    <label
+      title={due ? `Due ${dueLabel(due)}` : 'Set a due date'}
+      className={`relative inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
+        overdue ? 'bg-red-500/15 text-red-500' : due ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-faint hover:text-muted'
+      }`}
+    >
+      <CalendarIcon className="h-3 w-3 shrink-0" />
+      <span>{due ? shortDue(due) : 'Due'}</span>
+      <input
+        type="date"
+        value={due ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Set a due date"
+        className="absolute inset-0 cursor-pointer opacity-0"
+      />
+    </label>
+  )
 }
 
 export default function TodosPage() {
@@ -510,18 +540,18 @@ function TodoRow({
     <li
       ref={setNodeRef}
       style={style}
-      className={`group flex items-center gap-2 rounded-lg border bg-surface px-2.5 py-2 ${
+      className={`group flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg border bg-surface px-2.5 py-2 md:flex-nowrap ${
         selected ? 'border-primary' : 'border-border'
       }`}
     >
-      {/* Drag handle */}
+      {/* Drag handle — desktop only (touch drag is fiddly; use the sort toggles) */}
       <button
         {...attributes}
         {...listeners}
         disabled={dragDisabled}
         aria-label="Drag to reorder"
-        className={`shrink-0 cursor-grab text-faint hover:text-muted active:cursor-grabbing ${
-          dragDisabled ? 'invisible' : ''
+        className={`hidden shrink-0 cursor-grab text-faint hover:text-muted active:cursor-grabbing md:block ${
+          dragDisabled ? 'md:invisible' : ''
         }`}
       >
         <DragHandleIcon className="h-4 w-4" />
@@ -538,7 +568,7 @@ function TodoRow({
         <CheckIcon className="h-3.5 w-3.5" />
       </button>
 
-      {/* Title (inline editable) */}
+      {/* Title (inline editable) — owns the whole first line on mobile */}
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
@@ -551,57 +581,47 @@ function TodoRow({
         }`}
       />
 
-      {/* Due date */}
-      <label className="relative shrink-0">
-        <input
-          type="date"
-          value={todo.due_date ?? ''}
-          onChange={(e) => onChangeDue(e.target.value)}
-          className={`w-[8.5rem] rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none hover:border-border focus:border-primary ${
-            overdue ? 'text-red-600' : todo.due_date ? 'text-muted' : 'text-faint'
+      {/* Meta row: due + visibility + actions. Wraps to its own line on mobile
+          (w-full) and stays inline on desktop (md:w-auto). */}
+      <div className="order-last flex w-full items-center gap-2 md:order-none md:w-auto">
+        <DuePill due={todo.due_date} overdue={overdue} onChange={onChangeDue} />
+
+        <button
+          onClick={onToggleVisibility}
+          title={todo.visibility === 'workspace' ? 'Shared with the workspace' : 'Private to you'}
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition ${
+            todo.visibility === 'workspace' ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-faint hover:text-muted'
           }`}
-          title={todo.due_date ? `Due ${dueLabel(todo.due_date)}` : 'Set a due date'}
-        />
-      </label>
+        >
+          {todo.visibility === 'workspace' ? 'Team' : 'Mine'}
+        </button>
 
-      {/* Visibility */}
-      <button
-        onClick={onToggleVisibility}
-        title={todo.visibility === 'workspace' ? 'Shared with the workspace' : 'Private to you'}
-        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition ${
-          todo.visibility === 'workspace'
-            ? 'bg-primary-soft text-primary'
-            : 'bg-surface-2 text-faint hover:text-muted'
-        }`}
-      >
-        {todo.visibility === 'workspace' ? 'Team' : 'Mine'}
-      </button>
-
-      {/* Actions (hover) */}
-      <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
-        {onRemoveFromCollection && (
+        {/* Actions — always visible on mobile (no hover), reveal on hover on desktop */}
+        <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 transition md:ml-0 md:opacity-0 md:group-hover:opacity-100">
+          {onRemoveFromCollection && (
+            <button
+              onClick={onRemoveFromCollection}
+              title="Remove from this collection"
+              className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+            >
+              <CollectionIcon className="h-4 w-4" />
+            </button>
+          )}
           <button
-            onClick={onRemoveFromCollection}
-            title="Remove from this collection"
-            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+            onClick={onToggleSelect}
+            title="Select"
+            className={`rounded-md p-1 hover:bg-surface-hover ${selected ? 'text-primary' : 'text-faint hover:text-muted'}`}
           >
-            <CollectionIcon className="h-4 w-4" />
+            <CheckIcon className="h-4 w-4" />
           </button>
-        )}
-        <button
-          onClick={onToggleSelect}
-          title="Select"
-          className={`rounded-md p-1 hover:bg-surface-hover ${selected ? 'text-primary' : 'text-faint hover:text-muted'}`}
-        >
-          <CheckIcon className="h-4 w-4" />
-        </button>
-        <button
-          onClick={onDelete}
-          title="Delete"
-          className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-red-600"
-        >
-          <TrashIcon className="h-4 w-4" />
-        </button>
+          <button
+            onClick={onDelete}
+            title="Delete"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-red-600"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </li>
   )

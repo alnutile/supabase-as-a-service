@@ -214,6 +214,13 @@ export const CheckIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const CalendarIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="18" rx="2" />
+    <path d="M16 2v4M8 2v4M3 10h18" />
+  </svg>
+)
+
 export const HomeIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 11l9-8 9 8" />
