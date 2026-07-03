@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatMessage } from '../lib/chat'
+import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import { formatBytes, formatDate } from '../lib/util'
@@ -207,6 +208,7 @@ function CollectionDashboard({
   onDeleted: () => void
 }) {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [items, setItems] = useState<Items | null>(null)
   const [editing, setEditing] = useState(false)
 
@@ -267,6 +269,48 @@ function CollectionDashboard({
       .upsert({ collection_id: collection.id, [cfg.col]: id } as never, { onConflict: `collection_id,${cfg.col}`, ignoreDuplicates: true })
     loadItems()
     onChanged()
+  }
+
+  // Create a brand-new item of `kind` (named `label`) and file it into this
+  // collection. Files come in via uploadFiles instead (they need a real upload).
+  async function createAndAdd(kind: Exclude<Kind, 'file'>, label: string) {
+    const name = label.trim()
+    if (!name || !user) return
+    let id: string | null = null
+    if (kind === 'todo') {
+      const { data } = await supabase.from('todos').insert({ owner_id: user.id, title: name, visibility: 'private' }).select('id').single()
+      id = data?.id ?? null
+    } else if (kind === 'artifact') {
+      const { data } = await supabase
+        .from('artifacts')
+        .insert({ owner_id: user.id, title: name, type: 'markdown', content: '', visibility: 'private' })
+        .select('id')
+        .single()
+      id = data?.id ?? null
+    } else if (kind === 'table') {
+      const { data } = await supabase.rpc('create_user_table', {
+        p_name: name,
+        p_columns: [{ key: 'name', label: 'Name', type: 'text' }],
+        p_visibility: 'private',
+      })
+      const created = (Array.isArray(data) ? data[0] : data) as { id?: string } | null
+      id = created?.id ?? null
+    }
+    if (id) await addItem(kind, id)
+  }
+
+  async function uploadFiles(files: FileList) {
+    if (!user) return
+    for (const file of Array.from(files)) {
+      const path = `${user.id}/${crypto.randomUUID()}/${file.name}`
+      const size = await uploadPickedFile(path, file)
+      const { data } = await supabase
+        .from('files')
+        .insert({ owner_id: user.id, bucket: 'files', path, name: file.name, mime_type: file.type || null, size_bytes: size, visibility: 'private' })
+        .select('id')
+        .single()
+      if (data?.id) await addItem('file', data.id)
+    }
   }
 
   async function deleteCollection() {
@@ -365,11 +409,12 @@ function CollectionDashboard({
               <Card
                 key={kind}
                 kind={kind}
-                collectionId={collection.id}
                 items={items[kind]}
                 onOpen={(id) => openItem(kind, id)}
                 onRemove={(id) => removeItem(kind, id)}
                 onAdd={(id) => addItem(kind, id)}
+                onCreate={kind === 'file' ? undefined : (label) => createAndAdd(kind, label)}
+                onUpload={kind === 'file' ? uploadFiles : undefined}
               />
             ))}
           </div>
@@ -382,33 +427,54 @@ function CollectionDashboard({
   )
 }
 
-// A single content-type card: its items + a picker to add more.
+// A single content-type card: its items + create-new / add-existing.
 function Card({
   kind,
-  collectionId,
   items,
   onOpen,
   onRemove,
   onAdd,
+  onCreate,
+  onUpload,
 }: {
   kind: Kind
-  collectionId: string
   items: Item[]
   onOpen: (id: string) => void
   onRemove: (id: string) => void
   onAdd: (id: string) => void
+  onCreate?: (label: string) => void | Promise<void>
+  onUpload?: (files: FileList) => void | Promise<void>
 }) {
   const cfg = KINDS[kind]
   const Icon = cfg.icon
   const [adding, setAdding] = useState(false)
   const [candidates, setCandidates] = useState<Item[] | null>(null)
+  const [newName, setNewName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
   const present = useMemo(() => new Set(items.map((i) => i.id)), [items])
 
+  const noun = cfg.title.replace(/s$/, '').toLowerCase()
+
   async function openPicker() {
-    setAdding((v) => !v)
-    if (candidates) return
+    const next = !adding
+    setAdding(next)
+    if (!next || candidates) return
     const { data } = await supabase.from(cfg.base as 'artifacts').select(`id, ${cfg.label}`).limit(200)
     setCandidates(((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), label: String(r[cfg.label]) })))
+  }
+
+  async function create() {
+    const name = newName.trim()
+    if (!name || !onCreate || busy) return
+    setBusy(true)
+    try {
+      await onCreate(name)
+      setNewName('')
+      setAdding(false)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const addable = (candidates ?? []).filter((c) => !present.has(c.id))
@@ -428,26 +494,86 @@ function Card({
       </div>
 
       {adding && (
-        <div className="max-h-48 overflow-y-auto border-b border-border bg-surface-2/40">
-          {candidates === null ? (
-            <p className="px-4 py-3 text-xs text-faint">Loading…</p>
-          ) : addable.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-faint">Nothing to add.</p>
-          ) : (
-            addable.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => {
-                  onAdd(c.id)
-                  setAdding(false)
-                }}
-                className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-text hover:bg-surface-hover"
-              >
-                <PlusIcon className="h-3.5 w-3.5 shrink-0 text-faint" />
-                <span className="truncate">{c.label}</span>
-              </button>
-            ))
-          )}
+        <div className="border-b border-border bg-surface-2/40">
+          {/* Create new */}
+          <div className="flex items-center gap-1.5 px-3 py-2">
+            {onUpload ? (
+              <>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={async (e) => {
+                    if (e.target.files?.length) {
+                      setBusy(true)
+                      try {
+                        await onUpload(e.target.files)
+                        setAdding(false)
+                      } finally {
+                        setBusy(false)
+                        if (fileRef.current) fileRef.current.value = ''
+                      }
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  disabled={busy}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border-strong px-2 py-1.5 text-xs font-medium text-primary hover:bg-primary-soft disabled:opacity-50"
+                >
+                  <PlusIcon className="h-3.5 w-3.5" /> {busy ? 'Uploading…' : 'Upload new file'}
+                </button>
+              </>
+            ) : (
+              onCreate && (
+                <>
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        create()
+                      }
+                    }}
+                    placeholder={`New ${noun}…`}
+                    className="min-w-0 flex-1 rounded-md border border-border-strong px-2 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+                  />
+                  <button
+                    onClick={create}
+                    disabled={!newName.trim() || busy}
+                    className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+                  >
+                    Create
+                  </button>
+                </>
+              )
+            )}
+          </div>
+
+          {/* Add existing */}
+          <div className="max-h-44 overflow-y-auto border-t border-border">
+            {candidates === null ? (
+              <p className="px-4 py-3 text-xs text-faint">Loading…</p>
+            ) : addable.length === 0 ? (
+              <p className="px-4 py-3 text-xs text-faint">No existing {cfg.title.toLowerCase()} to add.</p>
+            ) : (
+              addable.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    onAdd(c.id)
+                    setAdding(false)
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-text hover:bg-surface-hover"
+                >
+                  <PlusIcon className="h-3.5 w-3.5 shrink-0 text-faint" />
+                  <span className="truncate">{c.label}</span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       )}
 
@@ -473,7 +599,6 @@ function Card({
           ))
         )}
       </div>
-      <span className="sr-only">{collectionId}</span>
     </div>
   )
 }
