@@ -193,11 +193,14 @@ function ToolEditor({
   onClose: () => void
   onSaved: () => void
 }) {
-  const cfg = (tool.config as { url?: string; method?: string }) ?? {}
+  const cfg = (tool.config as { url?: string; method?: string; headers?: Record<string, string> }) ?? {}
   const [name, setName] = useState(tool.name)
   const [description, setDescription] = useState(tool.description)
   const [url, setUrl] = useState(cfg.url ?? '')
   const [method, setMethod] = useState(cfg.method ?? 'POST')
+  const [headers, setHeaders] = useState(
+    cfg.headers && Object.keys(cfg.headers).length ? JSON.stringify(cfg.headers, null, 2) : ''
+  )
   const [schema, setSchema] = useState(JSON.stringify(tool.input_schema, null, 2))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -209,6 +212,17 @@ function ToolEditor({
     } catch {
       setError('Input schema is not valid JSON.')
       return
+    }
+    let parsedHeaders: Record<string, string> | undefined
+    if (headers.trim()) {
+      try {
+        const h = JSON.parse(headers)
+        if (typeof h !== 'object' || h === null || Array.isArray(h)) throw new Error()
+        parsedHeaders = Object.fromEntries(Object.entries(h).map(([k, v]) => [k, String(v)]))
+      } catch {
+        setError('Headers must be a JSON object of header name → value.')
+        return
+      }
     }
     if (!/^[a-z][a-z0-9_]*$/.test(name)) {
       setError('Name must be snake_case (lowercase letters, numbers, underscores).')
@@ -222,7 +236,7 @@ function ToolEditor({
         name,
         description,
         input_schema: parsedSchema as never,
-        config: { url, method },
+        config: { url, method, ...(parsedHeaders ? { headers: parsedHeaders } : {}) },
         updated_at: new Date().toISOString(),
       })
       .eq('id', tool.id)
@@ -292,6 +306,21 @@ function ToolEditor({
               </select>
             </label>
           </div>
+          <Field label="Headers (JSON object, optional — sent with every call)">
+            <textarea
+              value={headers}
+              onChange={(e) => setHeaders(e.target.value)}
+              rows={3}
+              spellCheck={false}
+              placeholder={'{\n  "Authorization": "Bearer {{vault:my_api_key}}"\n}'}
+              className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-[12px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+            <p className="mt-1 text-xs text-faint">
+              Use <code className="font-mono">{'{{vault:secret_name}}'}</code> to insert a secret
+              from the Vault at call time — the value never leaves the server and the AI never
+              sees it. Workspace-shared secrets only.
+            </p>
+          </Field>
           <Field label="Input schema (JSON Schema for the arguments)">
             <textarea
               value={schema}

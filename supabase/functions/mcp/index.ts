@@ -69,7 +69,9 @@ const TOOLS = [
   {
     name: 'create_http_tool',
     description:
-      'Create a custom HTTP tool the assistant can call. Claude posts the inputs as JSON to the given URL. Admin only.',
+      'Create a custom HTTP tool the assistant can call. Claude posts the inputs as JSON to the given URL. ' +
+      'For authenticated APIs, set headers and reference a workspace Vault secret with {{vault:secret_name}} — ' +
+      'it is resolved server-side at call time, so the credential never appears in the tool row or the conversation. Admin only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -78,6 +80,11 @@ const TOOLS = [
         url: { type: 'string', description: 'Endpoint that receives the inputs.' },
         input_schema: { type: 'object', description: 'JSON Schema for the arguments.' },
         method: { type: 'string', enum: ['POST', 'GET'] },
+        headers: {
+          type: 'object',
+          description:
+            'Headers sent with every call, e.g. {"Authorization": "Bearer {{vault:my_api_key}}"}. {{vault:name}} placeholders are replaced with workspace Vault secrets at call time.',
+        },
       },
       required: ['name', 'description', 'url'],
     },
@@ -510,7 +517,11 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         description: args.description,
         kind: 'http',
         input_schema: args.input_schema ?? { type: 'object', properties: {} },
-        config: { url: args.url, method: args.method ?? 'POST' },
+        config: {
+          url: args.url,
+          method: args.method ?? 'POST',
+          ...(args.headers && typeof args.headers === 'object' ? { headers: args.headers } : {}),
+        },
         is_active: true,
         created_by: owner,
       }).select('id').single()

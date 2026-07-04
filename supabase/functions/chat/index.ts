@@ -15,6 +15,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -222,23 +223,6 @@ async function loadTools(
 // all run them identically.
 
 // Execute a custom http tool: POST the model's inputs to the configured URL.
-async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
-  const url = tool.config?.url
-  if (!url) return 'Tool is misconfigured: no url.'
-  try {
-    const res = await fetch(url, {
-      method: tool.config?.method ?? 'POST',
-      headers: { 'Content-Type': 'application/json', ...(tool.config?.headers ?? {}) },
-      body: JSON.stringify(input ?? {}),
-    })
-    const text = await res.text()
-    // Cap to keep tool results from blowing the context window.
-    return text.slice(0, 50000) || `(empty response, status ${res.status})`
-  } catch (err) {
-    return `Tool call failed: ${err instanceof Error ? err.message : 'unknown error'}`
-  }
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: CORS })
@@ -360,7 +344,7 @@ Deno.serve(async (req: Request) => {
               const input = parseToolArgs(call.function.arguments)
               const tool = httpTools.get(name)
               let output: string
-              if (tool) output = await runHttpTool(tool, input)
+              if (tool) output = await runHttpTool(db, tool, input)
               else if (builtins.has(name)) output = await runBuiltin(db, name, input, userId)
               else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
               else output = `Unknown tool: ${name}`

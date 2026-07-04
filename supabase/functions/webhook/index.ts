@@ -10,6 +10,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -84,21 +85,6 @@ async function loadAgentTools(db: any, restrictIds: string[]) {
   for (const mt of mcp.tools) tools.push(mt)
   mcpRouter = mcp.router
   return { tools, httpTools, builtins, mcpRouter, webEnabled }
-}
-
-async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
-  const url = tool.config?.url
-  if (!url) return 'Tool is misconfigured: no url.'
-  try {
-    const res = await fetch(url, {
-      method: tool.config?.method ?? 'POST',
-      headers: { 'Content-Type': 'application/json', ...(tool.config?.headers ?? {}) },
-      body: JSON.stringify(input ?? {}),
-    })
-    return (await res.text()).slice(0, 50000)
-  } catch (err) {
-    return `Tool call failed: ${err instanceof Error ? err.message : 'error'}`
-  }
 }
 
 function jsonType(v: unknown): string {
@@ -203,7 +189,7 @@ Deno.serve(async (req: Request) => {
         if (eventId) await db.from('webhook_events').update({ status: 'error', error: msg }).eq('id', eventId)
         return json({ ok: false, event_id: eventId, error: msg, fields: problems }, 400)
       }
-      const result = await runHttpTool(tool as ToolRow, payload)
+      const result = await runHttpTool(db, tool as ToolRow, payload)
       if (eventId) await db.from('webhook_events').update({ status: 'ok', result }).eq('id', eventId)
       await db.from('activity_log').insert({
         type: 'webhook.function',
@@ -293,7 +279,7 @@ Deno.serve(async (req: Request) => {
           const input = parseToolArgs(call.function.arguments)
           const tool = httpTools.get(name)
           let output: string
-          if (tool) output = await runHttpTool(tool, input)
+          if (tool) output = await runHttpTool(db, tool, input)
           else if (builtins.has(name)) output = await runBuiltin(db, name, input, webhook.owner_id)
           else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
           else output = `Unknown tool: ${name}`

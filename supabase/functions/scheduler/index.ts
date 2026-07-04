@@ -7,6 +7,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -58,21 +59,6 @@ async function loadAgentTools(db: any, restrictIds: string[]) {
   for (const mt of mcp.tools) tools.push(mt)
   mcpRouter = mcp.router
   return { tools, httpTools, builtins, mcpRouter, webEnabled }
-}
-
-async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
-  const u = tool.config?.url
-  if (!u) return 'Tool is misconfigured: no url.'
-  try {
-    const res = await fetch(u, {
-      method: tool.config?.method ?? 'POST',
-      headers: { 'Content-Type': 'application/json', ...(tool.config?.headers ?? {}) },
-      body: JSON.stringify(input ?? {}),
-    })
-    return (await res.text()).slice(0, 50000)
-  } catch (err) {
-    return `Tool call failed: ${err instanceof Error ? err.message : 'error'}`
-  }
 }
 
 // Scheduled runs are unattended: no human sees the agent's questions or answers
@@ -130,7 +116,7 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
         const input = parseToolArgs(call.function.arguments)
         const tool = httpTools.get(name)
         let res: string
-        if (tool) res = await runHttpTool(tool, input)
+        if (tool) res = await runHttpTool(db, tool, input)
         else if (builtins.has(name)) res = await runBuiltin(db, name, input, ownerId)
         else if (mcpRouter.has(name)) res = await runMcpTool(db, mcpRouter, name, input)
         else res = `Unknown tool: ${name}`

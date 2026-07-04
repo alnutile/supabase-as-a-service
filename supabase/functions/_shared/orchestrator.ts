@@ -10,6 +10,7 @@
 // usage_events, so running evals never pollutes production spend stats.
 import { resolveModel } from './models.ts'
 import { runBuiltin } from './builtins.ts'
+import { runHttpTool } from './http_tool.ts'
 import {
   assistantToolCallMsg,
   orComplete,
@@ -80,21 +81,6 @@ async function loadTools(db: DB, restrictIds?: string[] | null) {
   return { tools, httpTools, builtins, webEnabled }
 }
 
-async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
-  const url = tool.config?.url
-  if (!url) return 'Tool is misconfigured: no url.'
-  try {
-    const res = await fetch(url, {
-      method: tool.config?.method ?? 'POST',
-      headers: { 'Content-Type': 'application/json', ...(tool.config?.headers ?? {}) },
-      body: JSON.stringify(input ?? {}),
-    })
-    return (await res.text()).slice(0, 50000) || `(empty response, status ${res.status})`
-  } catch (err) {
-    return `Tool call failed: ${err instanceof Error ? err.message : 'unknown error'}`
-  }
-}
-
 export interface OrchestratorResult {
   text: string
   cost: number
@@ -139,7 +125,7 @@ export async function runOrchestrator(
         const input = parseToolArgs(call.function.arguments)
         const tool = httpTools.get(name)
         let output: string
-        if (tool) output = await runHttpTool(tool, input)
+        if (tool) output = await runHttpTool(db, tool, input)
         else if (builtins.has(name)) output = await runBuiltin(db, name, input, opts.userId ?? null)
         else output = `Unknown tool: ${name}`
         toolsUsed.push(name)

@@ -21,6 +21,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
+import { runHttpTool } from '../_shared/http_tool.ts'
 import { runJudge } from '../_shared/judge.ts'
 import { runGuardrails } from '../_shared/guardrails.ts'
 import { recordUsage } from '../_shared/usage.ts'
@@ -111,21 +112,6 @@ async function loadAgentTools(db: DB, restrictIds: string[]) {
   return { tools, httpTools, builtins, webEnabled }
 }
 
-async function runHttpTool(tool: ToolRow, input: unknown): Promise<string> {
-  const u = tool.config?.url
-  if (!u) return 'Tool is misconfigured: no url.'
-  try {
-    const res = await fetch(u, {
-      method: tool.config?.method ?? 'POST',
-      headers: { 'Content-Type': 'application/json', ...(tool.config?.headers ?? {}) },
-      body: JSON.stringify(input ?? {}),
-    })
-    return (await res.text()).slice(0, 50000)
-  } catch (err) {
-    return `Tool call failed: ${err instanceof Error ? err.message : 'error'}`
-  }
-}
-
 function buildSystem(instructions: string, goal: string): string {
   return [
     instructions?.trim() || 'You are a capable agent working toward a goal.',
@@ -193,7 +179,7 @@ async function produceCandidate(
         const input = parseToolArgs(call.function.arguments)
         const tool = httpTools.get(name)
         let res: string
-        if (tool) res = await runHttpTool(tool, input)
+        if (tool) res = await runHttpTool(db, tool, input)
         else if (builtins.has(name)) res = await runBuiltin(db, name, input, userId)
         else res = `Unknown tool: ${name}`
         toolsUsed.push(name)
@@ -242,7 +228,7 @@ async function scoreCandidate(
   agentId: string | null,
 ): Promise<Score> {
   if (feedbackTool) {
-    const body = await runHttpTool(feedbackTool, { goal: loop.goal, candidate, output: candidate })
+    const body = await runHttpTool(db, feedbackTool, { goal: loop.goal, candidate, output: candidate })
     return parseToolScore(body)
   }
   // Default: a utility-model judge graded against the loop's rubric (or, with no
