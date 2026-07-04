@@ -18,6 +18,7 @@
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from './knowledge.ts'
+import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import {
   createLoop,
   findOrCreateLoopAgent,
@@ -92,8 +93,72 @@ export async function runBuiltin(
       return addTodoToCollection(db, input, userId)
     case 'add_table_to_collection':
       return addTableToCollection(db, input, userId)
+    case 'http_request':
+      return httpRequest(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
+  }
+}
+
+// http_request: the generic, n8n-style HTTP tool. The MODEL picks the url, so
+// the vault rules are strict (requireBinding): a {{vault:name}} reference only
+// resolves when that secret's allowed_hosts covers the target host, and
+// unbound secrets refuse outright. Without secret references it's a plain
+// fetch (same trust level as web_fetch). Each call is activity-logged.
+async function httpRequest(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db) return 'http_request is unavailable.'
+  const rawUrl = String(input?.url ?? '').trim()
+  if (!/^https?:\/\//i.test(rawUrl)) return 'A full http(s) url is required.'
+  const host = hostOf(rawUrl)
+  if (!host) return 'Invalid url.'
+
+  const givenMethod = String(input?.method ?? '').toUpperCase()
+  const method = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(givenMethod)
+    ? givenMethod
+    : input?.body != null
+      ? 'POST'
+      : 'GET'
+
+  let url: string
+  const headers: Record<string, string> = {}
+  const usedSecrets = /\{\{\s*vault:/.test(rawUrl + JSON.stringify(input?.headers ?? {}))
+  try {
+    url = await resolveVaultRefs(db, rawUrl, { host, requireBinding: true })
+    for (const [k, v] of Object.entries((input?.headers as Record<string, unknown>) ?? {})) {
+      headers[k] = await resolveVaultRefs(db, String(v), { host, requireBinding: true })
+    }
+  } catch (err) {
+    return `Request blocked: ${err instanceof Error ? err.message : 'bad secret reference'}.`
+  }
+
+  let body: string | undefined
+  if (method !== 'GET' && input?.body != null) {
+    if (typeof input.body === 'string') body = input.body
+    else {
+      body = JSON.stringify(input.body)
+      if (!Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
+        headers['Content-Type'] = 'application/json'
+      }
+    }
+  }
+
+  try {
+    const res = await fetch(url, { method, headers, body })
+    const text = (await res.text()).slice(0, 50000)
+    await logActivity(
+      db,
+      'tool.http_request',
+      `${method} ${host} (${res.status})`,
+      { method, host, status: res.status, used_secrets: usedSecrets },
+      userId,
+    )
+    return text || `(empty response, status ${res.status})`
+  } catch (err) {
+    return `Request failed: ${err instanceof Error ? err.message : 'error'}`
   }
 }
 

@@ -131,6 +131,9 @@ function SecretEditor({
     (secret?.scope as 'workspace' | 'private') ?? 'workspace',
   )
   const [value, setValue] = useState('')
+  const [allowedHosts, setAllowedHosts] = useState(
+    ((secret as { allowed_hosts?: string[] } | null)?.allowed_hosts ?? []).join(', '),
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -151,6 +154,10 @@ function SecretEditor({
       p_description: description.trim(),
       p_value: value.trim() || '', // empty = keep existing value (on edit)
       p_scope: scope,
+      p_allowed_hosts: allowedHosts
+        .split(/[,\n]/)
+        .map((h) => h.trim())
+        .filter(Boolean),
     })
     setSaving(false)
     if (rpcError) {
@@ -220,6 +227,23 @@ function SecretEditor({
             />
             <span className="mt-1 block text-[11px] text-faint">
               Stored encrypted in Supabase Vault. You won't be able to read it back here.
+            </span>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Allowed hosts (comma-separated, optional)
+            </span>
+            <input
+              value={allowedHosts}
+              onChange={(e) => setAllowedHosts(e.target.value)}
+              placeholder="api.example.com, *.example.com"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+            <span className="mt-1 block text-[11px] text-faint">
+              Hosts this secret may be sent to when a tool inserts it with{' '}
+              <code className="font-mono">{'{{vault:name}}'}</code>. Required for the generic{' '}
+              <code className="font-mono">http_request</code> tool; requests to any other host are
+              refused, so a leaked or injected URL can never carry this credential.
             </span>
           </label>
           <label className="block">

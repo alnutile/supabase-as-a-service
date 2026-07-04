@@ -739,6 +739,7 @@ export interface Database {
           description: string
           secret_id: string
           scope: 'workspace' | 'private'
+          allowed_hosts: string[]
           owner_id: string | null
           created_at: string
           updated_at: string
@@ -749,6 +750,7 @@ export interface Database {
           description?: string
           secret_id: string
           scope?: 'workspace' | 'private'
+          allowed_hosts?: string[]
           owner_id?: string | null
           created_at?: string
           updated_at?: string
@@ -1084,6 +1086,7 @@ export interface Database {
           p_description: string
           p_value: string
           p_scope?: string
+          p_allowed_hosts?: string[]
         }
         Returns: string
       }
