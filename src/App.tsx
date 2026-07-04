@@ -26,6 +26,7 @@ import ActivityPage from './pages/ActivityPage'
 import ApiPage from './pages/ApiPage'
 import UsagePage from './pages/UsagePage'
 import FeedbackPage from './pages/FeedbackPage'
+import FeaturesPage from './pages/FeaturesPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="activity" element={<ActivityPage />} />
         <Route path="usage" element={<UsagePage />} />
         <Route path="feedback" element={<FeedbackPage />} />
+        <Route path="features" element={<FeaturesPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

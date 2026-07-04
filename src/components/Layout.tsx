@@ -88,6 +88,7 @@ const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
       { to: '/activity', label: 'Activity', icon: ActivityIcon },
       { to: '/usage', label: 'Usage', icon: UsageIcon, adminOnly: true },
       { to: '/feedback', label: 'Feedback', icon: FeedbackIcon, adminOnly: true },
+      { to: '/features', label: 'Features', icon: SparkleIcon },
     ],
   },
   {

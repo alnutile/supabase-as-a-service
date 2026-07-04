@@ -732,6 +732,42 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['guardrails']['Insert']>
         Relationships: []
       }
+      features: {
+        Row: {
+          id: string
+          title: string
+          description: string
+          screenshots: string[]
+          lane: 'idea' | 'approved' | 'ready' | 'shipped'
+          position: number
+          issue_number: number | null
+          pr_number: number | null
+          pr_url: string | null
+          pr_state: string | null
+          last_error: string | null
+          owner_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          description?: string
+          screenshots?: string[]
+          lane?: 'idea' | 'approved' | 'ready' | 'shipped'
+          position?: number
+          issue_number?: number | null
+          pr_number?: number | null
+          pr_url?: string | null
+          pr_state?: string | null
+          last_error?: string | null
+          owner_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['features']['Insert']>
+        Relationships: []
+      }
       vault_secrets: {
         Row: {
           id: string

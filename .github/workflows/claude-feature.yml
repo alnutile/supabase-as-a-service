@@ -1,0 +1,64 @@
+# The build half of the Features board (src/pages/FeaturesPage.tsx).
+#
+# Dragging a card to "Approved for work" makes the `features` edge function
+# open an issue labeled `approved-for-work`. This workflow fires on that label,
+# runs Claude Code against a checkout, and opens a PR that references the
+# issue (the board's sync picks the PR up from the issue timeline and tracks
+# it on the card). Dragging to "Approved to merge" squash-merges the PR, which
+# triggers the Railway rebuild plus deploy-migrations.yml / deploy-functions.yml.
+#
+# Setup — ONE secret (Settings → Secrets and variables → Actions):
+#   ANTHROPIC_API_KEY – used by the Claude Code action.
+#
+# Guardrails: the agent works on a branch and opens a PR — it cannot push to
+# main (the token below has no direct-push step, and branch protection on main
+# is recommended). A human reviews and the board's merge lane ships it.
+
+name: Build approved feature
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  build:
+    if: github.event.label.name == 'approved-for-work'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Claude Code implements the feature
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            Implement the feature described in issue #${{ github.event.issue.number }}:
+
+            Title: ${{ github.event.issue.title }}
+
+            ${{ github.event.issue.body }}
+
+            Instructions:
+            - Read CLAUDE.md first and follow the repository conventions.
+            - Work on a new branch named feature/issue-${{ github.event.issue.number }}.
+            - Run `npm install` and verify your change with `npm run build` before finishing.
+            - If the change needs a DB migration, add the next-numbered file under
+              supabase/migrations/ (deploy-migrations.yml applies it on merge) and
+              hand-update src/lib/database.types.ts to match.
+            - Commit, push the branch, and open a pull request whose description
+              explains the change and contains "Closes #${{ github.event.issue.number }}".
+            - Do NOT push to main. Do NOT merge the PR.
+          claude_args: |
+            --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"

@@ -53,3 +53,9 @@ verify_jwt = false
 # into collections.
 [functions.todos]
 verify_jwt = false
+
+# The GitHub side of the Features kanban: opens the approved-for-work issue,
+# syncs the linked PR, and squash-merges on the "approved to merge" lane.
+# verify_jwt + an is_admin check in the body; the GitHub PAT lives in the vault.
+[functions.features]
+verify_jwt = true
