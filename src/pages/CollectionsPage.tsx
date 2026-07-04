@@ -4,6 +4,7 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatMessage } from '../lib/chat'
 import { uploadPickedFile } from '../lib/upload'
+import { fetchLinkMeta, normalizeUrl } from '../lib/links'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import { formatBytes, formatDate } from '../lib/util'
@@ -18,6 +19,7 @@ import {
   CollectionIcon,
   FileIcon,
   GlobeIcon,
+  LinkIcon,
   LockIcon,
   PlusIcon,
   SendIcon,
@@ -27,7 +29,7 @@ import {
 } from '../components/icons'
 
 type Collection = Database['public']['Tables']['collections']['Row']
-type Kind = 'artifact' | 'file' | 'table' | 'todo'
+type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link'
 
 // Per-kind wiring: the base table it lives in, the join table, and the join's
 // item column — so one set of helpers handles every content type.
@@ -39,8 +41,9 @@ const KINDS: Record<
   artifact: { title: 'Artifacts', icon: ArtifactIcon, base: 'artifacts', link: 'collection_artifacts', col: 'artifact_id', label: 'title' },
   file: { title: 'Files', icon: FileIcon, base: 'files', link: 'collection_files', col: 'file_id', label: 'name' },
   table: { title: 'Tables', icon: TableIcon, base: 'user_tables', link: 'collection_tables', col: 'table_id', label: 'name' },
+  link: { title: 'Links', icon: LinkIcon, base: 'links', link: 'collection_links', col: 'link_id', label: 'title' },
 }
-const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table']
+const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link']
 
 type Item = { id: string; label: string; meta?: string }
 type Items = Record<Kind, Item[]>
@@ -57,17 +60,18 @@ export default function CollectionsPage() {
   const [creating, setCreating] = useState(false)
 
   const load = useCallback(async () => {
-    const [cRes, caRes, cfRes, ctRes, cuRes, stats] = await Promise.all([
+    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, stats] = await Promise.all([
       supabase.from('collections').select('*').order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id'),
       supabase.from('collection_files').select('collection_id'),
       supabase.from('collection_todos').select('collection_id'),
       supabase.from('collection_tables').select('collection_id'),
+      supabase.from('collection_links').select('collection_id'),
       supabase.rpc('collection_token_stats'),
     ])
     setCollections(cRes.data ?? [])
     const c: Record<string, number> = {}
-    for (const res of [caRes, cfRes, ctRes, cuRes]) {
+    for (const res of [caRes, cfRes, ctRes, cuRes, clRes]) {
       for (const r of res.data ?? []) c[r.collection_id] = (c[r.collection_id] ?? 0) + 1
     }
     setCounts(c)
@@ -177,7 +181,7 @@ export default function CollectionsPage() {
               </div>
               <h2 className="text-lg font-semibold text-text">Your collections</h2>
               <p className="mt-2 text-sm text-muted">
-                A collection groups to-dos, artifacts, files and tables so you can see them on one dashboard and chat with the whole set at once.
+                A collection groups to-dos, artifacts, files, tables and links so you can see them on one dashboard and chat with the whole set at once.
               </p>
             </div>
           </div>
@@ -213,11 +217,12 @@ function CollectionDashboard({
   const [editing, setEditing] = useState(false)
 
   const loadItems = useCallback(async () => {
-    const [a, f, t, u] = await Promise.all([
+    const [a, f, t, u, l] = await Promise.all([
       supabase.from('collection_artifacts').select('artifacts(id, title, type, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_files').select('files(id, name, size_bytes)').eq('collection_id', collection.id),
       supabase.from('collection_todos').select('todos(id, title, done, due_date)').eq('collection_id', collection.id),
       supabase.from('collection_tables').select('user_tables(id, name, updated_at)').eq('collection_id', collection.id),
+      supabase.from('collection_links').select('links(id, title, url)').eq('collection_id', collection.id),
     ])
     const pluck = (rows: unknown, key: string) =>
       ((rows ?? []) as Array<Record<string, unknown>>).map((r) => r[key]).filter(Boolean) as Array<Record<string, unknown>>
@@ -234,6 +239,15 @@ function CollectionDashboard({
       })),
       file: pluck(f.data, 'files').map((x) => ({ id: String(x.id), label: String(x.name), meta: formatBytes(Number(x.size_bytes ?? 0)) })),
       table: pluck(u.data, 'user_tables').map((x) => ({ id: String(x.id), label: String(x.name), meta: `updated ${formatDate(String(x.updated_at))}` })),
+      link: pluck(l.data, 'links').map((x) => {
+        let host = String(x.url)
+        try {
+          host = new URL(String(x.url)).hostname.replace(/^www\./, '')
+        } catch {
+          // keep the raw url
+        }
+        return { id: String(x.id), label: String(x.title) || host, meta: host }
+      }),
     })
   }, [collection.id])
 
@@ -295,6 +309,28 @@ function CollectionDashboard({
       })
       const created = (Array.isArray(data) ? data[0] : data) as { id?: string } | null
       id = created?.id ?? null
+    } else if (kind === 'link') {
+      const url = normalizeUrl(name)
+      if (!url) return
+      const { data } = await supabase
+        .from('links')
+        .insert({ owner_id: user.id, url, title: new URL(url).hostname.replace(/^www\./, ''), visibility: 'private' })
+        .select('id')
+        .single()
+      id = data?.id ?? null
+      // Enrich with server-fetched metadata in the background; the card
+      // already shows the hostname, so adding never blocks on a slow site.
+      if (id) {
+        const linkId = id
+        fetchLinkMeta(url).then(async (meta) => {
+          if (!meta) return
+          await supabase
+            .from('links')
+            .update({ title: meta.title, description: meta.description, image_url: meta.image_url, favicon_url: meta.favicon_url })
+            .eq('id', linkId)
+          loadItems()
+        })
+      }
     }
     if (id) await addItem(kind, id)
   }
@@ -323,6 +359,7 @@ function CollectionDashboard({
     if (kind === 'artifact') navigate(`/artifacts/${id}`)
     else if (kind === 'file') navigate('/files')
     else if (kind === 'table') navigate('/tables')
+    else if (kind === 'link') navigate('/links')
     else navigate('/todos')
   }
 
@@ -618,8 +655,8 @@ function CollectionChat({ collection, onChanged }: { collection: Collection; onC
   }, [messages, streaming])
 
   const system =
-    `You are the assistant for the "${collection.name}" collection. Its current contents (to-dos, artifacts, files, tables) are provided as context. ` +
-    `When the user asks to add a task, note, or document, USE YOUR TOOLS (create_todo, add_note, create_artifact, …) and file it into the "${collection.name}" collection (pass collection: "${collection.name}"). ` +
+    `You are the assistant for the "${collection.name}" collection. Its current contents (to-dos, artifacts, files, tables, links) are provided as context. ` +
+    `When the user asks to add a task, note, document, or link, USE YOUR TOOLS (create_todo, add_note, create_artifact, save_link, …) and file it into the "${collection.name}" collection (pass collection: "${collection.name}"). ` +
     `Prefer tools over emitting artifact blocks. Keep replies short and practical.`
 
   async function send() {

@@ -13,6 +13,7 @@ const KIND = {
   file: { table: 'collection_files', col: 'file_id', noun: 'file' },
   table: { table: 'collection_tables', col: 'table_id', noun: 'table' },
   artifact: { table: 'collection_artifacts', col: 'artifact_id', noun: 'artifact' },
+  link: { table: 'collection_links', col: 'link_id', noun: 'link' },
 } as const
 
 type Kind = keyof typeof KIND

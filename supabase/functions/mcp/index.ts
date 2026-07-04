@@ -345,6 +345,20 @@ const TOOLS = [
     },
   },
   {
+    name: 'query_table',
+    description:
+      'Read rows from a user data table. Returns each row with its id (use it with update_table_row / delete_table_row). Optional column=value filters and a limit (default 50, max 200).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: 'The table name (or id).' },
+        filters: { type: 'object', description: 'Optional column=value equality filters.' },
+        limit: { type: 'number', description: 'Max rows to return (default 50, max 200).' },
+      },
+      required: ['table'],
+    },
+  },
+  {
     name: 'add_table_row',
     description: 'Add a row to a user data table. Identify the table by name; pass column values as an object.',
     inputSchema: {
@@ -368,6 +382,19 @@ const TOOLS = [
         values: { type: 'object', description: 'Column key/value pairs to set.' },
       },
       required: ['table', 'match', 'values'],
+    },
+  },
+  {
+    name: 'delete_table_row',
+    description:
+      'Delete a single row from a user data table. Identify the table by name and the row by its "row_id" (from query_table). Deletes exactly one row; errors if the row is not found.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: 'The table name (or id).' },
+        row_id: { type: 'string', description: 'The id of the row to delete (from query_table).' },
+      },
+      required: ['table', 'row_id'],
     },
   },
   {
@@ -858,6 +885,27 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       const created = (Array.isArray(data) ? data[0] : data) as { name?: string } | null
       return text(`Created table "${created?.name ?? name}" (${visibility}). It's in the Tables dashboard.`)
     }
+    case 'query_table': {
+      const ref = String(args.table ?? '').trim()
+      if (!ref) return text('query_table needs a table name.', true)
+      const r = ref.toLowerCase()
+      const t = (await ownerTables(db, owner)).find((x) => x.id === ref || x.name.trim().toLowerCase() === r)
+      if (!t) return text(`No table named "${ref}" that you can access.`, true)
+      let limit = Number(args.limit ?? 50)
+      if (!Number.isFinite(limit) || limit <= 0) limit = 50
+      limit = Math.min(Math.trunc(limit), 200)
+      // deno-lint-ignore no-explicit-any
+      let q: any = db.from(t.physical_name).select('*').limit(limit)
+      const filters = (args.filters ?? null) as Record<string, unknown> | null
+      if (filters && typeof filters === 'object') {
+        const allowed = new Set((t.columns ?? []).map((c) => c.key).concat(['id', 'owner_id']))
+        for (const [k, v] of Object.entries(filters)) if (allowed.has(k)) q = q.eq(k, v)
+      }
+      const { data, error } = await q
+      if (error) return text(`Error: ${error.message}`, true)
+      if (!data || !data.length) return text(`"${t.name}" has no matching rows.`)
+      return text(`Rows from "${t.name}" (${data.length}):\n${JSON.stringify(data, null, 2)}`)
+    }
     case 'add_table_row': {
       const ref = String(args.table ?? '').trim()
       const values = (args.values ?? null) as Record<string, unknown> | null
@@ -899,6 +947,18 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (error) return text(`Error: ${error.message}`, true)
       const count = Array.isArray(data) ? data.length : 0
       return text(count ? `Updated ${count} row${count === 1 ? '' : 's'} in "${t.name}".` : `No matching rows in "${t.name}".`)
+    }
+    case 'delete_table_row': {
+      const ref = String(args.table ?? '').trim()
+      const rowId = String(args.row_id ?? '').trim()
+      if (!ref || !rowId) return text('delete_table_row needs table and row_id.', true)
+      const r = ref.toLowerCase()
+      const t = (await ownerTables(db, owner)).find((x) => x.id === ref || x.name.trim().toLowerCase() === r)
+      if (!t) return text(`No table named "${ref}" that you can access.`, true)
+      const { data, error } = await db.from(t.physical_name).delete().eq('id', rowId).select('id')
+      if (error) return text(`Error: ${error.message}`, true)
+      if (!data || !data.length) return text(`No row with id ${rowId} in "${t.name}" — nothing deleted.`, true)
+      return text(`Deleted row ${rowId} from "${t.name}".`)
     }
     case 'list_loops':
       return text(await listLoopsText(db, owner))

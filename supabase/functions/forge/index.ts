@@ -46,6 +46,8 @@ const CORE_SLUGS = new Set([
   'loop',
   'evals',
   'openrouter-balance',
+  'link-meta',
+  'run-tool',
 ])
 
 function admin() {

@@ -1,5 +1,6 @@
 // Shared collection-context builder. Turns one or more collections into a single
-// text block (artifacts + files + to-dos) that gets injected as primary context.
+// text block (artifacts + files + tables + links + to-dos) that gets injected as
+// primary context.
 // Lives here — not in the chat function — so ALL agent loops can use it: chat,
 // webhook, and scheduler all inject an agent's bound collections the same way.
 //
@@ -137,6 +138,24 @@ export async function loadCollectionsContext(
       }
     }
 
+    // Links — small (title + url + description), so no budgeting needed.
+    const { data: linkRows } = await db
+      .from('collection_links')
+      .select('link_id')
+      .in('collection_id', visibleIds)
+    const linkIds = [...new Set((linkRows ?? []).map((l: { link_id: string }) => l.link_id))]
+    let webLinks: Array<{ title: string; url: string; description: string }> = []
+    if (linkIds.length) {
+      const { data: ls } = await db
+        .from('links')
+        .select('title, url, description, notes, owner_id, visibility')
+        .in('id', linkIds)
+        .order('created_at', { ascending: false })
+      webLinks = ((ls ?? []) as Array<{ owner_id: string; visibility: string; title: string; url: string; description: string; notes: string }>)
+        .filter((l) => l.owner_id === userId || l.visibility === 'workspace')
+        .map((l) => ({ title: l.title, url: l.url, description: [l.description, l.notes].filter(Boolean).join(' — ') }))
+    }
+
     // To-dos — small (title + due + done), so no budgeting needed.
     const { data: todoLinks } = await db
       .from('collection_todos')
@@ -156,7 +175,7 @@ export async function loadCollectionsContext(
       ) as Array<{ title: string; due_date: string | null; done: boolean }>
     }
 
-    if (!readable.length && !todos.length && !fileDocs.length && !tableDocs.length) return ''
+    if (!readable.length && !todos.length && !fileDocs.length && !tableDocs.length && !webLinks.length) return ''
 
     const parts: string[] = []
 
@@ -189,6 +208,13 @@ export async function loadCollectionsContext(
       }
     }
 
+    if (webLinks.length) {
+      const lines = webLinks
+        .map((l) => `- ${l.title}: ${l.url}${l.description ? ` — ${l.description.slice(0, 300)}` : ''}`)
+        .join('\n')
+      parts.push(`## Links in this collection\n${lines}`)
+    }
+
     if (todos.length) {
       const lines = todos
         .map((t) => `- [${t.done ? 'x' : ' '}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''}`)
@@ -196,7 +222,7 @@ export async function loadCollectionsContext(
       parts.push(`## To-dos in this collection\n${lines}`)
     }
 
-    const itemCount = readable.length + fileDocs.length + tableDocs.length + todos.length
+    const itemCount = readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (

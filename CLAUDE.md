@@ -125,6 +125,28 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   MCP: seeded `is_builtin` tools `create_todo` / `list_todos` / `complete_todo` /
   `update_todo` / `add_todo_to_collection` (in `_shared/builtins.ts`; same names on the MCP
   server) so chat/scheduler/webhook agents and an external Claude can manage tasks.
+- **Links (shared bookmarks):** `LinksPage` (route `/links`, sidebar under **Assets**,
+  any member) is a bookmarks area that plugs into the collections concept. Paste a URL and
+  the metadata fills in automatically: the page inserts the row immediately (hostname as
+  placeholder title), then the **`link-meta` edge function** (`verify_jwt: true`, any member)
+  fetches the page server-side (browser can't cross-origin) and the row is patched with the
+  parsed `<title>`/OpenGraph title, meta/og description, `og:image` preview and favicon —
+  parsing lives in `_shared/linkmeta.ts` (capped read of ~512KB, 10s timeout, never throws,
+  falls back to the hostname) so the `save_link` builtin fills rows identically. A `links`
+  row (migration 0049) is `url` + fetched `title`/`description`/`image_url`/`favicon_url` +
+  optional `notes` + **`screenshot_path` (reserved: a storage path for a captured page
+  screenshot — the capture pipeline is a planned follow-up; the column + card UI are ready
+  to show one)**. Visibility mirrors todos/collections: `private` (owner + admins) or
+  `workspace` (every member can see and edit), enforced by RLS. Links file into collections
+  via `collection_links` (exact mirror of `collection_todos`, visibility-inherited RLS) —
+  the card grid has the same select → shared `AddToCollectionBar` (kind `link`) + collection
+  filter chips, `CollectionsPage` shows a Links card (create-by-pasting-a-URL included), and
+  `loadCollectionsContext` injects each collection's links as a compact title/url/description
+  list block so chatting with a collection carries its links. Seeded `is_builtin` tools
+  `save_link` / `list_links` / `add_link_to_collection` (in `_shared/builtins.ts`) let
+  chat/scheduler/webhook agents capture links (metadata auto-fetched; `link.created`
+  activity-logged). *(Planned: screenshot capture via the browse-the-web tooling filling
+  `screenshot_path`; a REST API + MCP tools like artifacts/to-dos.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
 - **Tables (Airtable-but-real-Postgres):** `TablesPage` (route `/tables`, sidebar,
@@ -227,6 +249,23 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   The chat function runs an **agentic loop** (model → tool_calls → execute →
   tool result messages → … → stop), pushing the assistant turn (content + `tool_calls`)
   back before each batch of `{role:'tool'}` results (OpenAI/OpenRouter shape).
+- **Direct tool runs (`run-tool`):** the universal tool runner closes the "tools only run
+  inside the agent loops" gap. `POST /functions/v1/run-tool` with `{tool, input}` invokes any
+  **active** tool with **no model in the loop** — same dispatch as the loops (`builtin` →
+  `runBuiltin`, `http` → `runHttpTool` with vault refs, MCP remote tools by namespaced name
+  via `runMcpTool`; `web` errors, it's a model plugin). `{steps:[{tool,input},…]}` (max 10)
+  chains tools deterministically — `{{prev}}` inside any string input is replaced with the
+  previous step's result text. Auth (`verify_jwt:false`, checked in code): a personal
+  `mcp_tokens` bearer **or** a Supabase session JWT (verified via `auth.getUser`, never
+  trusted from its payload) — so the UI, scripts, cron, and Zaps can all call it; every call
+  runs AS the resolved user (builtins re-enforce private/workspace access) and logs
+  `activity_log` type `tool.run`. `GET /run-tool/list` returns runnable tools + schemas;
+  `GET /run-tool/docs` is plain-text docs; the "Run tools" tab in `ApiPage` renders
+  copy-ready curl. No guardrail runs (nothing reaches an LLM — same reasoning as the
+  webhook direct mode); activation + per-user access rules are the gate. Note the
+  `http_request` builtin returns HTML responses converted to **markdown** by default
+  (`_shared/html_markdown.ts`; `format:"raw"` opts out — migration 0051 documents it in the
+  tool schema), so fetch→ingest chains stay inside the 50k-char result budget.
 - **Guardrails:** the `guardrails` table holds admin-managed pre-flight checks evaluated
   by the cheap `utility` model profile **before** the orchestrator runs. `GuardrailsPage`
   (admin-only) manages them; each has `instructions` (what to check for), `applies_to_webhooks`

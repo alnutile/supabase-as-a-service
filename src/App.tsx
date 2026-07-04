@@ -9,6 +9,7 @@ import ArtifactsPage from './pages/ArtifactsPage'
 import ArtifactEditorPage from './pages/ArtifactEditorPage'
 import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
+import LinksPage from './pages/LinksPage'
 import PublicArtifactPage from './pages/PublicArtifactPage'
 import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
         <Route path="collections" element={<CollectionsPage />} />
         <Route path="todos" element={<TodosPage />} />
+        <Route path="links" element={<LinksPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="webhooks" element={<WebhooksPage />} />
         <Route path="tools" element={<ToolsPage />} />

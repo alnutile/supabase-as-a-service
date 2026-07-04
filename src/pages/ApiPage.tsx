@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
-import { artifactsApiUrl, todosApiUrl, supabase } from '../lib/supabase'
+import { artifactsApiUrl, todosApiUrl, runToolUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
 import { CheckIcon, CopyIcon, PlusIcon } from '../components/icons'
@@ -13,6 +13,7 @@ type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
 const TABS = [
   { id: 'artifacts', label: 'Artifacts' },
   { id: 'todos', label: 'To-dos' },
+  { id: 'tools', label: 'Run tools' },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -46,6 +47,7 @@ export default function ApiPage() {
 
         {active === 'artifacts' && <ArtifactsApiTab />}
         {active === 'todos' && <TodosApiTab />}
+        {active === 'tools' && <ToolsApiTab />}
       </div>
     </div>
   )
@@ -316,6 +318,158 @@ function ArtifactsApiTab() {
             {base}/docs
           </a>{' '}
           returns these docs as plain text, so they’re reachable straight from the endpoint too.
+        </p>
+      </section>
+    </div>
+  )
+}
+
+function ToolsApiTab() {
+  const { user } = useAuth()
+  const [tokens, setTokens] = useState<McpToken[]>([])
+  const [selected, setSelected] = useState<string>('')
+  const [creating, setCreating] = useState(false)
+  const [toolNames, setToolNames] = useState<Array<{ name: string; kind: string }>>([])
+
+  const load = useCallback(async () => {
+    const [tRes, toolsRes] = await Promise.all([
+      supabase.from('mcp_tokens').select('*').order('created_at', { ascending: false }),
+      supabase.from('tools').select('name, kind').eq('is_active', true).neq('kind', 'web').order('name'),
+    ])
+    setTokens(tRes.data ?? [])
+    setSelected((cur) => cur || (tRes.data && tRes.data[0]?.token) || '')
+    setToolNames(toolsRes.data ?? [])
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function createToken() {
+    if (!user) return
+    setCreating(true)
+    const { data } = await supabase.from('mcp_tokens').insert({ owner_id: user.id, name: 'API' }).select('*').single()
+    setCreating(false)
+    if (data) {
+      await load()
+      setSelected(data.token)
+    }
+  }
+
+  const tokenForExamples = selected || '$TOKEN'
+  const base = runToolUrl
+
+  const runExample =
+    `curl -X POST "${base}" \\\n` +
+    `  -H "Authorization: Bearer ${tokenForExamples}" \\\n` +
+    `  -H "Content-Type: application/json" \\\n` +
+    `  -d '{"tool":"list_todos","input":{"status":"open"}}'`
+
+  const chainExample =
+    `curl -X POST "${base}" \\\n` +
+    `  -H "Authorization: Bearer ${tokenForExamples}" \\\n` +
+    `  -H "Content-Type: application/json" \\\n` +
+    `  -d '{"steps":[\n` +
+    `    {"tool":"http_request","input":{"url":"https://example.com"}},\n` +
+    `    {"tool":"add_note","input":{"title":"Example page","content":"{{prev}}"}}\n` +
+    `  ]}'`
+
+  const listExample = `curl "${base}/list" \\\n  -H "Authorization: Bearer ${tokenForExamples}"`
+
+  return (
+    <div className="mt-6 space-y-6">
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Run tools directly</h2>
+        <p className="mt-1 text-sm text-muted">
+          Invoke any <strong>active tool</strong> — the same builtins, custom HTTP tools, and MCP remote tools the
+          assistant uses — from a script, a cron job, or a Zap, with <strong>no model in the loop</strong>. Chain
+          several with a <code className="rounded bg-surface-2 px-1">steps</code> array;{' '}
+          <code className="rounded bg-surface-2 px-1">{'{{prev}}'}</code> inside any string input is replaced with the
+          previous step&apos;s result.
+        </p>
+        <div className="mt-3">
+          <span className="mb-1 block text-xs font-medium text-muted">Base URL</span>
+          <CodeBlock code={base} />
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Authentication</h2>
+        <p className="mt-1 text-sm text-muted">
+          Send a personal bearer token in the <code className="rounded bg-surface-2 px-1">Authorization</code> header —
+          the same connection tokens as{' '}
+          <Link to="/settings" className="font-medium text-primary hover:underline">
+            Settings → Connect Claude
+          </Link>
+          . Every call runs as you: private/workspace access rules apply exactly as they do in chat.
+        </p>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {tokens.length > 0 ? (
+            <label className="flex items-center gap-2 text-sm text-muted">
+              Use token in examples:
+              <select
+                value={selected}
+                onChange={(e) => setSelected(e.target.value)}
+                className="rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none focus:border-primary"
+              >
+                {tokens.map((t) => (
+                  <option key={t.id} value={t.token}>
+                    {t.name} · {t.last_used_at ? `used ${formatDate(t.last_used_at)}` : 'never used'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="text-sm text-muted">No tokens yet — create one to get ready-to-run examples.</span>
+          )}
+          <button
+            onClick={createToken}
+            disabled={creating}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
+          >
+            <PlusIcon className="h-4 w-4" /> {creating ? 'Creating…' : 'New token'}
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Runnable tools right now</h2>
+        <p className="mt-1 text-sm text-muted">
+          Everything active on the{' '}
+          <Link to="/tools" className="font-medium text-primary hover:underline">
+            Tools page
+          </Link>{' '}
+          (MCP entries are server handles — call their remote tools by namespaced name, e.g.{' '}
+          <code className="rounded bg-surface-2 px-1">zapier__gmail_find_email</code>).
+        </p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {toolNames.map((t) => (
+            <span
+              key={t.name}
+              className="rounded-full bg-surface-2 px-2.5 py-1 font-mono text-[11px] text-muted"
+              title={t.kind}
+            >
+              {t.name}
+            </span>
+          ))}
+          {toolNames.length === 0 && <span className="text-sm text-faint">No active tools.</span>}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Examples</h2>
+        <div className="mt-3 space-y-4">
+          <CodeBlock label="Run one tool" code={runExample} />
+          <CodeBlock label="Chain: fetch a page (as markdown), save it to the knowledge base" code={chainExample} />
+          <CodeBlock label="List runnable tools with their input schemas" code={listExample} />
+        </div>
+        <p className="mt-4 text-xs text-muted">
+          Tip: opening{' '}
+          <a href={`${base}/docs`} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+            {base}/docs
+          </a>{' '}
+          returns these docs as plain text too.
         </p>
       </section>
     </div>

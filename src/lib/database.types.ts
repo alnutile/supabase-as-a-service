@@ -248,6 +248,54 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_todos']['Insert']>
         Relationships: []
       }
+      links: {
+        Row: {
+          id: string
+          owner_id: string
+          url: string
+          title: string
+          description: string
+          image_url: string | null
+          favicon_url: string | null
+          screenshot_path: string | null
+          notes: string
+          visibility: CollectionVisibility
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          url: string
+          title?: string
+          description?: string
+          image_url?: string | null
+          favicon_url?: string | null
+          screenshot_path?: string | null
+          notes?: string
+          visibility?: CollectionVisibility
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['links']['Insert']>
+        Relationships: []
+      }
+      collection_links: {
+        Row: {
+          collection_id: string
+          link_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          link_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_links']['Insert']>
+        Relationships: []
+      }
       files: {
         Row: {
           id: string

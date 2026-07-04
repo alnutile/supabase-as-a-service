@@ -6,7 +6,7 @@
 //
 // Builtins: search_documents (RAG over the workspace knowledge base), send_email,
 // check_email, the user-table tools (list_tables / query_table / add_table_row /
-// update_table_row / create_table — the "Tables" feature), the team-vault tools (list_secrets /
+// update_table_row / delete_table_row / create_table — the "Tables" feature), the team-vault tools (list_secrets /
 // get_secret), and the content-authoring tools (create_artifact / list_collections /
 // create_collection / add_to_collection / add_note) — the in-app mirror of the MCP
 // server's authoring actions, so the internal AI/agents can push articles, notes, and
@@ -19,6 +19,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from './knowledge.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
+import { fetchLinkMetadata } from './linkmeta.ts'
+import { htmlToMarkdown } from './html_markdown.ts'
 import {
   createLoop,
   findOrCreateLoopAgent,
@@ -59,6 +61,8 @@ export async function runBuiltin(
       return addTableRow(db, input, userId)
     case 'update_table_row':
       return updateTableRow(db, input, userId)
+    case 'delete_table_row':
+      return deleteTableRow(db, input, userId)
     case 'create_table':
       return createTable(db, input, userId)
     case 'list_secrets':
@@ -91,6 +95,12 @@ export async function runBuiltin(
       return updateTodo(db, input, userId)
     case 'add_todo_to_collection':
       return addTodoToCollection(db, input, userId)
+    case 'save_link':
+      return saveLink(db, input, userId)
+    case 'list_links':
+      return listLinks(db, input, userId)
+    case 'add_link_to_collection':
+      return addLinkToCollection(db, input, userId)
     case 'add_table_to_collection':
       return addTableToCollection(db, input, userId)
     case 'http_request':
@@ -148,7 +158,14 @@ async function httpRequest(
 
   try {
     const res = await fetch(url, { method, headers, body })
-    const text = (await res.text()).slice(0, 50000)
+    let text = await res.text()
+    // HTML comes back as markdown by default — tag soup wastes the response
+    // budget; converting BEFORE the slice keeps far more actual content.
+    // Pass format: "raw" for the untouched body (e.g. to scrape attributes).
+    const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
+    const isHtml = contentType.includes('html') || /^\s*<(!doctype|html)/i.test(text.slice(0, 200))
+    if (input?.format !== 'raw' && isHtml) text = htmlToMarkdown(text)
+    text = text.slice(0, 50000)
     await logActivity(
       db,
       'tool.http_request',
@@ -579,6 +596,27 @@ async function updateTableRow(
   return `Updated ${count} row${count === 1 ? '' : 's'} in "${t.name}".${note}`
 }
 
+async function deleteTableRow(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Tables are unavailable.'
+  const ref = String(input?.table ?? '').trim()
+  if (!ref) return 'Which table? Pass a table name.'
+  const t = findTable(await accessibleTables(db, userId), ref)
+  if (!t) return `No table named "${ref}" that you can access.`
+
+  // One row by id only — no bulk match, so a loose filter can't wipe a table.
+  const rowId = String(input?.row_id ?? '').trim()
+  if (!rowId) return 'Pass the "row_id" of the row to delete (query_table returns each row\'s id).'
+
+  const { data, error } = await db.from(t.physical_name).delete().eq('id', rowId).select('id')
+  if (error) return `Could not delete from "${t.name}": ${error.message}`
+  if (!data || !data.length) return `No row with id ${rowId} in "${t.name}" — nothing deleted.`
+  return `Deleted row ${rowId} from "${t.name}".`
+}
+
 async function createTable(
   db: DB | null,
   input: Record<string, unknown>,
@@ -936,6 +974,96 @@ async function addTodoToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added to-do ${todoId} to collection "${col.name}".`
+}
+
+// --- Links (shared bookmarks; metadata auto-fetched from the URL) -----------
+
+async function saveLink(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Links are unavailable.'
+  const url = String(input?.url ?? '').trim()
+  if (!/^https?:\/\//i.test(url)) return 'A full http(s) url is required.'
+  const meta = await fetchLinkMetadata(url)
+  const title = (typeof input?.title === 'string' && input.title.trim()) || meta.title
+  const { data, error } = await db
+    .from('links')
+    .insert({
+      owner_id: userId,
+      url,
+      title,
+      description: meta.description,
+      image_url: meta.image_url,
+      favicon_url: meta.favicon_url,
+      notes: String(input?.notes ?? ''),
+      visibility: 'private',
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not save the link: ${error.message}`
+  let note = ''
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (col) {
+      await db.from('collection_links').upsert(
+        { collection_id: col.id, link_id: data.id, added_by: userId },
+        { onConflict: 'collection_id,link_id', ignoreDuplicates: true },
+      )
+      note = ` Filed into collection "${col.name}".`
+    }
+  }
+  await logActivity(db, 'link.created', `Saved link "${title}"`, { id: data.id, url, collection: ref || null }, userId)
+  return `Saved link "${title}" (id ${data.id}).${meta.description ? ` ${meta.description.slice(0, 200)}` : ''}${note}`
+}
+
+async function listLinks(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Links are unavailable.'
+  let query = db
+    .from('links')
+    .select('id, url, title, description')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .order('created_at', { ascending: false })
+    .limit(100)
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, false)
+    if (!col) return `Collection "${ref}" not found.`
+    const { data: members } = await db.from('collection_links').select('link_id').eq('collection_id', col.id)
+    const ids = (members ?? []).map((m: { link_id: string }) => m.link_id)
+    if (!ids.length) return `No links in collection "${col.name}".`
+    query = query.in('id', ids)
+  }
+  const { data } = await query
+  if (!data || !data.length) return 'No saved links. Use save_link to add one.'
+  return (data as Array<{ id: string; url: string; title: string; description: string }>)
+    .map((l) => `• ${l.title} — ${l.url}${l.description ? `\n  ${l.description.slice(0, 200)}` : ''}\n  id: ${l.id}`)
+    .join('\n')
+}
+
+async function addLinkToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Links are unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const linkId = String(input?.link_id ?? '').trim()
+  if (!ref || !linkId) return 'Pass both a collection (name or id) and a link_id.'
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_links').upsert(
+    { collection_id: col.id, link_id: linkId, added_by: userId },
+    { onConflict: 'collection_id,link_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added link ${linkId} to collection "${col.name}".`
 }
 
 async function addTableToCollection(

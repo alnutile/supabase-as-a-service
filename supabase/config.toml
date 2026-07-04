@@ -16,6 +16,11 @@ verify_jwt = true
 [functions.loop]
 verify_jwt = true
 
+# Fetches a URL's title/description/preview image for the Links area — any
+# signed-in member, so it stays behind a Supabase JWT.
+[functions.link-meta]
+verify_jwt = true
+
 # Public / token-gated functions — must stay verify_jwt = false so external
 # callers (and pg_cron via pg_net) reach them without a Supabase JWT. They are
 # gated instead by an unguessable token in the URL (webhook / email-inbound), a
@@ -52,6 +57,13 @@ verify_jwt = false
 # artifacts function, so external systems can capture/sync tasks and tag them
 # into collections.
 [functions.todos]
+verify_jwt = false
+
+# Universal tool runner: invoke any active tool (builtin/http/mcp) directly, or
+# chain several — no model in the loop. Accepts BOTH a personal mcp_tokens
+# token and a Supabase session JWT, so it must stay verify_jwt = false; the JWT
+# is verified in code via auth.getUser (never trusted from its payload).
+[functions.run-tool]
 verify_jwt = false
 
 # The GitHub side of the Features kanban: opens the approved-for-work issue,

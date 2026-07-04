@@ -46,3 +46,9 @@ export const artifactsApiUrl = `${supabaseUrl}/functions/v1/artifacts`
 
 /** Base URL of the public To-dos CRUD API (bearer-token auth via mcp_tokens). */
 export const todosApiUrl = `${supabaseUrl}/functions/v1/todos`
+
+/** URL of the `link-meta` edge function (fetches a URL's title/description/preview). */
+export const linkMetaUrl = `${supabaseUrl}/functions/v1/link-meta`
+
+/** Universal tool runner — invoke any active tool (or a chain) directly, no model. */
+export const runToolUrl = `${supabaseUrl}/functions/v1/run-tool`
