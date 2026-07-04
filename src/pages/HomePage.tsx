@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { isMac, openGlobalSearch } from '../components/GlobalSearch'
 import {
   ActivityIcon,
   AgentIcon,
@@ -11,6 +12,7 @@ import {
   FileIcon,
   ForgeIcon,
   PluginIcon,
+  SearchIcon,
   SettingsIcon,
   ShieldIcon,
   SkillIcon,
@@ -89,6 +91,18 @@ export default function HomePage() {
             can do.
           </p>
         </div>
+
+        {/* Global search — opens the ⌘K palette (mounted in Layout) */}
+        <button
+          onClick={openGlobalSearch}
+          className="mb-6 flex w-full max-w-xl items-center gap-3 rounded-2xl border border-border bg-surface px-5 py-[14px] text-left text-[15px] text-faint shadow-soft transition hover:border-primary hover:text-muted"
+        >
+          <SearchIcon className="h-5 w-5 shrink-0" />
+          <span className="flex-1">Search chats, artifacts, files, to-dos, links, agents…</span>
+          <kbd className="rounded-md border border-border bg-surface-2 px-2 py-1 text-[11px] font-semibold">
+            {isMac ? '⌘K' : 'Ctrl K'}
+          </kbd>
+        </button>
 
         <div className="mb-10 flex flex-wrap gap-3">
           <button

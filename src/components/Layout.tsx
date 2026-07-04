@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { GlobalSearch, isMac, openGlobalSearch } from './GlobalSearch'
 import {
   ActivityIcon,
   AgentIcon,
@@ -25,6 +26,7 @@ import {
   MenuIcon,
   MoonIcon,
   PluginIcon,
+  SearchIcon,
   SettingsIcon,
   ShieldIcon,
   SkillIcon,
@@ -255,6 +257,27 @@ export function Layout() {
           </button>
         </div>
 
+        {/* Global search trigger (⌘K / Ctrl+K also opens it) */}
+        <div className="px-[14px] pb-1">
+          <button
+            onClick={() => {
+              setDrawerOpen(false)
+              openGlobalSearch()
+            }}
+            title="Search"
+            aria-label="Search"
+            className={`flex w-full items-center gap-[13px] rounded-[13px] border border-border bg-surface-2 px-[13px] py-[9px] text-[14px] font-medium text-faint transition hover:border-border-strong hover:text-muted ${
+              railed ? 'md:justify-center md:gap-0 md:border-none md:bg-transparent md:px-0' : ''
+            }`}
+          >
+            <SearchIcon className="h-[18px] w-[18px] shrink-0" />
+            <span className={`flex-1 text-left ${railHide}`}>Search</span>
+            <kbd className={`rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px] font-semibold ${railHide}`}>
+              {isMac ? '⌘K' : 'Ctrl K'}
+            </kbd>
+          </button>
+        </div>
+
         <nav className="flex-1 overflow-y-auto px-[14px] py-2">
           {navGroups.map((group) => {
             const visible = group.items.filter((i) => !i.adminOnly || isAdmin)
@@ -357,12 +380,21 @@ export function Layout() {
             </span>
             Intranet
           </span>
+          <button
+            onClick={openGlobalSearch}
+            className="ml-auto rounded-md p-1.5 text-muted hover:bg-surface-hover"
+            aria-label="Search"
+          >
+            <SearchIcon className="h-5 w-5" />
+          </button>
         </header>
 
         <main className="min-w-0 flex-1 overflow-hidden bg-bg">
           <Outlet />
         </main>
       </div>
+
+      <GlobalSearch isAdmin={isAdmin} />
     </div>
   )
 }
