@@ -327,3 +327,10 @@ export const ChevronDownIcon = (p: SVGProps<SVGSVGElement>) => (
     <polyline points="6 9 12 15 18 9" />
   </svg>
 )
+
+export const CompassIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <polygon points="15.5 8.5 13.5 13.5 8.5 15.5 10.5 10.5 15.5 8.5" />
+  </svg>
+)
