@@ -68,6 +68,10 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
 
       # Applies every pending file under supabase/migrations/ in order and
-      # records them in the remote migration history.
+      # records them in the remote migration history. --include-all also picks
+      # up unrecorded files that sort BEFORE the newest remote version — that
+      # happens whenever a migration was applied out of band (e.g. via the
+      # Supabase MCP) and the history was later repaired; without the flag one
+      # skipped file wedges the whole workflow.
       - name: Push migrations
-        run: supabase db push
+        run: supabase db push --include-all
