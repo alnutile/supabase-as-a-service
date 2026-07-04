@@ -167,7 +167,18 @@ Deno.serve(async (req: Request) => {
   let ran = 0
 
   for (const s of due ?? []) {
-    const next = new Date(Date.now() + s.interval_minutes * 60_000).toISOString()
+    // Claim the row before running: advance next_run_at only if it is still due.
+    // A concurrent tick (runs often outlast the 1-minute cron interval) loses the
+    // conditional update and skips, so a schedule can never double-fire.
+    const now = new Date()
+    const next = new Date(now.getTime() + s.interval_minutes * 60_000).toISOString()
+    const { data: claimed } = await db
+      .from('schedules')
+      .update({ last_run_at: now.toISOString(), next_run_at: next })
+      .eq('id', s.id)
+      .lte('next_run_at', now.toISOString())
+      .select('id')
+    if (!claimed?.length) continue
     try {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, collection_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
@@ -189,7 +200,6 @@ Deno.serve(async (req: Request) => {
         actor_id: s.owner_id,
       })
     }
-    await db.from('schedules').update({ last_run_at: new Date().toISOString(), next_run_at: next }).eq('id', s.id)
   }
 
   return new Response(JSON.stringify({ ran }), { headers: { 'Content-Type': 'application/json' } })
