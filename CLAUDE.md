@@ -37,6 +37,21 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   returns **SSE** lines `data: {"delta": "..."}` and ends with `data: [DONE]`.
   The function calls OpenRouter; the client only sends the message history + the user's
   access token (+ the anon key as the `apikey` header).
+  **Group chat (humans first, AI on @ai):** a thread can be shared with other workspace
+  members — the "People" button on an open conversation adds them via
+  `conversation_members` (migration 0053). Access = owner OR member, enforced by RLS
+  through the `security definer` helper `can_access_conversation()` (avoids policy
+  recursion); members read the whole thread and post **as themselves**
+  (`owner_id = auth.uid()` is enforced on insert, so the sender can't be spoofed), and
+  only the owner deletes the thread. In a shared thread ("Team thread" badge) humans talk
+  to each other over the existing Realtime channel and **the AI only replies when a
+  message contains `@ai`** — the gating is in `ChatPage.submit()` (a plain message just
+  inserts + touches the conversation; no model call, so no cost). When summoned, each
+  human message in the model history is prefixed with the sender's name (from the
+  `list_workspace_members()` security-definer directory RPC — profiles RLS stays
+  owner-only) plus a system note explaining the group context. Other people's bubbles
+  render left/neutral with a name label; yours stay right/purple. Solo threads keep the
+  classic always-reply behavior.
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
@@ -134,9 +149,12 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   parsing lives in `_shared/linkmeta.ts` (capped read of ~512KB, 10s timeout, never throws,
   falls back to the hostname) so the `save_link` builtin fills rows identically. A `links`
   row (migration 0049) is `url` + fetched `title`/`description`/`image_url`/`favicon_url` +
-  optional `notes` + **`screenshot_path` (reserved: a storage path for a captured page
-  screenshot — the capture pipeline is a planned follow-up; the column + card UI are ready
-  to show one)**. Visibility mirrors todos/collections: `private` (owner + admins) or
+  optional `notes` + **`screenshot_path`** — a captured screenshot stored in the private
+  `link-screenshots` bucket (migration 0052; member-readable, owner-folder writes, service
+  role for pipelines). The card prefers a signed screenshot URL over og:image. The seeded
+  `set_link_screenshot` builtin attaches one from an image URL (download → bucket → path),
+  so a browse-the-web capture, agent, or `run-tool` call can fill it; only the *capture*
+  itself is external. Visibility mirrors todos/collections: `private` (owner + admins) or
   `workspace` (every member can see and edit), enforced by RLS. Links file into collections
   via `collection_links` (exact mirror of `collection_todos`, visibility-inherited RLS) —
   the card grid has the same select → shared `AddToCollectionBar` (kind `link`) + collection

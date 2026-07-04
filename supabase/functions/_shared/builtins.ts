@@ -101,6 +101,8 @@ export async function runBuiltin(
       return listLinks(db, input, userId)
     case 'add_link_to_collection':
       return addLinkToCollection(db, input, userId)
+    case 'set_link_screenshot':
+      return setLinkScreenshot(db, input, userId)
     case 'add_table_to_collection':
       return addTableToCollection(db, input, userId)
     case 'http_request':
@@ -1045,6 +1047,55 @@ async function listLinks(
   return (data as Array<{ id: string; url: string; title: string; description: string }>)
     .map((l) => `• ${l.title} — ${l.url}${l.description ? `\n  ${l.description.slice(0, 200)}` : ''}\n  id: ${l.id}`)
     .join('\n')
+}
+
+// Download a captured screenshot image and attach it to a link: the image is
+// stored in the private `link-screenshots` bucket (member-readable) and the
+// row's screenshot_path is set, which the Links page prefers over og:image.
+async function setLinkScreenshot(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Links are unavailable.'
+  const linkId = String(input?.link_id ?? '').trim()
+  const imageUrl = String(input?.image_url ?? '').trim()
+  if (!linkId || !/^https?:\/\//i.test(imageUrl)) return 'Pass a link_id and a full http(s) image_url.'
+
+  const { data: link } = await db
+    .from('links')
+    .select('id, title, owner_id, visibility')
+    .eq('id', linkId)
+    .maybeSingle()
+  if (!link || (link.owner_id !== userId && link.visibility !== 'workspace')) {
+    return `Link ${linkId} not found (or not yours).`
+  }
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15_000)
+    const res = await fetch(imageUrl, { signal: controller.signal })
+    clearTimeout(timer)
+    if (!res.ok) return `Could not download the image (status ${res.status}).`
+    const mime = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
+    if (!mime.startsWith('image/')) return `That URL is not an image (content-type ${mime || 'unknown'}).`
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    if (bytes.byteLength > 8_000_000) return 'That image is too large (max 8MB).'
+
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : mime === 'image/gif' ? 'gif' : 'jpg'
+    const path = `${link.owner_id}/${link.id}.${ext}`
+    const { error: upErr } = await db.storage
+      .from('link-screenshots')
+      .upload(path, bytes, { contentType: mime, upsert: true })
+    if (upErr) return `Could not store the screenshot: ${upErr.message}`
+
+    const { error } = await db.from('links').update({ screenshot_path: path }).eq('id', link.id)
+    if (error) return `Stored the image but could not update the link: ${error.message}`
+    await logActivity(db, 'link.screenshot', `Attached a screenshot to "${link.title}"`, { id: link.id, path }, userId)
+    return `Screenshot attached to "${link.title}" — the Links page now shows it as the preview.`
+  } catch (err) {
+    return `Screenshot failed: ${err instanceof Error ? err.message : 'error'}`
+  }
 }
 
 async function addLinkToCollection(

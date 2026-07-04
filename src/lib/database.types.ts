@@ -76,6 +76,22 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['conversations']['Insert']>
         Relationships: []
       }
+      conversation_members: {
+        Row: {
+          conversation_id: string
+          user_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          conversation_id: string
+          user_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['conversation_members']['Insert']>
+        Relationships: []
+      }
       messages: {
         Row: {
           id: string
@@ -1193,6 +1209,10 @@ export interface Database {
       collection_token_stats: {
         Args: Record<PropertyKey, never>
         Returns: { collection_id: string; artifact_count: number; char_total: number }[]
+      }
+      list_workspace_members: {
+        Args: Record<PropertyKey, never>
+        Returns: { id: string; email: string | null; display_name: string | null }[]
       }
       collections_combined_chars: {
         Args: { p_ids: string[] }

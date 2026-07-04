@@ -36,6 +36,7 @@ export default function LinksPage() {
   const [quickUrl, setQuickUrl] = useState('')
   const [adding, setAdding] = useState(false)
   const [fetchingIds, setFetchingIds] = useState<Set<string>>(new Set())
+  const [screenshots, setScreenshots] = useState<Record<string, string>>({}) // link id -> signed URL
   const [activeCollection, setActiveCollection] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -54,6 +55,21 @@ export default function LinksPage() {
     }
     setMembers(map)
     setLoading(false)
+
+    // Captured screenshots live in a private bucket — mint short-lived signed
+    // URLs in one batch and prefer them over the page's og:image.
+    const withShots = (lRes.data ?? []).filter((l) => l.screenshot_path)
+    if (withShots.length) {
+      const { data: signed } = await supabase.storage
+        .from('link-screenshots')
+        .createSignedUrls(withShots.map((l) => l.screenshot_path!), 3600)
+      const map2: Record<string, string> = {}
+      withShots.forEach((l, i) => {
+        const s = signed?.[i]
+        if (s?.signedUrl) map2[l.id] = s.signedUrl
+      })
+      setScreenshots(map2)
+    }
   }, [])
 
   useEffect(() => {
@@ -243,6 +259,7 @@ export default function LinksPage() {
                 <LinkCard
                   key={l.id}
                   link={l}
+                  screenshotUrl={screenshots[l.id]}
                   fetching={fetchingIds.has(l.id)}
                   selected={selected.has(l.id)}
                   onToggleSelect={() => toggleSelect(l.id)}
@@ -266,6 +283,7 @@ export default function LinksPage() {
 
 function LinkCard({
   link,
+  screenshotUrl,
   fetching,
   selected,
   onToggleSelect,
@@ -275,6 +293,7 @@ function LinkCard({
   onRemoveFromCollection,
 }: {
   link: Link
+  screenshotUrl?: string
   fetching: boolean
   selected: boolean
   onToggleSelect: () => void
@@ -285,8 +304,8 @@ function LinkCard({
 }) {
   const [copied, setCopied] = useState(false)
   const host = hostOf(link.url)
-  // Prefer a captured screenshot once the capture pipeline exists; og:image for now.
-  const preview = link.image_url
+  // A captured screenshot (signed URL) beats the page's own og:image.
+  const preview = screenshotUrl ?? link.image_url
 
   async function copyUrl() {
     try {

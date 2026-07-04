@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
@@ -24,6 +24,7 @@ import {
   ThumbsDownIcon,
   ThumbsUpIcon,
   TrashIcon,
+  UsersIcon,
 } from '../components/icons'
 
 type FeedbackRow = { rating: 'up' | 'down'; category: string | null; note: string | null }
@@ -42,6 +43,10 @@ type Message = Database['public']['Tables']['messages']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
 type Agent = Database['public']['Tables']['agents']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
+type WorkspaceMember = { id: string; email: string | null; display_name: string | null }
+
+// "@ai" anywhere in a message summons the assistant in a shared thread.
+const AI_MENTION = /(^|\s)@ai\b/i
 
 export default function ChatPage() {
   const { conversationId } = useParams()
@@ -67,6 +72,9 @@ export default function ChatPage() {
   const [collectionIds, setCollectionIds] = useState<string[]>([])
   const [combinedTokens, setCombinedTokens] = useState(0)
   const [showCollections, setShowCollections] = useState(false)
+  const [directory, setDirectory] = useState<WorkspaceMember[]>([])
+  const [memberIds, setMemberIds] = useState<string[]>([])
+  const [showMembers, setShowMembers] = useState(false)
   const model = useOrchestratorContext()
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -92,6 +100,83 @@ export default function ChatPage() {
     await supabase.from('conversations').delete().eq('id', id)
     setConversations((prev) => prev.filter((c) => c.id !== id))
     if (id === conversationId) navigate('/chat')
+  }
+
+  // --- Workspace member directory (for the "add people" picker + name labels) ---
+  useEffect(() => {
+    supabase
+      .rpc('list_workspace_members')
+      .then(({ data }) => setDirectory((data as WorkspaceMember[] | null) ?? []))
+  }, [])
+
+  // --- Members of the open thread (live — others may add people mid-chat) ---
+  useEffect(() => {
+    setMemberIds([])
+    setShowMembers(false)
+    if (!conversationId) return
+    const loadMembers = () =>
+      supabase
+        .from('conversation_members')
+        .select('user_id')
+        .eq('conversation_id', conversationId)
+        .then(({ data }) => setMemberIds((data ?? []).map((r) => r.user_id)))
+    loadMembers()
+    const channel = supabase
+      .channel(`members:${conversationId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversation_members', filter: `conversation_id=eq.${conversationId}` },
+        () => loadMembers(),
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [conversationId])
+
+  const convo = useMemo(
+    () => conversations.find((c) => c.id === conversationId) ?? null,
+    [conversations, conversationId],
+  )
+  // Everyone in the thread: explicit members + the owner (implicit).
+  const participantIds = useMemo(() => {
+    const set = new Set<string>(memberIds)
+    if (convo) set.add(convo.owner_id)
+    return set
+  }, [memberIds, convo])
+  // A thread with 2+ humans is a group chat: the AI only replies on @ai.
+  const isGroup = participantIds.size > 1
+
+  // Real name for the model's history; the UI variant says "You" for yourself.
+  const realNameOf = useCallback(
+    (id: string) => {
+      const m = directory.find((d) => d.id === id)
+      return m?.display_name || m?.email?.split('@')[0] || 'Member'
+    },
+    [directory],
+  )
+  const nameOf = useCallback(
+    (id: string) => (id === user?.id ? 'You' : realNameOf(id)),
+    [realNameOf, user],
+  )
+
+  async function toggleMember(memberId: string) {
+    if (!conversationId || !user) return
+    if (memberIds.includes(memberId)) {
+      await supabase
+        .from('conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('user_id', memberId)
+      setMemberIds((prev) => prev.filter((id) => id !== memberId))
+    } else {
+      await supabase.from('conversation_members').insert({
+        conversation_id: conversationId,
+        user_id: memberId,
+        added_by: user.id,
+      })
+      setMemberIds((prev) => [...prev, memberId])
+    }
   }
 
   // --- Load saved skills (for the slash menu / run button) ---
@@ -379,15 +464,34 @@ export default function ChatPage() {
       const convId = await ensureConversation(text || atts[0]?.name || 'New chat')
       await insertMessage(convId, 'user', text, atts)
 
+      // In a shared thread, humans talk to each other — the assistant only
+      // pipes in when someone writes @ai. Solo threads keep the classic
+      // always-reply behavior.
+      if (isGroup && !AI_MENTION.test(text)) {
+        await supabase
+          .from('conversations')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', convId)
+        loadConversations()
+        return
+      }
+
       // Build the history to send to the model. Attachments ride only on the
       // turn they're added (below) — we don't re-send historical files every
       // turn, which would re-upload and re-bill the whole document each message.
+      // In a group thread each human message is prefixed with its sender so the
+      // model can follow who said what.
+      const label = (id: string) => (isGroup ? `${realNameOf(id)}: ` : '')
       const history: ChatMessage[] = [
         ...messages.map((m) => ({
           role: (m.role === 'assistant' ? 'assistant' : 'user') as ChatMessage['role'],
-          content: m.content,
+          content: m.role === 'assistant' ? m.content : `${label(m.owner_id)}${m.content}`,
         })),
-        { role: 'user', content: text || '(see attached files)', attachments: atts },
+        {
+          role: 'user',
+          content: `${user ? label(user.id) : ''}${text || '(see attached files)'}`,
+          attachments: atts,
+        },
       ]
 
       setStreaming('')
@@ -399,8 +503,13 @@ export default function ChatPage() {
         // the user-picked collections PLUS any the agent is bound to.
         (() => {
           const merged = [...new Set([...collectionIds, ...(agent?.collection_ids ?? [])])]
+          const groupNote = isGroup
+            ? 'This is a group thread between several human teammates; each human message is prefixed with the sender\'s name. You were summoned with @ai — answer the thread, addressing people by name when useful.'
+            : ''
+          const system = [agent?.instructions, groupNote].filter(Boolean).join('\n\n')
           return {
-            ...(agent ? { system: agent.instructions, toolIds: agent.tool_ids } : {}),
+            ...(system ? { system } : {}),
+            ...(agent ? { toolIds: agent.tool_ids } : {}),
             ...(merged.length ? { collectionIds: merged } : {}),
           }
         })(),
@@ -609,14 +718,20 @@ export default function ChatPage() {
               >
                 {c.title}
               </button>
-              <button
-                onClick={() => deleteConversation(c.id, c.title)}
-                title="Delete chat"
-                aria-label={`Delete chat ${c.title}`}
-                className="mr-1 shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
-              >
-                <TrashIcon className="h-4 w-4" />
-              </button>
+              {c.owner_id === user?.id ? (
+                <button
+                  onClick={() => deleteConversation(c.id, c.title)}
+                  title="Delete chat"
+                  aria-label={`Delete chat ${c.title}`}
+                  className="mr-1 shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                </button>
+              ) : (
+                <span className="mr-2 shrink-0 text-faint" title="Shared with you">
+                  <UsersIcon className="h-3.5 w-3.5" />
+                </span>
+              )}
             </div>
           ))}
           {conversations.length === 0 && (
@@ -653,6 +768,82 @@ export default function ChatPage() {
             </button>
           </div>
         )}
+
+        {/* Thread header: who's in this conversation + add people. */}
+        {conversationId && (
+          <div className="relative flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{convo?.title ?? 'Chat'}</span>
+            {isGroup && (
+              <span className="hidden shrink-0 rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary sm:inline">
+                Team thread · @ai to ask the assistant
+              </span>
+            )}
+            <div className="flex shrink-0 -space-x-1.5">
+              {[...participantIds].slice(0, 5).map((id) => (
+                <span
+                  key={id}
+                  title={nameOf(id)}
+                  className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-surface bg-primary-soft text-[10px] font-bold text-primary"
+                >
+                  {realNameOf(id).charAt(0).toUpperCase()}
+                </span>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowMembers((v) => !v)}
+              title="Add people to this chat"
+              className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                showMembers ? 'border-primary bg-primary-soft text-primary' : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              <UsersIcon className="h-4 w-4" /> People
+            </button>
+
+            {showMembers && (
+              <div className="absolute right-4 top-full z-30 mt-1 max-h-72 w-72 overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+                <p className="px-2 py-1.5 text-xs text-muted">
+                  Members can read and post in this thread. The assistant only replies when someone writes{' '}
+                  <code className="rounded bg-surface-2 px-1">@ai</code>.
+                </p>
+                {directory
+                  .filter((d) => d.id !== convo?.owner_id)
+                  .map((d) => {
+                    const checked = memberIds.includes(d.id)
+                    return (
+                      <button
+                        key={d.id}
+                        onClick={() => toggleMember(d.id)}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-text hover:bg-surface-hover"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            checked ? 'border-primary bg-primary text-white' : 'border-border-strong text-transparent'
+                          }`}
+                        >
+                          <CheckIcon className="h-3 w-3" />
+                        </span>
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[10px] font-bold text-primary">
+                          {(d.display_name || d.email || '?').charAt(0).toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{d.display_name || d.email}</span>
+                          {d.display_name && d.email && (
+                            <span className="block truncate text-[11px] text-faint">{d.email}</span>
+                          )}
+                        </span>
+                        {d.id === user?.id && <span className="text-[10px] uppercase text-faint">you</span>}
+                      </button>
+                    )
+                  })}
+                {directory.filter((d) => d.id !== convo?.owner_id).length === 0 && (
+                  <p className="px-2 py-3 text-center text-xs text-faint">
+                    No other members yet — invite people in Settings.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-4 py-6">
             {messages.length === 0 && !streaming && (
@@ -680,6 +871,8 @@ export default function ChatPage() {
                   key={m.id}
                   role={m.role}
                   content={m.content}
+                  isSelf={m.owner_id === user?.id}
+                  senderName={isGroup && m.role === 'user' && m.owner_id !== user?.id ? nameOf(m.owner_id) : undefined}
                   attachments={(m.attachments as ChatAttachment[] | null) ?? undefined}
                   onSaveArtifact={
                     m.role === 'assistant' ? () => saveAsArtifact(m.content) : undefined
@@ -939,7 +1132,11 @@ export default function ChatPage() {
                   }
                 }}
                 rows={1}
-                placeholder="Message the assistant…  (type / to run a skill)"
+                placeholder={
+                  isGroup
+                    ? 'Message the team…  (@ai brings in the assistant, / runs a skill)'
+                    : 'Message the assistant…  (type / to run a skill)'
+                }
                 className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-border-strong px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
               <button
@@ -966,6 +1163,8 @@ function MessageBubble({
   role,
   content,
   streaming,
+  isSelf = true,
+  senderName,
   attachments,
   onSaveArtifact,
   feedback,
@@ -974,24 +1173,34 @@ function MessageBubble({
   role: string
   content: string
   streaming?: boolean
+  isSelf?: boolean
+  senderName?: string
   attachments?: ChatAttachment[]
   onSaveArtifact?: () => void
   feedback?: FeedbackRow
   onFeedback?: (patch: FeedbackPatch) => void
 }) {
   const isUser = role === 'user'
+  // My messages sit right in purple; other humans' sit left in a neutral
+  // bubble with their name above, so a shared thread reads like a group chat.
+  const alignRight = isUser && isSelf
   // Long pasted context collapses so it doesn't dominate the thread.
   const isLong = isUser && content.length > 600
   const [expanded, setExpanded] = useState(false)
   const shown = isLong && !expanded ? content.slice(0, 500) : content
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`group max-w-[85%] ${isUser ? 'order-2' : ''}`}>
+    <div className={`flex ${alignRight ? 'justify-end' : 'justify-start'}`}>
+      <div className={`group max-w-[85%] ${alignRight ? 'order-2' : ''}`}>
+        {senderName && (
+          <p className="mb-0.5 px-1 text-[11px] font-semibold text-muted">{senderName}</p>
+        )}
         <div
           className={`rounded-2xl px-4 py-2.5 ${
-            isUser
+            alignRight
               ? 'bg-primary text-white'
-              : 'border border-border bg-surface text-text'
+              : isUser
+                ? 'bg-surface-2 text-text'
+                : 'border border-border bg-surface text-text'
           }`}
         >
           {isUser ? (
@@ -1001,7 +1210,9 @@ function MessageBubble({
               {isLong && (
                 <button
                   onClick={() => setExpanded((v) => !v)}
-                  className="ml-1 font-medium text-brand-100 underline underline-offset-2"
+                  className={`ml-1 font-medium underline underline-offset-2 ${
+                    alignRight ? 'text-brand-100' : 'text-primary'
+                  }`}
                 >
                   {expanded ? 'Show less' : 'Show more'}
                 </button>
@@ -1011,12 +1222,12 @@ function MessageBubble({
             <Markdown>{content}</Markdown>
           )}
           {attachments && attachments.length > 0 && (
-            <div className={`mt-2 flex flex-wrap gap-1.5 ${isUser ? 'justify-end' : ''}`}>
+            <div className={`mt-2 flex flex-wrap gap-1.5 ${alignRight ? 'justify-end' : ''}`}>
               {attachments.map((a) => (
                 <span
                   key={a.path}
                   className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] ${
-                    isUser ? 'bg-brand-500/40 text-white' : 'bg-surface-2 text-muted'
+                    alignRight ? 'bg-brand-500/40 text-white' : 'bg-surface-2 text-muted'
                   }`}
                 >
                   <FileIcon className="h-3 w-3" />
