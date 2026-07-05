@@ -193,6 +193,21 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   `screenshot_path`; a REST API + MCP tools like artifacts/to-dos.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
+  **AI-writable Files (CRUD):** seeded `is_builtin` tools `create_file` / `list_files` /
+  `get_file` / `delete_file` / `add_file_to_collection` (shared executor in
+  `_shared/files.ts`, run by all three agent loops via `runBuiltin`; the MCP server exposes
+  the same names) let the assistant + an external Claude persist and manage files — most
+  importantly **binary output it generates** (e.g. a base64 PNG from an image model, which
+  returns b64 only, no hosted URL). `create_file` takes `content_base64` **or** `content_text`
+  (+ `filename`, inferred `mime_type`, `visibility` private|workspace, `collection`, `tags`,
+  `source` provenance jsonb), decodes server-side, enforces a **10 MB** cap and a MIME
+  allow-list (png/jpeg/webp/gif, pdf, text/plain, text/markdown, csv, json), uploads to the
+  same `files` bucket at `‹owner›/‹uuid›/‹name›`, inserts a `files` row (so it shows in the
+  Files UI, obeys the owner-only RLS, and PDFs auto-index via the `enqueue_document` trigger),
+  and returns a **7-day signed URL** + file id. Everything is re-scoped to the caller in code.
+  `files.tags`/`files.source` columns added in migration 0055 (both nullable — the manual
+  upload path is unaffected). The older MCP-only `upload_file` still works; `create_file` is
+  the richer variant (text payloads, returns a URL, tags/collection/source).
 - **Tables (Airtable-but-real-Postgres):** `TablesPage` (route `/tables`, sidebar,
   any member) lets a user create a data table — by hand or by describing it to AI —
   and edit rows in a spreadsheet-style grid. Each table is a **real Postgres table**
@@ -514,7 +529,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page

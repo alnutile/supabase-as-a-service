@@ -325,6 +325,8 @@ export interface Database {
           size_bytes: number | null
           visibility: Visibility
           public_slug: string | null
+          tags: string[] | null
+          source: Json | null
           created_at: string
         }
         Insert: {
@@ -337,6 +339,8 @@ export interface Database {
           size_bytes?: number | null
           visibility?: Visibility
           public_slug?: string | null
+          tags?: string[] | null
+          source?: Json | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['files']['Insert']>

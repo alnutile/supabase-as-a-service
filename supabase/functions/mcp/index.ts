@@ -7,6 +7,7 @@
 // action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from '../_shared/knowledge.ts'
+import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from '../_shared/files.ts'
 import {
   createLoop,
   findOrCreateLoopAgent,
@@ -244,9 +245,76 @@ const TOOLS = [
     },
   },
   {
+    name: 'create_file',
+    description:
+      'Create a file in the workspace Files area from base64 bytes OR plain text, and get back a stable, shareable URL + file id. Use this to PERSIST generated output — most importantly a base64 image (e.g. gpt-image-1 b64_json): pass content_base64 + filename + mime_type and hand the returned url back to the user as a clickable link. Provide exactly one of content_base64 / content_text. Max 10 MB; allowed types: image/png, image/jpeg, image/webp, image/gif, application/pdf, text/plain, text/markdown, text/csv, application/json. PDFs are auto-indexed into the knowledge base. Appears in the Files UI.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'Name including extension, e.g. fishing-diorama.png. Drives the content-type if mime_type is omitted.' },
+        content_base64: { type: 'string', description: 'Base64-encoded bytes (images, PDFs, etc.). One of content_base64 / content_text.' },
+        content_text: { type: 'string', description: 'Plain text/markdown content. One of content_base64 / content_text.' },
+        mime_type: { type: 'string', description: 'Defaults inferred from the extension (e.g. image/png).' },
+        visibility: { type: 'string', enum: ['private', 'workspace'], description: 'private (default) or workspace (link-shared).' },
+        collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags.' },
+        source: { type: 'object', description: 'Optional provenance, e.g. {"generator":"gpt-image-1","prompt":"…"}.' },
+      },
+      required: ['filename'],
+    },
+  },
+  {
+    name: 'list_files',
+    description: 'List files in the Files area (metadata only). Filter by collection (name/id), tag, or mime_prefix (e.g. "image/"). limit default 50, max 200.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+        tag: { type: 'string', description: 'Optional tag to filter by.' },
+        mime_prefix: { type: 'string', description: 'Optional MIME prefix, e.g. "image/" or "application/pdf".' },
+        limit: { type: 'number', description: 'Max rows (default 50, max 200).' },
+      },
+    },
+  },
+  {
+    name: 'get_file',
+    description: 'Get one file\'s metadata and a fresh 7-day signed URL by id or filename. Set include_text=true to also return the text body of a small text/markdown file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The file id.' },
+        filename: { type: 'string', description: 'Or the exact filename.' },
+        include_text: { type: 'boolean', description: 'Return content_text for small text files (default false).' },
+      },
+    },
+  },
+  {
+    name: 'delete_file',
+    description: 'Delete a file by id (or filename): removes both the storage object and the Files row.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The file id.' },
+        filename: { type: 'string', description: 'Or the exact filename.' },
+      },
+    },
+  },
+  {
+    name: 'add_file_to_collection',
+    description: 'Add an existing file to a collection (both by name or id). The collection is created if it does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id.' },
+        file_id: { type: 'string', description: 'The file id to add (or its filename).' },
+      },
+      required: ['collection', 'file_id'],
+    },
+  },
+  {
     name: 'upload_file',
     description:
-      'Upload a file (PDF, image, text, etc.) into the workspace Files area. PDFs are automatically indexed into the shared knowledge base. Provide the content base64-encoded; max 10 MB. For files larger than ~10 MB use create_file_upload + finalize_file_upload instead.',
+      'Upload a file (PDF, image, text, etc.) into the workspace Files area. PDFs are automatically indexed into the shared knowledge base. Provide the content base64-encoded; max 10 MB. For files larger than ~10 MB use create_file_upload + finalize_file_upload instead. (create_file is the richer variant — it also returns a shareable URL and accepts text/tags/collection.)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -760,6 +828,16 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (error) return text(`Error: ${error.message}`, true)
       return text(`Added table "${t.name}" to collection "${col.name}".`)
     }
+    case 'create_file':
+      return text(await createFile(db, owner, args))
+    case 'list_files':
+      return text(await listFiles(db, owner, args))
+    case 'get_file':
+      return text(await getFile(db, owner, args))
+    case 'delete_file':
+      return text(await deleteFile(db, owner, args))
+    case 'add_file_to_collection':
+      return text(await addFileToCollection(db, owner, args))
     case 'upload_file': {
       if (!args.name || !args.mime_type || !args.content_base64) {
         return text('upload_file needs name, mime_type, and content_base64.', true)
