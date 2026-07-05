@@ -8,7 +8,14 @@
 import { resolveModel } from './models.ts'
 import { orComplete, systemMsg } from './openrouter.ts'
 import { recordUsage } from './usage.ts'
-import { deterministicSummary, evaluatePosture, gatherPosture, type Finding } from './security.ts'
+import {
+  deterministicSummary,
+  evaluatePosture,
+  gatherPosture,
+  SCAN_STEPS,
+  scanProgress,
+  type Finding,
+} from './security.ts'
 
 // deno-lint-ignore no-explicit-any
 type DB = any
@@ -53,14 +60,26 @@ export async function runSecurityScan(db: DB | null, userId: string | null): Pro
 
   const { data: scan, error: scanErr } = await db
     .from('security_scans')
-    .insert({ triggered_by: userId })
+    .insert({ triggered_by: userId, progress: scanProgress(0) })
     .select('id')
     .single()
   if (scanErr || !scan) return `Could not start a scan: ${scanErr?.message ?? 'insert failed'}`
 
+  // Best-effort step reporting: the dashboard follows the row over Realtime,
+  // but a failed progress write must never fail the scan itself.
+  const setStep = async (current: number) => {
+    try {
+      await db.from('security_scans').update({ progress: scanProgress(current) }).eq('id', scan.id)
+    } catch {
+      // ignore — progress is cosmetic
+    }
+  }
+
   try {
     const snapshot = await gatherPosture(db)
+    await setStep(1)
     const findings = evaluatePosture(snapshot)
+    await setStep(2)
 
     // Carry dismissed/promoted status forward: same key + a prior non-open
     // status means the team already triaged this exact item.
@@ -94,6 +113,7 @@ export async function runSecurityScan(db: DB | null, userId: string | null): Pro
       if (insErr) throw new Error(`Could not save findings: ${insErr.message}`)
     }
 
+    await setStep(3)
     const summary = await modelSummary(db, findings, userId)
     await db
       .from('security_scans')
@@ -101,6 +121,7 @@ export async function runSecurityScan(db: DB | null, userId: string | null): Pro
         status: 'ok',
         summary,
         findings_count: findings.length,
+        progress: scanProgress(SCAN_STEPS.length),
         finished_at: new Date().toISOString(),
       })
       .eq('id', scan.id)

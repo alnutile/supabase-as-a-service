@@ -59,6 +59,35 @@ export interface PostureSnapshot {
 
 const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
 
+// --- Live progress -----------------------------------------------------------
+// The scan row's `progress` jsonb is this ordered checklist; runSecurityScan
+// re-writes it as it moves through the steps and the dashboard follows the row
+// over Realtime. Pure on purpose (like evaluatePosture) so it's unit-testable.
+
+export type StepStatus = 'pending' | 'running' | 'done'
+
+export interface ProgressStep {
+  key: string
+  label: string
+  status: StepStatus
+}
+
+export const SCAN_STEPS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: 'gather', label: 'Collecting workspace configuration' },
+  { key: 'evaluate', label: 'Running the posture checks' },
+  { key: 'save', label: 'Saving findings (carrying over triage)' },
+  { key: 'summarize', label: 'Writing the summary' },
+]
+
+// Checklist with everything before `current` done, `current` running, and the
+// rest pending. `current >= SCAN_STEPS.length` marks the whole list done.
+export function scanProgress(current: number): ProgressStep[] {
+  return SCAN_STEPS.map((s, i) => ({
+    ...s,
+    status: i < current ? 'done' : i === current ? 'running' : 'pending',
+  }))
+}
+
 export function evaluatePosture(s: PostureSnapshot): Finding[] {
   const findings: Finding[] = []
   const activeNames = new Set(s.activeTools.map((t) => t.name))
