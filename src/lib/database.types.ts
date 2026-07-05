@@ -840,6 +840,60 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['features']['Insert']>
         Relationships: []
       }
+      security_scans: {
+        Row: {
+          id: string
+          status: 'running' | 'ok' | 'error'
+          summary: string
+          findings_count: number
+          error: string | null
+          triggered_by: string | null
+          started_at: string
+          finished_at: string | null
+        }
+        Insert: {
+          id?: string
+          status?: 'running' | 'ok' | 'error'
+          summary?: string
+          findings_count?: number
+          error?: string | null
+          triggered_by?: string | null
+          started_at?: string
+          finished_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['security_scans']['Insert']>
+        Relationships: []
+      }
+      security_findings: {
+        Row: {
+          id: string
+          scan_id: string
+          key: string
+          severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
+          title: string
+          detail: string
+          suggestion: string
+          status: 'open' | 'dismissed' | 'promoted'
+          feature_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          scan_id: string
+          key: string
+          severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
+          title: string
+          detail?: string
+          suggestion?: string
+          status?: 'open' | 'dismissed' | 'promoted'
+          feature_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['security_findings']['Insert']>
+        Relationships: []
+      }
       vault_secrets: {
         Row: {
           id: string

@@ -100,7 +100,7 @@ export default function FeaturesPage() {
     setNotice(null)
     try {
       if (lane === 'approved' && !feature.issue_number) {
-        if (!confirm(`Approve “${feature.title}” for AI work?\n\nThis opens a GitHub issue; the coding agent will implement it and open a PR for review.`)) return
+        if (!confirm(`Approve “${feature.title}” for AI work?\n\nThis opens a GitHub issue; the coding agent will implement it and open a PR for review.\n\n⚠️ If the repo is public, the issue is too: the card's title, description, and screenshots become publicly visible the moment it opens.`)) return
         await callFeaturesFn('approve', feature.id)
       } else if (lane === 'ready') {
         if (!confirm(`Merge the PR for “${feature.title}”?\n\nMerging main deploys to production (app + migrations + functions).`)) return
@@ -322,7 +322,10 @@ function NewIdeaModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted">Screenshots (optional)</span>
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Screenshots (optional) — if an admin approves this card, they're posted to the GitHub
+              issue (public on a public repo), so avoid capturing sensitive data.
+            </span>
             <input
               type="file"
               accept="image/*"

@@ -21,6 +21,7 @@ import ForgePage from './pages/ForgePage'
 import GuardrailsPage from './pages/GuardrailsPage'
 import EvalsPage from './pages/EvalsPage'
 import VaultPage from './pages/VaultPage'
+import SecurityPage from './pages/SecurityPage'
 import AgentsPage from './pages/AgentsPage'
 import LoopsPage from './pages/LoopsPage'
 import PluginsPage from './pages/PluginsPage'
@@ -74,6 +75,7 @@ export default function App() {
         <Route path="guardrails" element={<GuardrailsPage />} />
         <Route path="evals" element={<EvalsPage />} />
         <Route path="vault" element={<VaultPage />} />
+        <Route path="security" element={<SecurityPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="loops" element={<LoopsPage />} />
         <Route path="plugins" element={<PluginsPage />} />
