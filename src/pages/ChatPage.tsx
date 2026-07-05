@@ -16,10 +16,13 @@ import {
   ArtifactIcon,
   ChatIcon,
   CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CloseIcon,
   CollectionIcon,
   FileIcon,
   PaperclipIcon,
+  PinIcon,
   PlusIcon,
   SendIcon,
   SkillIcon,
@@ -65,6 +68,14 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showConvos, setShowConvos] = useState(false)
+  // Collapse the conversation column (md+) to reclaim space. Persisted so the
+  // choice sticks across sessions/reloads.
+  const [convosCollapsed, setConvosCollapsed] = useState(
+    () => localStorage.getItem('chat-convos-collapsed') === '1',
+  )
+  useEffect(() => {
+    localStorage.setItem('chat-convos-collapsed', convosCollapsed ? '1' : '0')
+  }, [convosCollapsed])
   const [skills, setSkills] = useState<Skill[]>([])
   const [showSkills, setShowSkills] = useState(false)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
@@ -88,11 +99,12 @@ export default function ChatPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const seen = useRef<Set<string>>(new Set())
 
-  // --- Load conversation list ---
+  // --- Load conversation list (pinned first, then most-recent) ---
   const loadConversations = useCallback(async () => {
     const { data } = await supabase
       .from('conversations')
       .select('*')
+      .order('pinned', { ascending: false })
       .order('updated_at', { ascending: false })
     setConversations(data ?? [])
   }, [])
@@ -107,6 +119,14 @@ export default function ChatPage() {
     await supabase.from('conversations').delete().eq('id', id)
     setConversations((prev) => prev.filter((c) => c.id !== id))
     if (id === conversationId) navigate('/chat')
+  }
+
+  // Pin / unpin a conversation so it floats to the top of the list. Optimistic,
+  // then re-sort (pinned first, then recency) by reloading.
+  async function togglePin(id: string, pinned: boolean) {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned } : c)))
+    await supabase.from('conversations').update({ pinned }).eq('id', id)
+    loadConversations()
   }
 
   // --- Workspace member directory (for the "add people" picker + name labels) ---
@@ -746,21 +766,56 @@ export default function ChatPage() {
           onClick={() => setShowConvos(false)}
         />
       )}
+      {/* Collapsed rail (md+ only): a thin strip that reclaims horizontal space
+          with just expand + new-chat. Collapsing is a desktop affordance — on
+          mobile the list is already a slide-over. */}
+      {convosCollapsed && (
+        <div className="hidden md:flex w-12 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3">
+          <button
+            onClick={() => setConvosCollapsed(false)}
+            title="Expand conversations"
+            aria-label="Expand conversations"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted transition hover:bg-surface-hover"
+          >
+            <ChevronRightIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => {
+              setPanelArtifact(null)
+              navigate('/chat')
+            }}
+            title="New chat"
+            aria-label="New chat"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text transition hover:bg-surface-hover"
+          >
+            <PlusIcon className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       <div
         className={`absolute inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-border bg-surface transition-transform md:static md:translate-x-0 ${
           showConvos ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${convosCollapsed ? 'md:hidden' : ''}`}
       >
-        <div className="p-3">
+        <div className="flex items-center gap-2 p-3">
           <button
             onClick={() => {
               setPanelArtifact(null)
               navigate('/chat')
               setShowConvos(false)
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text transition hover:bg-surface-hover"
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text transition hover:bg-surface-hover"
           >
             <PlusIcon className="h-4 w-4" /> New chat
+          </button>
+          {/* Collapse the whole column (md+ only). */}
+          <button
+            onClick={() => setConvosCollapsed(true)}
+            title="Collapse conversations"
+            aria-label="Collapse conversations"
+            className="hidden md:flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted transition hover:bg-surface-hover"
+          >
+            <ChevronLeftIcon className="h-4 w-4" />
           </button>
         </div>
         <div className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">
@@ -772,13 +827,25 @@ export default function ChatPage() {
               }`}
             >
               <button
+                onClick={() => togglePin(c.id, !c.pinned)}
+                title={c.pinned ? 'Unpin chat' : 'Pin chat to top'}
+                aria-label={c.pinned ? `Unpin chat ${c.title}` : `Pin chat ${c.title}`}
+                className={`ml-1 shrink-0 rounded-md p-1.5 transition hover:bg-surface-hover hover:text-primary ${
+                  c.pinned
+                    ? 'text-primary opacity-100'
+                    : 'text-faint opacity-0 focus:opacity-100 group-hover:opacity-100'
+                }`}
+              >
+                <PinIcon className="h-4 w-4" fill={c.pinned ? 'currentColor' : 'none'} />
+              </button>
+              <button
                 onClick={() => {
                   // The panel belongs to the thread you were in — close it.
                   if (c.id !== conversationId) setPanelArtifact(null)
                   navigate(`/chat/${c.id}`)
                   setShowConvos(false)
                 }}
-                className={`min-w-0 flex-1 truncate px-3 py-2 text-left text-sm transition ${
+                className={`min-w-0 flex-1 truncate px-2 py-2 text-left text-sm transition ${
                   c.id === conversationId ? 'text-primary' : 'text-muted'
                 }`}
               >
