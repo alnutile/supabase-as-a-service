@@ -21,7 +21,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from './knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
-import { runSecurityScan } from './security.ts'
+import { runSecurityScan } from './security_scan.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import {

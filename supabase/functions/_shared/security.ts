@@ -6,18 +6,21 @@
 //   * evaluatePosture(snap)  — PURE function snapshot → findings. This is the
 //                              part with judgment in it, so it's the part with
 //                              tests (supabase/functions/tests/security_test.ts).
-//   * runSecurityScan(db,id) — orchestration: admin gate, scan row lifecycle,
-//                              status carry-over for re-runs, one best-effort
-//                              utility-model call for the prose summary.
+//   * runSecurityScan(db,id) — orchestration, in security_scan.ts: admin gate,
+//                              scan row lifecycle, status carry-over for
+//                              re-runs, one best-effort utility-model call for
+//                              the prose summary.
 //
 // The FINDINGS are deterministic — config facts, not model opinions — so a
 // daily scheduled run costs at most one cheap utility-model call (the summary),
 // and even that fails open to a computed summary. Enforcement/judgment stays in
 // code, same philosophy as guardrails.
 //
-// No static imports of models/openrouter/usage: models.ts reads Deno.env at
-// module load, which would make this module (and its tests) require env
-// access just to import evaluatePosture. modelSummary() imports them lazily.
+// This module has NO imports — not even dynamic ones. Deno type-checks dynamic
+// import specifiers too, and the models/openrouter/usage graph pulls in npm:
+// packages + Deno.env reads; keeping this file import-free is what lets the
+// tests run with no node_modules and no env access (CI's edge job has neither).
+// The model-touching half lives in security_scan.ts.
 
 // deno-lint-ignore no-explicit-any
 type DB = any
@@ -214,129 +217,10 @@ export async function gatherPosture(db: DB): Promise<PostureSnapshot> {
   }
 }
 
-function deterministicSummary(findings: Finding[]): string {
+export function deterministicSummary(findings: Finding[]): string {
   if (findings.length === 0) return 'No findings — the workspace posture checks all passed.'
   const bySev = new Map<Severity, number>()
   for (const f of findings) bySev.set(f.severity, (bySev.get(f.severity) ?? 0) + 1)
   const parts = SEVERITY_ORDER.filter((sv) => bySev.has(sv)).map((sv) => `${bySev.get(sv)} ${sv}`)
   return `${findings.length} finding${findings.length === 1 ? '' : 's'}: ${parts.join(', ')}.`
-}
-
-// One best-effort utility-model call for a readable run summary. The findings
-// themselves are already decided — this only writes prose, so any failure
-// falls back to the computed summary.
-async function modelSummary(db: DB, findings: Finding[], actorId: string | null): Promise<string> {
-  const fallback = deterministicSummary(findings)
-  if (findings.length === 0) return fallback
-  try {
-    const [{ resolveModel }, { orComplete, systemMsg }, { recordUsage }] = await Promise.all([
-      import('./models.ts'),
-      import('./openrouter.ts'),
-      import('./usage.ts'),
-    ])
-    const model = await resolveModel(db, 'utility')
-    const out = await orComplete({
-      model,
-      maxTokens: 300,
-      messages: [
-        systemMsg(
-          'You summarize automated security scan results for a small team dashboard. Reply with 2-3 plain sentences: overall posture, the most important item to fix first, and why. No markdown, no lists, no preamble.',
-        ),
-        {
-          role: 'user',
-          content: `Scan results (JSON):\n${JSON.stringify(
-            findings.map((f) => ({ severity: f.severity, title: f.title })),
-          )}`,
-        },
-      ],
-    })
-    await recordUsage(db, { context: 'security', model, actorId, usage: out.usage })
-    const text = (out.content ?? '').trim()
-    return text ? `${fallback} ${text}` : fallback
-  } catch {
-    return fallback
-  }
-}
-
-export async function runSecurityScan(db: DB | null, userId: string | null): Promise<string> {
-  if (!db) return 'The security scan is unavailable.'
-  // Admin gate IN CODE: run-tool and the agent loops execute builtins with the
-  // service role, so the dashboard's RLS alone doesn't protect this path.
-  const { data: profile } = await db.from('profiles').select('is_admin').eq('id', userId).maybeSingle()
-  if (!profile?.is_admin) return 'The security scan is admin-only.'
-
-  const { data: scan, error: scanErr } = await db
-    .from('security_scans')
-    .insert({ triggered_by: userId })
-    .select('id')
-    .single()
-  if (scanErr || !scan) return `Could not start a scan: ${scanErr?.message ?? 'insert failed'}`
-
-  try {
-    const snapshot = await gatherPosture(db)
-    const findings = evaluatePosture(snapshot)
-
-    // Carry dismissed/promoted status forward: same key + a prior non-open
-    // status means the team already triaged this exact item.
-    const keys = findings.map((f) => f.key)
-    const prior = new Map<string, { status: string; feature_id: string | null }>()
-    if (keys.length > 0) {
-      const { data: priorRows } = await db
-        .from('security_findings')
-        .select('key, status, feature_id, created_at')
-        .in('key', keys)
-        .neq('status', 'open')
-        .order('created_at', { ascending: false })
-      for (const row of (priorRows ?? []) as Array<{ key: string; status: string; feature_id: string | null }>) {
-        if (!prior.has(row.key)) prior.set(row.key, { status: row.status, feature_id: row.feature_id })
-      }
-    }
-
-    if (findings.length > 0) {
-      const { error: insErr } = await db.from('security_findings').insert(
-        findings.map((f) => ({
-          scan_id: scan.id,
-          key: f.key,
-          severity: f.severity,
-          title: f.title,
-          detail: f.detail,
-          suggestion: f.suggestion,
-          status: prior.get(f.key)?.status ?? 'open',
-          feature_id: prior.get(f.key)?.feature_id ?? null,
-        })),
-      )
-      if (insErr) throw new Error(`Could not save findings: ${insErr.message}`)
-    }
-
-    const summary = await modelSummary(db, findings, userId)
-    await db
-      .from('security_scans')
-      .update({
-        status: 'ok',
-        summary,
-        findings_count: findings.length,
-        finished_at: new Date().toISOString(),
-      })
-      .eq('id', scan.id)
-    await db.from('activity_log').insert({
-      type: 'security.scan',
-      summary: `Security scan: ${deterministicSummary(findings)}`,
-      detail: { scan_id: scan.id, findings: findings.length },
-      actor_id: userId,
-    })
-
-    const open = findings.filter((f) => (prior.get(f.key)?.status ?? 'open') === 'open')
-    const lines = open
-      .slice(0, 10)
-      .map((f) => `- [${f.severity}] ${f.title}`)
-      .join('\n')
-    return `${summary}\n\n${open.length} open finding${open.length === 1 ? '' : 's'} (previously triaged items keep their status). Review them on the Security dashboard (Governance → Security).${lines ? `\n${lines}` : ''}`
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'scan failed'
-    await db
-      .from('security_scans')
-      .update({ status: 'error', error: msg, finished_at: new Date().toISOString() })
-      .eq('id', scan.id)
-    return `Security scan failed: ${msg}`
-  }
 }
