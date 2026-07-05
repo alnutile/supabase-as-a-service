@@ -67,6 +67,25 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   artifact updates the page live; an external/local AI app can also push HTML up (via MCP)
   to the same table and get the same URL. *(Planned: multi-file/bundled SPAs behind the
   same `p/‹slug›` URL via a public storage bucket; an MCP `publish_html` one-call helper.)*
+  **Interactive artifacts (live trackers, migration 0054):** an `html` artifact can be a
+  Claude.ai-style stateful mini-app (tracker/kanban/checklist) — the user clicks and the
+  changes persist. The sandboxed iframe (`allow-scripts`, opaque origin — deliberately no
+  localStorage/session access) talks a tiny postMessage protocol implemented by
+  `src/components/ArtifactFrame.tsx`: iframe posts `artifact:ready` → parent replies
+  `artifact:state` with the saved `artifacts.data` jsonb; iframe posts `artifact:save` on
+  each user change → the PARENT (authed client, normal RLS) persists it debounced. The
+  artifact HTML never sees credentials. `ArtifactFrame` is used by the editor preview, the
+  public share page (saves are RLS no-ops for non-owners), and **ChatPage's live artifact
+  panel**: creating an artifact in chat (or clicking an artifact link in an assistant
+  message) opens it beside the thread; the panel follows the row over Realtime
+  (`artifacts` joined the `supabase_realtime` publication in 0054), so assistant edits
+  render live. The `p` standalone page injects the saved state as
+  `window.__ARTIFACT_DATA__` (read-only render for anon visitors). Seeded `is_builtin`
+  tools `get_artifact` / `update_artifact` (handlers in `_shared/builtins.ts`; update is
+  owner-only, logs `artifact.updated`) let the assistant read the current version and
+  evolve it in place instead of duplicating; a seeded always-on "Interactive artifacts"
+  prompt (its own `auto_apply` skill row) teaches the bridge snippet + the
+  get-then-update revision flow.
   **REST CRUD API (`artifacts` edge function, `verify_jwt: false`):** a plain‑REST API so
   non‑Claude systems (scripts, Zaps, cron) can push/sync artifacts with a `curl` instead of
   MCP. Auth is a per‑user **bearer token** — the same `mcp_tokens` from Settings → Connect

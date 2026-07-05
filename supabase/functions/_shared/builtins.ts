@@ -7,7 +7,8 @@
 // Builtins: search_documents (RAG over the workspace knowledge base), send_email,
 // check_email, the user-table tools (list_tables / query_table / add_table_row /
 // update_table_row / delete_table_row / create_table — the "Tables" feature), the team-vault tools (list_secrets /
-// get_secret), and the content-authoring tools (create_artifact / list_collections /
+// get_secret), and the content-authoring tools (create_artifact / get_artifact /
+// update_artifact / list_collections /
 // create_collection / add_to_collection / add_note) — the in-app mirror of the MCP
 // server's authoring actions, so the internal AI/agents can push articles, notes, and
 // docs into artifacts + collections + the knowledge base (the "ingest GitHub articles
@@ -71,6 +72,10 @@ export async function runBuiltin(
       return getSecret(db, input, userId)
     case 'create_artifact':
       return createArtifact(db, input, userId)
+    case 'get_artifact':
+      return getArtifact(db, input, userId)
+    case 'update_artifact':
+      return updateArtifact(db, input, userId)
     case 'list_collections':
       return listCollections(db, userId)
     case 'create_collection':
@@ -750,6 +755,83 @@ async function createArtifact(
   }
   await logActivity(db, 'artifact.created', `Created artifact "${title}"`, { id: data.id, collection: ref || null }, userId)
   return `Created artifact "${title}" at /artifacts/${data.id}.${note}`
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const ARTIFACT_CONTENT_CAP = 16_000
+
+// Find one artifact by id or exact title (case-insensitive). `ownOnly` mirrors
+// the write rule: reads follow the RLS shape (owner OR shared), updates are
+// owner-only — builtins run as the service role, so this re-check is the gate.
+async function resolveArtifact(
+  db: DB,
+  userId: string,
+  ref: string,
+  ownOnly: boolean,
+): Promise<{ id: string; title: string; type: string; content: string; data: unknown } | null> {
+  let q = db
+    .from('artifacts')
+    .select('id, title, type, content, data, owner_id, visibility, updated_at')
+  q = ownOnly ? q.eq('owner_id', userId) : q.or(`owner_id.eq.${userId},visibility.neq.private`)
+  q = UUID_RE.test(ref) ? q.eq('id', ref) : q.ilike('title', ref)
+  const { data } = await q.order('updated_at', { ascending: false }).limit(1)
+  return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
+}
+
+async function getArtifact(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Artifacts are unavailable.'
+  const ref = String(input?.artifact ?? '').trim()
+  if (!ref) return 'Pass the artifact id or its exact title.'
+  const art = await resolveArtifact(db, userId, ref, false)
+  if (!art) return `No artifact matches "${ref}".`
+  const clipped = art.content.length > ARTIFACT_CONTENT_CAP
+  const content = clipped ? art.content.slice(0, ARTIFACT_CONTENT_CAP) : art.content
+  return [
+    `id: ${art.id}`,
+    `title: ${art.title}`,
+    `type: ${art.type}`,
+    `saved interactive state (data): ${JSON.stringify(art.data ?? {})}`,
+    `content${clipped ? ` (first ${ARTIFACT_CONTENT_CAP} chars — it is longer)` : ''}:`,
+    content,
+  ].join('\n')
+}
+
+async function updateArtifact(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Artifacts are unavailable.'
+  const ref = String(input?.artifact ?? '').trim()
+  if (!ref) return 'Pass the artifact id or its exact title.'
+  const art = await resolveArtifact(db, userId, ref, true)
+  if (!art) return `No artifact you own matches "${ref}". Use get_artifact or create_artifact first.`
+
+  const patch: Record<string, unknown> = {}
+  if (typeof input?.title === 'string' && input.title.trim()) patch.title = input.title.trim().slice(0, 120)
+  if (typeof input?.content === 'string' && input.content.trim()) patch.content = input.content
+  if (input?.data !== undefined) {
+    if (typeof input.data !== 'object' || input.data === null || Array.isArray(input.data)) {
+      return 'data must be a JSON object.'
+    }
+    patch.data = input.data
+  }
+  if (!Object.keys(patch).length) return 'Nothing to update — pass title, content, and/or data.'
+
+  const { error } = await db.from('artifacts').update(patch).eq('id', art.id).eq('owner_id', userId)
+  if (error) return `Could not update the artifact: ${error.message}`
+  await logActivity(
+    db,
+    'artifact.updated',
+    `Updated artifact "${(patch.title as string) ?? art.title}"`,
+    { id: art.id, fields: Object.keys(patch) },
+    userId,
+  )
+  return `Updated artifact "${(patch.title as string) ?? art.title}" (/artifacts/${art.id}). Open views refresh live.`
 }
 
 async function listCollections(db: DB | null, userId: string | null): Promise<string> {

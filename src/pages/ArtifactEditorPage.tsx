@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { ArtifactType, Database, Visibility } from '../lib/database.types'
+import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
 import { makeSlug } from '../lib/util'
+import { ArtifactFrame } from '../components/ArtifactFrame'
 import { Markdown } from '../components/Markdown'
 import { VisibilityControl } from '../components/VisibilityControl'
 import { TrashIcon } from '../components/icons'
@@ -55,6 +56,18 @@ export default function ArtifactEditorPage() {
         .eq('id', next.id)
       setSaving(false)
       if (!error) setDirty(false)
+    },
+    [artifact],
+  )
+
+  // Interactive-state saves from the preview iframe (checkboxes, notes, …).
+  // Written directly — separate from the dirty/save cycle so clicking around
+  // a live tracker never marks the *content* as unsaved.
+  const saveData = useCallback(
+    async (data: Json) => {
+      if (!artifact) return
+      setArtifact((a) => (a ? { ...a, data } : a))
+      await supabase.from('artifacts').update({ data }).eq('id', artifact.id)
     },
     [artifact],
   )
@@ -166,13 +179,11 @@ export default function ArtifactEditorPage() {
           </h3>
           <div className="rounded-xl border border-border bg-surface p-4">
             {artifact.type === 'html' ? (
-              <iframe
+              <ArtifactFrame
                 title="preview"
-                // allow-scripts (NOT allow-same-origin) lets charts/JS render
-                // while keeping an opaque origin — no access to cookies, the
-                // Supabase session, or the parent page. Matches PublicArtifactPage.
-                sandbox="allow-scripts"
-                srcDoc={artifact.content}
+                content={artifact.content}
+                data={artifact.data}
+                onSave={saveData}
                 className="h-80 w-full rounded border border-border"
               />
             ) : artifact.type === 'markdown' ? (

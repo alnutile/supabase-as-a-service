@@ -127,6 +127,7 @@ export interface Database {
           content: string
           visibility: Visibility
           public_slug: string | null
+          data: Json
           created_at: string
           updated_at: string
         }
@@ -140,6 +141,7 @@ export interface Database {
           content?: string
           visibility?: Visibility
           public_slug?: string | null
+          data?: Json
           created_at?: string
           updated_at?: string
         }

@@ -52,14 +52,21 @@ function escapeHtml(s: string): string {
 
 // Inject <title> + OpenGraph tags so the public link unfurls nicely. If the
 // HTML already has a <head>, splice the meta in; otherwise wrap a minimal doc.
-function withMeta(html: string, title: string): string {
+// Also injects the artifact's saved interactive state as
+// `window.__ARTIFACT_DATA__` — standalone pages have no parent app to answer
+// the postMessage bridge, so a live tracker's checked boxes/statuses still
+// render here (read-only: with no session there's nothing to persist to).
+function withMeta(html: string, title: string, data: unknown): string {
   const t = escapeHtml(title || 'Shared page')
   const hasTitle = /<title[\s>]/i.test(html)
+  // <-escape so a `</script>` inside the JSON can't break out of the tag.
+  const stateJson = JSON.stringify(data ?? {}).replace(/</g, '\\u003c')
   const meta =
     (hasTitle ? '' : `<title>${t}</title>`) +
     `<meta property="og:title" content="${t}">` +
     `<meta property="og:type" content="website">` +
-    `<meta name="twitter:card" content="summary_large_image">`
+    `<meta name="twitter:card" content="summary_large_image">` +
+    `<script>window.__ARTIFACT_DATA__=${stateJson}</script>`
 
   if (/<head[\s>]/i.test(html)) {
     return html.replace(/<head([^>]*)>/i, `<head$1>${meta}`)
@@ -83,14 +90,14 @@ Deno.serve(async (req) => {
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   const { data } = await db
     .from('artifacts')
-    .select('title, type, content')
+    .select('title, type, content, data')
     .eq('public_slug', slug)
     .maybeSingle()
 
   // RLS guarantees this is a non-private artifact. Only HTML renders standalone.
   if (!data || data.type !== 'html') return notFound()
 
-  return new Response(withMeta(data.content ?? '', data.title ?? ''), {
+  return new Response(withMeta(data.content ?? '', data.title ?? '', data.data), {
     status: 200,
     headers: {
       ...CORS,

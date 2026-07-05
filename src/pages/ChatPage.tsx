@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import type { Database } from '../lib/database.types'
+import type { Database, Json } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
+import { ArtifactFrame } from '../components/ArtifactFrame'
 import { uploadPickedFile } from '../lib/upload'
 import { estimateTokensFromChars } from '../lib/tokens'
 import { useOrchestratorContext } from '../lib/useModelContext'
@@ -40,6 +41,7 @@ const BUCKET = 'files'
 
 type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
+type Artifact = Database['public']['Tables']['artifacts']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
 type Agent = Database['public']['Tables']['agents']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
@@ -75,6 +77,9 @@ export default function ChatPage() {
   const [directory, setDirectory] = useState<WorkspaceMember[]>([])
   const [memberIds, setMemberIds] = useState<string[]>([])
   const [showMembers, setShowMembers] = useState(false)
+  // The live artifact panel: a tracker/doc rendered beside the thread that
+  // updates in realtime and (for html) persists clicks via ArtifactFrame.
+  const [panelArtifact, setPanelArtifact] = useState<Artifact | null>(null)
   const model = useOrchestratorContext()
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -132,6 +137,50 @@ export default function ChatPage() {
     return () => {
       supabase.removeChannel(channel)
     }
+  }, [conversationId])
+
+  // --- Live artifact panel ---
+  const openArtifactPanel = useCallback(async (id: string) => {
+    const { data } = await supabase.from('artifacts').select('*').eq('id', id).maybeSingle()
+    if (data) setPanelArtifact(data)
+  }, [])
+
+  // Follow the open artifact over Realtime so the panel refreshes live when
+  // the assistant (update_artifact), another device, or a teammate changes it.
+  useEffect(() => {
+    const id = panelArtifact?.id
+    if (!id) return
+    const channel = supabase
+      .channel(`artifact:${id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'artifacts', filter: `id=eq.${id}` },
+        (payload) =>
+          setPanelArtifact((a) => (a && a.id === id ? { ...a, ...(payload.new as Artifact) } : a)),
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // Only re-subscribe when the OPEN ARTIFACT changes, not on every row update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelArtifact?.id])
+
+  // Interactive-state saves from the panel iframe. Update local state too so
+  // the realtime echo of our own write is a no-op in ArtifactFrame.
+  const savePanelData = useCallback(
+    async (data: Json) => {
+      const id = panelArtifact?.id
+      if (!id) return
+      setPanelArtifact((a) => (a && a.id === id ? { ...a, data } : a))
+      await supabase.from('artifacts').update({ data }).eq('id', id)
+    },
+    [panelArtifact?.id],
+  )
+
+  // Switching threads closes the panel — it belongs to the conversation.
+  useEffect(() => {
+    setPanelArtifact(null)
   }, [conversationId])
 
   const convo = useMemo(
@@ -579,6 +628,9 @@ export default function ChatPage() {
         .insert({ owner_id: user!.id, conversation_id: convId, title, type, content, visibility: 'private' })
         .select()
         .single()
+      // Show the new artifact live beside the thread right away (last one
+      // wins if a reply creates several).
+      if (data) setPanelArtifact(data)
       out += data
         ? `✺ **${title}** — [open & share →](/artifacts/${data.id})`
         : `**${title}** (couldn’t save)`
@@ -645,6 +697,7 @@ export default function ChatPage() {
           })
           .select()
           .single()
+        if (art) setPanelArtifact(art)
         const link = art
           ? `✺ Created artifact **${skill.name}** — [open & share →](/artifacts/${art.id})`
           : 'Created artifact.'
@@ -881,6 +934,7 @@ export default function ChatPage() {
                   onFeedback={
                     m.role === 'assistant' ? (patch) => saveFeedback(m.id, patch) : undefined
                   }
+                  onOpenArtifact={m.role === 'assistant' ? openArtifactPanel : undefined}
                 />
               ))}
               {streaming !== null && (
@@ -1155,6 +1209,53 @@ export default function ChatPage() {
           </div>
         </form>
       </div>
+
+      {/* Live artifact panel — Claude.ai-style split view. Full-screen overlay
+          on mobile, side panel on md+. html artifacts are interactive: clicks
+          persist via ArtifactFrame and edits stream in over Realtime. */}
+      {panelArtifact && (
+        <div className="absolute inset-0 z-30 flex flex-col bg-surface md:static md:z-auto md:w-[26rem] md:shrink-0 md:border-l md:border-border lg:w-[30rem]">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+            <ArtifactIcon className="h-4 w-4 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
+              {panelArtifact.title}
+            </span>
+            <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              {panelArtifact.type}
+            </span>
+            <button
+              onClick={() => navigate(`/artifacts/${panelArtifact.id}`)}
+              className="shrink-0 text-xs font-medium text-primary hover:underline"
+            >
+              Open in editor
+            </button>
+            <button
+              onClick={() => setPanelArtifact(null)}
+              title="Close"
+              className="shrink-0 rounded-md p-1 text-faint hover:bg-surface-hover hover:text-text"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          </div>
+          {panelArtifact.type === 'html' ? (
+            <ArtifactFrame
+              title={panelArtifact.title}
+              content={panelArtifact.content}
+              data={panelArtifact.data}
+              onSave={savePanelData}
+              className="min-h-0 w-full flex-1"
+            />
+          ) : panelArtifact.type === 'markdown' ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <Markdown>{panelArtifact.content}</Markdown>
+            </div>
+          ) : (
+            <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-4 font-mono text-sm text-text">
+              {panelArtifact.content}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1169,6 +1270,7 @@ function MessageBubble({
   onSaveArtifact,
   feedback,
   onFeedback,
+  onOpenArtifact,
 }: {
   role: string
   content: string
@@ -1179,6 +1281,7 @@ function MessageBubble({
   onSaveArtifact?: () => void
   feedback?: FeedbackRow
   onFeedback?: (patch: FeedbackPatch) => void
+  onOpenArtifact?: (id: string) => void
 }) {
   const isUser = role === 'user'
   // My messages sit right in purple; other humans' sit left in a neutral
@@ -1219,7 +1322,21 @@ function MessageBubble({
               )}
             </p>
           ) : (
-            <Markdown>{content}</Markdown>
+            // Clicking an "open & share →" artifact link opens the live side
+            // panel instead of navigating away from the conversation.
+            <div
+              onClick={(e) => {
+                if (!onOpenArtifact) return
+                const a = (e.target as HTMLElement).closest('a')
+                const m = a?.getAttribute('href')?.match(/^\/artifacts\/([0-9a-f-]{36})$/i)
+                if (m) {
+                  e.preventDefault()
+                  onOpenArtifact(m[1])
+                }
+              }}
+            >
+              <Markdown>{content}</Markdown>
+            </div>
           )}
           {attachments && attachments.length > 0 && (
             <div className={`mt-2 flex flex-wrap gap-1.5 ${alignRight ? 'justify-end' : ''}`}>

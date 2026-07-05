@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
+import { ArtifactFrame } from '../components/ArtifactFrame'
 import { Markdown } from '../components/Markdown'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
@@ -64,10 +65,16 @@ export default function PublicArtifactPage() {
         <h1 className="mb-6 text-3xl font-bold tracking-tight text-text">{artifact.title}</h1>
         {artifact.type === 'html' ? (
           <>
-            <iframe
+            <ArtifactFrame
               title={artifact.title}
-              sandbox="allow-scripts"
-              srcDoc={artifact.content}
+              content={artifact.content}
+              data={artifact.data}
+              // Persist interactions. RLS makes this a no-op for anyone but
+              // the owner (anon/other viewers can still click; it just doesn't
+              // stick), so no ownership check is needed here.
+              onSave={(data) =>
+                void supabase.from('artifacts').update({ data }).eq('id', artifact.id)
+              }
               className="h-[70vh] w-full rounded-xl border border-border"
             />
             {artifact.public_slug && (
