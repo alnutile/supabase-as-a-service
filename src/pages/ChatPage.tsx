@@ -938,7 +938,7 @@ export default function ChatPage() {
                 />
               ))}
               {streaming !== null && (
-                <MessageBubble role="assistant" content={streaming || '…'} streaming />
+                <MessageBubble role="assistant" content={streaming || ''} streaming />
               )}
             </div>
           </div>
@@ -1260,6 +1260,23 @@ export default function ChatPage() {
   )
 }
 
+// The assistant's "thinking/typing" indicator: three dots that bounce one at a
+// time (staggered delays), replacing the old block-cursor that rendered as a
+// stray white box in some fonts.
+function TypingDots({ className = '' }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 align-middle ${className}`}
+      role="status"
+      aria-label="Assistant is typing"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current animate-typingBounce" />
+      <span className="h-1.5 w-1.5 rounded-full bg-current animate-typingBounce [animation-delay:0.2s]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-current animate-typingBounce [animation-delay:0.4s]" />
+    </span>
+  )
+}
+
 function MessageBubble({
   role,
   content,
@@ -1353,7 +1370,7 @@ function MessageBubble({
               ))}
             </div>
           )}
-          {streaming && <span className="ml-0.5 inline-block animate-pulse">▋</span>}
+          {streaming && <TypingDots className={content ? 'ml-1' : ''} />}
         </div>
         {!streaming && (onSaveArtifact || onFeedback) && (
           <div className="mt-1 space-y-1">
