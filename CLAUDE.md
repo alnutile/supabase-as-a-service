@@ -85,7 +85,14 @@ Always run `npm run build` before committing UI/logic changes — it typechecks 
   owner-only, logs `artifact.updated`) let the assistant read the current version and
   evolve it in place instead of duplicating; a seeded always-on "Interactive artifacts"
   prompt (its own `auto_apply` skill row) teaches the bridge snippet + the
-  get-then-update revision flow.
+  get-then-update revision flow. The editor's **Chat** button deep-links
+  `/chat?artifact=:id`: the artifact opens in the live panel and, whenever the panel is
+  open, `ChatPage.submit()` appends a system note naming it — so "update it / check off X"
+  resolves to get_artifact→update_artifact on THAT artifact instead of minting a new one.
+  Both side panels (chat + editor preview) are drag-resizable on md+ via
+  `src/components/ResizeHandle.tsx` (`usePanelResize`: pointer-captured drag on the left
+  edge — capture keeps the drag alive over the iframe — width persisted per-panel in
+  localStorage, exposed as a `--panel-w` CSS var consumed only at `md:`).
   **REST CRUD API (`artifacts` edge function, `verify_jwt: false`):** a plain‑REST API so
   non‑Claude systems (scripts, Zaps, cron) can push/sync artifacts with a `curl` instead of
   MCP. Auth is a per‑user **bearer token** — the same `mcp_tokens` from Settings → Connect

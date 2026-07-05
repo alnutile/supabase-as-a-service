@@ -4,6 +4,7 @@ import type { Database, Json } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
 import { ArtifactFrame } from '../components/ArtifactFrame'
+import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { uploadPickedFile } from '../lib/upload'
 import { estimateTokensFromChars } from '../lib/tokens'
 import { useOrchestratorContext } from '../lib/useModelContext'
@@ -80,6 +81,7 @@ export default function ChatPage() {
   // The live artifact panel: a tracker/doc rendered beside the thread that
   // updates in realtime and (for html) persists clicks via ArtifactFrame.
   const [panelArtifact, setPanelArtifact] = useState<Artifact | null>(null)
+  const panelResize = usePanelResize('chat-artifact-panel-w', 480)
   const model = useOrchestratorContext()
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -178,10 +180,13 @@ export default function ChatPage() {
     [panelArtifact?.id],
   )
 
-  // Switching threads closes the panel — it belongs to the conversation.
+  // Launched from the artifact editor's "Chat" button (?artifact=id): open it
+  // in the live panel so the conversation is *about* that artifact from turn
+  // one (submit() tells the model which artifact is on screen).
+  const artifactParam = searchParams.get('artifact')
   useEffect(() => {
-    setPanelArtifact(null)
-  }, [conversationId])
+    if (artifactParam) void openArtifactPanel(artifactParam)
+  }, [artifactParam, openArtifactPanel])
 
   const convo = useMemo(
     () => conversations.find((c) => c.id === conversationId) ?? null,
@@ -555,7 +560,12 @@ export default function ChatPage() {
           const groupNote = isGroup
             ? 'This is a group thread between several human teammates; each human message is prefixed with the sender\'s name. You were summoned with @ai — answer the thread, addressing people by name when useful.'
             : ''
-          const system = [agent?.instructions, groupNote].filter(Boolean).join('\n\n')
+          // The open panel is shared context: "make it wider / check off X /
+          // add a row" should edit THAT artifact, not mint a new one.
+          const artifactNote = panelArtifact
+            ? `The user has the artifact "${panelArtifact.title}" (id ${panelArtifact.id}, type ${panelArtifact.type}) open in a live panel beside this chat. When they ask you to change, update, or add to "it" (the artifact/tracker/doc), call get_artifact with that id to read the current version, then update_artifact with the complete new content — do NOT create a new artifact or emit a :::artifact block for a revision. The panel updates live when you save.`
+            : ''
+          const system = [agent?.instructions, groupNote, artifactNote].filter(Boolean).join('\n\n')
           return {
             ...(system ? { system } : {}),
             ...(agent ? { toolIds: agent.tool_ids } : {}),
@@ -744,6 +754,7 @@ export default function ChatPage() {
         <div className="p-3">
           <button
             onClick={() => {
+              setPanelArtifact(null)
               navigate('/chat')
               setShowConvos(false)
             }}
@@ -762,6 +773,8 @@ export default function ChatPage() {
             >
               <button
                 onClick={() => {
+                  // The panel belongs to the thread you were in — close it.
+                  if (c.id !== conversationId) setPanelArtifact(null)
                   navigate(`/chat/${c.id}`)
                   setShowConvos(false)
                 }}
@@ -806,7 +819,10 @@ export default function ChatPage() {
             <ChatIcon className="h-4 w-4" /> Conversations
           </button>
           <button
-            onClick={() => navigate('/chat')}
+            onClick={() => {
+              setPanelArtifact(null)
+              navigate('/chat')
+            }}
             className="ml-auto flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white"
           >
             <PlusIcon className="h-4 w-4" /> New
@@ -1214,7 +1230,11 @@ export default function ChatPage() {
           on mobile, side panel on md+. html artifacts are interactive: clicks
           persist via ArtifactFrame and edits stream in over Realtime. */}
       {panelArtifact && (
-        <div className="absolute inset-0 z-30 flex flex-col bg-surface md:static md:z-auto md:w-[26rem] md:shrink-0 md:border-l md:border-border lg:w-[30rem]">
+        <div
+          style={panelResize.panelStyle}
+          className="absolute inset-0 z-30 flex flex-col bg-surface md:relative md:inset-auto md:z-auto md:w-[var(--panel-w)] md:shrink-0 md:border-l md:border-border"
+        >
+          <ResizeHandle onPointerDown={panelResize.onPointerDown} />
           <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
             <ArtifactIcon className="h-4 w-4 shrink-0 text-primary" />
             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">

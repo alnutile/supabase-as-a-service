@@ -5,8 +5,9 @@ import { standalonePageUrl, supabase } from '../lib/supabase'
 import { makeSlug } from '../lib/util'
 import { ArtifactFrame } from '../components/ArtifactFrame'
 import { Markdown } from '../components/Markdown'
+import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { VisibilityControl } from '../components/VisibilityControl'
-import { TrashIcon } from '../components/icons'
+import { ChatIcon, TrashIcon } from '../components/icons'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
 
@@ -19,6 +20,7 @@ export default function ArtifactEditorPage() {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  const panelResize = usePanelResize('artifact-editor-panel-w', 384)
 
   useEffect(() => {
     if (!artifactId) return
@@ -126,6 +128,13 @@ export default function ArtifactEditorPage() {
             ))}
           </select>
           <button
+            onClick={() => navigate(`/chat?artifact=${artifact.id}`)}
+            title="Chat with the assistant about this artifact — it opens live beside the thread"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
+          >
+            <ChatIcon className="h-4 w-4" /> Chat
+          </button>
+          <button
             onClick={() => save()}
             disabled={!dirty || saving}
             className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition hover:bg-primary-strong disabled:opacity-50"
@@ -150,8 +159,12 @@ export default function ArtifactEditorPage() {
         />
       </div>
 
-      {/* Side panel: sharing + preview */}
-      <div className="flex w-full flex-col bg-surface-2 md:w-96 md:overflow-y-auto">
+      {/* Side panel: sharing + preview — drag its left edge to widen (md+) */}
+      <div
+        style={panelResize.panelStyle}
+        className="relative flex w-full flex-col bg-surface-2 md:w-[var(--panel-w)] md:shrink-0 md:overflow-y-auto"
+      >
+        <ResizeHandle onPointerDown={panelResize.onPointerDown} />
         <div className="border-b border-border p-4">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             Sharing
