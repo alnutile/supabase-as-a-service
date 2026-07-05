@@ -168,6 +168,15 @@ export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const RadarIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <circle cx="12" cy="12" r="1" />
+    <path d="M12 12 17 5.5" />
+  </svg>
+)
+
 export const UsageIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 3v18h18" />

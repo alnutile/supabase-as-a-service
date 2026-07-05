@@ -26,6 +26,7 @@ import {
   MenuIcon,
   MoonIcon,
   PluginIcon,
+  RadarIcon,
   SearchIcon,
   SettingsIcon,
   ShieldIcon,
@@ -99,6 +100,7 @@ const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
     label: 'Governance',
     items: [
       { to: '/guardrails', label: 'Guardrails', icon: ShieldIcon, adminOnly: true },
+      { to: '/security', label: 'Security', icon: RadarIcon, adminOnly: true },
       { to: '/evals', label: 'Evals', icon: EvalIcon, adminOnly: true },
       { to: '/vault', label: 'Secrets', icon: LockIcon, adminOnly: true },
     ],

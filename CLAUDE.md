@@ -350,6 +350,26 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   (`guardrail.blocked` / `.flagged` / `.error`). A seeded `is_builtin` "Prompt injection
   screen" applies to webhooks and blocks. RLS mirrors `tools` (authenticated SELECT, admin
   write, builtin not deletable).
+- **Security dashboard (Governance):** `SecurityPage` (route `/security`, sidebar
+  "Security" under Governance, admin-only) is the workspace posture scan as a repeatable
+  feature. The seeded `run_security_scan` builtin (handler `_shared/security.ts`, migration
+  0056) runs **deterministic checks over configuration** — active webhooks without shared
+  secrets, tool-enabled (`allow_tools`) webhooks, missing blocking webhook guardrails,
+  `send_email` without a recipient allowlist, `get_secret` + workspace-scoped vault secrets,
+  active external MCP handles, MCP/API tokens unused ≥90 days, public-artifact inventory,
+  single-admin bus factor — and writes `security_scans` / `security_findings` rows
+  (admin-only RLS; inserts are service-role). Findings are config facts, not model opinions:
+  the only model call is one best-effort `utility`-profile summary (fails open to a computed
+  one; usage context `security`). The pure evaluator (`evaluatePosture(snapshot)`) is
+  deliberately import-side-effect-free (lazy model imports) and unit-tested in
+  `supabase/functions/tests/security_test.ts`. Findings carry a stable `key`, so a
+  **dismissed** (accepted-risk) or **promoted** status carries over across re-runs instead of
+  re-nagging. **Promote to feature** files the finding onto the Features board in the `idea`
+  lane — the existing human-approval drags spend the AI effort and ship the fix; the button
+  itself never touches GitHub. Trigger surfaces (zero new plumbing, it's an ordinary builtin):
+  the dashboard's "Run scan" button calls it via `run-tool`; a daily run is an agent scoped to
+  this tool on a `schedules` row; chat works too. The builtin re-checks `profiles.is_admin`
+  in code, since the loops run builtins with the service role.
 - **AI-created artifacts:** the assistant emits a `:::artifact {"title","type"}\n…\n:::`
   block; `materializeArtifacts()` in `ChatPage` parses it after streaming, inserts an
   `artifacts` row, and replaces the block with an `/artifacts/:id` share link.
