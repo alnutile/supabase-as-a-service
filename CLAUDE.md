@@ -66,17 +66,22 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
-  **Standalone hosting:** an `html` artifact can also be served as a clean, chrome-free
-  public page by the **public `p` edge function** (`verify_jwt: false`):
-  `GET /functions/v1/p/‹slug›` returns the artifact's raw `content` as `text/html`
-  (injecting `<title>`/OpenGraph tags + a permissive CSP + `nosniff`) — for sharing "a
-  great diagram in HTML" with the public without deploying a whole app. It queries with
-  the **anon key**, so RLS only ever returns non-private rows (private artifacts are
-  invisible to it); only `type='html'` renders, anything else 404s. The editor's Sharing
-  panel and `PublicArtifactPage` link out to it (`standalonePageUrl(slug)` in
-  `src/lib/supabase.ts`). Because it serves straight from `artifacts.content`, editing the
-  artifact updates the page live; an external/local AI app can also push HTML up (via MCP)
-  to the same table and get the same URL. *(Planned: multi-file/bundled SPAs behind the
+  **Standalone hosting:** an `html` artifact can also be viewed as a clean, chrome-free
+  full-viewport page at the app's own public **`/p/:slug` route** (`StandaloneArtifactPage`)
+  — for sharing "a great diagram in HTML" with the public without deploying a whole app.
+  It renders inside `ArtifactFrame`'s opaque-origin sandbox (user HTML never runs raw on
+  the app origin, where visitors hold a session). The editor's Sharing panel and
+  `PublicArtifactPage` link to it (`standalonePageUrl(slug)` in `src/lib/supabase.ts`).
+  There is also a **public `p` edge function** (`verify_jwt: false`,
+  `GET /functions/v1/p/‹slug›`) that returns the artifact's raw `content` as `text/html`
+  (injecting `<title>`/OpenGraph tags + a permissive CSP + `nosniff`; anon-key query so RLS
+  hides private rows; only `type='html'` renders, anything else 404s) — **but Supabase
+  rewrites `text/html` → `text/plain` (+ a sandbox CSP) on `*.supabase.co` function URLs**
+  (anti-phishing), so browsers show raw source there. The function only truly renders behind
+  a Pro-plan custom functions domain, which is why the UI links to `/p/:slug` instead.
+  Because both serve straight from `artifacts.content`, editing the artifact updates the
+  page live; an external/local AI app can also push HTML up (via MCP) to the same table and
+  get the same URL. *(Planned: multi-file/bundled SPAs behind the
   same `p/‹slug›` URL via a public storage bucket; an MCP `publish_html` one-call helper.)*
   **Interactive artifacts (live trackers, migration 0054):** an `html` artifact can be a
   Claude.ai-style stateful mini-app (tracker/kanban/checklist) — the user clicks and the
@@ -302,14 +307,43 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   event (so a wrong/missing secret can't spam the event log). Null = no secret (unchanged). Set
   it per-webhook in the editor ("Require a secret"); it's a plaintext shared secret on the row,
   same trust model as `token`.
+- **Slack bot (rooms bound to collections):** the workspace bot joins Slack channels and
+  answers `@mentions` with that room's context — Claude-Tag style. An admin connects the
+  Slack app once in **Settings → Slack** (bot token + signing secret, Vault-backed like
+  email/MCP: `set_slack_integration` / service-role-only `read_slack_secrets`, migration
+  0057), then **binds channels**: a `slack_channel_bindings` row maps a Slack `channel_id`
+  to `collection_ids` + an optional `agent_id`; the binding's creator is the identity the
+  bot runs as (like `webhooks.owner_id`), so bind workspace-visibility collections for team
+  rooms. The public **`slack-events` edge function** (`verify_jwt: false`; gated by the
+  HMAC `X-Slack-Signature` on every request, not a URL token) handles the Events API:
+  `url_verification` challenge, signature + replay-window check, dedupe on `event_id`
+  (unique insert into the admin-readable `slack_events` audit log), then **acks within
+  Slack's 3-second window and does the model work in the background**
+  (`EdgeRuntime.waitUntil`) — the reply goes back via `chat.postMessage` into the thread.
+  The background run is the same loop as webhooks: agent instructions (or a default
+  Slack-flavored prompt) + `loadCollectionsContext` (binding ∪ agent collections) +
+  `runGuardrails` in the `webhook` context (**fail closed**) + tools only when the binding
+  sets `allow_tools` (deterministic gate, mirroring `webhooks.allow_tools`). Thread/channel
+  transcript (`conversations.replies`/`.history`) and display names are fetched for
+  conversational context; bot/self messages and edit subtypes are skipped so it can't loop.
+  Pure logic (signature verify, mention stripping, Slack-text decode, markdown→mrkdwn,
+  skip rules, transcript formatting) lives in `_shared/slack.ts` and is unit-tested
+  (`tests/slack_test.ts`). Usage logs with `context='slack'`; replies log `slack.reply` to
+  the activity feed. Setup guide + app manifest: `docs/slack.md`. *(Planned: DMs, a
+  `send_slack_message` builtin for scheduled/ambient posts, in-channel binding commands,
+  filing channel messages back into the collection as memory.)*
 - **Prompts & skills:** one `skills` table, two modes.
   - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
     seeded `is_builtin` "How this workspace works" prompt teaches the assistant the
     system + the artifact protocol. The chat edge function loads all `auto_apply`
     rows (via service role) and concatenates them into the system prompt on every call.
   - `auto_apply = false` → **on-demand** skills (personal). In `ChatPage`, typing `/`
-    (or the ⚡ button) lists them; `runSkill()` sends them as the `system` (artifact
-    mode uses `replaceSystem: true` for clean output; reply mode appends to context).
+    (or the ⚡ button) lists them. Picking one **arms** it rather than firing a model
+    call on the click: `chooseSkill()` prefills the composer with `use the skill "…"`
+    (`skillInvocationSentence()` in `src/lib/util.ts`) and shows a cancelable chip, so the
+    user can add context and decide when to run. Sending then routes through `handleSend`
+    → `runSkill()`, which sends the skill as the `system` (artifact mode uses
+    `replaceSystem: true` for clean output; reply mode appends to context).
 - **Tools (tools-as-data):** the `tools` table defines capabilities the chat loop
   exposes to the model. `kind = 'http'` → a custom tool; the model calls it and the chat
   function POSTs the inputs to `config.url` and feeds the response back. `kind = 'web'`
@@ -571,6 +605,7 @@ supabase/
   functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
   functions/p/index.ts         Public standalone-page server (verify_jwt: false): serves a shared HTML artifact as raw text/html
+  functions/slack-events/index.ts  Public Slack Events endpoint (verify_jwt: false, HMAC-gated): @mention → collections-scoped reply in-thread
 railway.json, DEPLOY.md        Deployment config + guide
 ```
 

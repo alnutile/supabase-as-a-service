@@ -180,24 +180,37 @@ export default function ArtifactEditorPage() {
               target="_blank"
               rel="noreferrer"
               className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-xs font-medium text-muted transition hover:border-primary hover:text-primary"
-              title="Open the raw HTML as a clean standalone page — no intranet chrome"
+              title="Open as a clean, full-screen standalone page — no intranet chrome"
             >
               Open as standalone page ↗
             </a>
           )}
         </div>
-        <div className="p-4">
+        <div
+          className={
+            // HTML previews fill the rest of the panel; text previews keep
+            // their natural height and let the panel scroll.
+            artifact.type === 'html' ? 'flex min-h-0 flex-1 flex-col p-4' : 'p-4'
+          }
+        >
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             Preview
           </h3>
-          <div className="rounded-xl border border-border bg-surface p-4">
+          <div
+            className={
+              artifact.type === 'html'
+                ? 'flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-surface p-2'
+                : 'rounded-xl border border-border bg-surface p-4'
+            }
+          >
             {artifact.type === 'html' ? (
               <ArtifactFrame
                 title="preview"
                 content={artifact.content}
                 data={artifact.data}
                 onSave={saveData}
-                className="h-80 w-full rounded border border-border"
+                // Mobile stacks and scrolls, so a viewport height; md+ fills the panel.
+                className="h-[70vh] w-full rounded border border-border md:h-auto md:min-h-0 md:flex-1"
               />
             ) : artifact.type === 'markdown' ? (
               <Markdown>{artifact.content || '_Nothing to preview_'}</Markdown>

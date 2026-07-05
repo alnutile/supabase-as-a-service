@@ -63,6 +63,7 @@ export interface Database {
           id: string
           owner_id: string
           title: string
+          pinned: boolean
           created_at: string
           updated_at: string
         }
@@ -70,6 +71,7 @@ export interface Database {
           id?: string
           owner_id: string
           title?: string
+          pinned?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -1210,6 +1212,86 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['loop_runs']['Insert']>
         Relationships: []
       }
+      slack_integration: {
+        Row: {
+          id: string
+          singleton: boolean
+          team_name: string | null
+          bot_user_id: string | null
+          bot_token_secret_id: string
+          signing_secret_id: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          singleton?: boolean
+          team_name?: string | null
+          bot_user_id?: string | null
+          bot_token_secret_id: string
+          signing_secret_id: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['slack_integration']['Insert']>
+        Relationships: []
+      }
+      slack_channel_bindings: {
+        Row: {
+          id: string
+          channel_id: string
+          channel_name: string
+          collection_ids: string[]
+          agent_id: string | null
+          owner_id: string
+          allow_tools: boolean
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          channel_id: string
+          channel_name?: string
+          collection_ids?: string[]
+          agent_id?: string | null
+          owner_id: string
+          allow_tools?: boolean
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['slack_channel_bindings']['Insert']>
+        Relationships: []
+      }
+      slack_events: {
+        Row: {
+          id: string
+          event_id: string
+          channel_id: string | null
+          slack_user_id: string | null
+          kind: string
+          status: string
+          text: string | null
+          result: string | null
+          error: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          event_id: string
+          channel_id?: string | null
+          slack_user_id?: string | null
+          kind?: string
+          status?: string
+          text?: string | null
+          result?: string | null
+          error?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['slack_events']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: {
@@ -1257,6 +1339,22 @@ export interface Database {
       read_vault_secret: {
         Args: { p_name: string; p_user_id: string | null }
         Returns: string
+      }
+      set_slack_integration: {
+        Args: {
+          p_bot_token: string
+          p_signing_secret: string
+          p_team_name?: string | null
+        }
+        Returns: undefined
+      }
+      delete_slack_integration: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      slack_is_configured: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
       }
       usage_summary: {
         Args: { p_days?: number }

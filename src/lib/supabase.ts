@@ -38,8 +38,14 @@ export const emailInboundUrl = (token: string) => `${supabaseUrl}/functions/v1/e
 /** URL of the deployed `forge` edge function (admin-only; generates + deploys functions). */
 export const forgeFunctionUrl = `${supabaseUrl}/functions/v1/forge`
 
-/** Standalone public page for a shared HTML artifact — raw HTML, no app chrome. */
-export const standalonePageUrl = (slug: string) => `${supabaseUrl}/functions/v1/p/${slug}`
+/**
+ * Standalone public page for a shared HTML artifact — full viewport, no app
+ * chrome. Served by the app's own /p/:slug route (sandboxed iframe): Supabase
+ * rewrites text/html to text/plain on *.supabase.co function URLs
+ * (anti-phishing), so the `p` edge function only renders behind a custom
+ * functions domain.
+ */
+export const standalonePageUrl = (slug: string) => `${window.location.origin}/p/${slug}`
 
 /** Base URL of the public Artifacts CRUD API (bearer-token auth via mcp_tokens). */
 export const artifactsApiUrl = `${supabaseUrl}/functions/v1/artifacts`
@@ -52,3 +58,6 @@ export const linkMetaUrl = `${supabaseUrl}/functions/v1/link-meta`
 
 /** Universal tool runner — invoke any active tool (or a chain) directly, no model. */
 export const runToolUrl = `${supabaseUrl}/functions/v1/run-tool`
+
+/** Slack Events API endpoint — paste into the Slack app's Event Subscriptions. */
+export const slackEventsUrl = `${supabaseUrl}/functions/v1/slack-events`
