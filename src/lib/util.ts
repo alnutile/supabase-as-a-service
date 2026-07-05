@@ -18,6 +18,15 @@ export function formatBytes(bytes: number | null): string {
   return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`
 }
 
+/**
+ * The sentence dropped into the chat composer when a skill is picked from the
+ * menu. Choosing a skill *arms* it (rather than running immediately) and
+ * prefills this so the user can add context and decide when to send.
+ */
+export function skillInvocationSentence(name: string): string {
+  return `use the skill "${name.trim()}"`
+}
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: 'short',

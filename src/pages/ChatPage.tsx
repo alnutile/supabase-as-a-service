@@ -8,6 +8,7 @@ import { parseArtifactBlocks } from '../lib/artifacts'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { uploadPickedFile } from '../lib/upload'
 import { estimateTokensFromChars } from '../lib/tokens'
+import { skillInvocationSentence } from '../lib/util'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextUsage } from '../components/ContextMeter'
 import { useAuth } from '../contexts/AuthContext'
@@ -68,6 +69,10 @@ export default function ChatPage() {
   const [showConvos, setShowConvos] = useState(false)
   const [skills, setSkills] = useState<Skill[]>([])
   const [showSkills, setShowSkills] = useState(false)
+  // Picking a skill from the menu *arms* it instead of running immediately:
+  // the composer is prefilled with "use the skill …" and the skill runs only
+  // when the user sends (so they can add context / back out first).
+  const [armedSkill, setArmedSkill] = useState<Skill | null>(null)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [feedback, setFeedback] = useState<Record<string, FeedbackRow>>({})
@@ -87,6 +92,7 @@ export default function ChatPage() {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const seen = useRef<Set<string>>(new Set())
 
   // --- Load conversation list ---
@@ -326,6 +332,8 @@ export default function ChatPage() {
   useEffect(() => {
     seen.current = new Set()
     setMessages([])
+    // Switching threads drops any skill armed on the previous one.
+    setArmedSkill(null)
     if (!conversationId) return
 
     let active = true
@@ -503,6 +511,14 @@ export default function ChatPage() {
     const text = input.trim()
     // A leading "/" is a skill command, not a message — handled by the menu.
     if (text.startsWith('/')) return
+    // A skill was armed from the menu: sending runs just that skill (against
+    // the conversation context), not a normal chat turn.
+    if (armedSkill) {
+      const skill = armedSkill
+      setArmedSkill(null)
+      void runSkill(skill)
+      return
+    }
     const atts = attachments
     if ((!text && atts.length === 0) || sending) return
     setInput('')
@@ -637,10 +653,24 @@ export default function ChatPage() {
     return out
   }
 
+  // Pick a skill from the menu: arm it (prefill "use the skill …" and remember
+  // the choice) but DON'T run yet — the user adds context and hits send, which
+  // routes through handleSend → runSkill. This keeps choosing a skill from
+  // firing a model call the moment it's clicked.
+  function chooseSkill(skill: Skill) {
+    if (sending) return
+    setArmedSkill(skill)
+    setInput(skillInvocationSentence(skill.name))
+    setShowSkills(false)
+    // Focus the composer so the user can immediately add context or send.
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
   // Run a saved skill against the current conversation context.
   async function runSkill(skill: Skill) {
     if (sending) return
     setShowSkills(false)
+    setArmedSkill(null)
     setError(null)
 
     const pending = input.trim()
@@ -661,7 +691,11 @@ export default function ChatPage() {
     try {
       const convId = await ensureConversation(pending || skill.name)
       if (pending) await insertMessage(convId, 'user', pending)
-      await insertMessage(convId, 'user', `▶ Ran skill: ${skill.name}`)
+      // The prefilled "use the skill …" sentence already names it, so only add
+      // the explicit marker when the pending text isn't that sentence.
+      if (pending !== skillInvocationSentence(skill.name)) {
+        await insertMessage(convId, 'user', `▶ Ran skill: ${skill.name}`)
+      }
 
       // The skill's instructions become the system prompt; a final nudge gives
       // the model a turn to respond to.
@@ -980,7 +1014,7 @@ export default function ChatPage() {
                     <button
                       type="button"
                       key={s.id}
-                      onClick={() => runSkill(s)}
+                      onClick={() => chooseSkill(s)}
                       className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-hover"
                     >
                       <SkillIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -1068,6 +1102,31 @@ export default function ChatPage() {
                     <ContextUsage tokens={combinedTokens} model={model} />
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Armed skill — chosen from the menu, runs on send (not on click) */}
+            {armedSkill && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1.5 rounded-lg border border-brand-300 bg-primary-soft px-2 py-1 text-xs font-medium text-primary">
+                  <SkillIcon className="h-3.5 w-3.5" />
+                  <span className="max-w-[220px] truncate">
+                    Skill: {armedSkill.name} — press send to run
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sentence = skillInvocationSentence(armedSkill.name)
+                      setArmedSkill(null)
+                      // Clear the prefilled sentence if the user hasn't edited it.
+                      setInput((cur) => (cur.trim() === sentence ? '' : cur))
+                    }}
+                    title="Cancel skill"
+                    className="text-primary hover:text-primary-strong"
+                  >
+                    <CloseIcon className="h-3.5 w-3.5" />
+                  </button>
+                </span>
               </div>
             )}
 
@@ -1177,13 +1236,14 @@ export default function ChatPage() {
                 onChange={(e) => handleAttach(e.target.files)}
               />
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
                     if (skillMenuOpen && filteredSkills.length > 0) {
-                      runSkill(filteredSkills[0])
+                      chooseSkill(filteredSkills[0])
                     } else {
                       handleSend(e)
                     }
@@ -1202,7 +1262,7 @@ export default function ChatPage() {
                 disabled={
                   sending ||
                   uploading ||
-                  (!input.trim() && attachments.length === 0) ||
+                  (!input.trim() && attachments.length === 0 && !armedSkill) ||
                   input.startsWith('/')
                 }
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-strong disabled:opacity-50"

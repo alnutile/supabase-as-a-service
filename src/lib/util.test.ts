@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, makeSlug } from './util'
+import { formatBytes, makeSlug, skillInvocationSentence } from './util'
 import { estimateTokens, estimateTokensFromChars, formatCount } from './tokens'
 
 describe('makeSlug', () => {
@@ -25,6 +25,16 @@ describe('formatBytes', () => {
     expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB')
     expect(formatBytes(150 * 1024)).toBe('150 KB')
     expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.0 GB')
+  })
+})
+
+describe('skillInvocationSentence', () => {
+  it('wraps the skill name in a quoted "use the skill" prompt', () => {
+    expect(skillInvocationSentence('Summarize')).toBe('use the skill "Summarize"')
+  })
+
+  it('trims surrounding whitespace from the name', () => {
+    expect(skillInvocationSentence('  Weekly report  ')).toBe('use the skill "Weekly report"')
   })
 })
 
