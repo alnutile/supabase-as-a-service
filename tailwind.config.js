@@ -50,8 +50,16 @@ export default {
       },
       keyframes: {
         fadeUp: { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'none' } },
+        // Subtle "typing" dot: lifts and brightens on the beat, settles between.
+        typingBounce: {
+          '0%, 80%, 100%': { transform: 'translateY(0)', opacity: '0.35' },
+          '40%': { transform: 'translateY(-4px)', opacity: '1' },
+        },
       },
-      animation: { fadeUp: 'fadeUp .3s ease' },
+      animation: {
+        fadeUp: 'fadeUp .3s ease',
+        typingBounce: 'typingBounce 1.2s ease-in-out infinite',
+      },
     },
   },
   plugins: [],
