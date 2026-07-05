@@ -1,0 +1,35 @@
+# Lint + typecheck + unit tests, on every PR and every push to main.
+#
+# Note: PRs opened by the feature bot use the workflow-minted GITHUB_TOKEN,
+# and GitHub does not fire pull_request workflows for those (anti-recursion).
+# That's why claude-feature.yml runs the same tests itself against the built
+# branch — this workflow covers human PRs and everything landing on main.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+
+  edge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test supabase/functions/tests/

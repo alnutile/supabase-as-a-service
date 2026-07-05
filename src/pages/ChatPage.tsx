@@ -4,6 +4,7 @@ import type { Database, Json } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatAttachment, type ChatMessage } from '../lib/chat'
 import { ArtifactFrame } from '../components/ArtifactFrame'
+import { parseArtifactBlocks } from '../lib/artifacts'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { uploadPickedFile } from '../lib/upload'
 import { estimateTokensFromChars } from '../lib/tokens'
@@ -611,28 +612,16 @@ export default function ChatPage() {
   }
 
   // The assistant can emit :::artifact {json}\n...content...\n::: blocks.
-  // Turn each into a saved artifact and replace the block with a share link.
+  // Turn each into a saved artifact and replace the block with a share link
+  // (parsing lives in src/lib/artifacts.ts so the format is unit-tested).
   async function materializeArtifacts(convId: string, text: string): Promise<string> {
-    const re = /:::artifact\s*(\{[\s\S]*?\})\s*\r?\n([\s\S]*?)\r?\n:::/g
     let out = ''
-    let last = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      out += text.slice(last, m.index)
-      last = re.lastIndex
-      let attrs: { title?: string; type?: string } = {}
-      try {
-        attrs = JSON.parse(m[1])
-      } catch {
-        // malformed header — leave the block as-is
-        out += m[0]
+    for (const chunk of parseArtifactBlocks(text)) {
+      if (chunk.kind === 'text') {
+        out += chunk.text
         continue
       }
-      const type = (['markdown', 'code', 'html', 'text'].includes(attrs.type ?? '')
-        ? attrs.type
-        : 'markdown') as 'markdown' | 'code' | 'html' | 'text'
-      const title = (attrs.title || 'Untitled artifact').slice(0, 120)
-      const content = m[2].trim()
+      const { title, type, content } = chunk
       const { data } = await supabase
         .from('artifacts')
         .insert({ owner_id: user!.id, conversation_id: convId, title, type, content, visibility: 'private' })
@@ -645,7 +634,6 @@ export default function ChatPage() {
         ? `✺ **${title}** — [open & share →](/artifacts/${data.id})`
         : `**${title}** (couldn’t save)`
     }
-    out += text.slice(last)
     return out
   }
 

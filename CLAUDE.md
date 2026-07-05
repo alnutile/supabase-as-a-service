@@ -17,11 +17,22 @@ npm run dev            # Vite dev server on http://localhost:5173
 npm run build          # tsc -b (typecheck) + vite build — run before pushing
 npm run lint           # eslint
 npm run typecheck      # tsc -b --noEmit
+npm test               # vitest (frontend unit tests: src/**/*.test.ts(x))
+npm run test:deno      # deno test supabase/functions/tests/ (edge-function units)
 npm run gen:types      # regenerate src/lib/database.types.ts from the linked project
 npm run start          # serve dist/ with SPA fallback (production / Railway)
 ```
 
 Always run `npm run build` before committing UI/logic changes — it typechecks the whole app.
+Run `npm test` (and `npm run test:deno` if you touched `supabase/functions/`) too; add tests
+when you add or change logic (parsing, validation, calculations). Testable logic is kept out
+of components/handlers on purpose — the `:::artifact` protocol parser lives in
+`src/lib/artifacts.ts` (not ChatPage), webhook payload validation in
+`supabase/functions/_shared/validate.ts`, the `p` page's HTML/state injection in
+`supabase/functions/p/meta.ts` — follow that pattern: extract pure logic, test the module.
+CI (`.github/workflows/test.yml`) runs lint + build + both suites on PRs and pushes to main;
+`claude-feature.yml` runs the same checks against the bot-built branch (its PRs can't trigger
+PR workflows — GITHUB_TOKEN anti-recursion).
 
 ## Architecture & data flow
 
