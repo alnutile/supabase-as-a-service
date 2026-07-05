@@ -2,12 +2,43 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ArtifactType, Database, SkillOutputMode } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { streamChat } from '../lib/chat'
 import { formatDate } from '../lib/util'
-import { ArtifactIcon, ChatIcon, PlusIcon, TrashIcon } from '../components/icons'
+import {
+  parseSkillMarkdown,
+  serializeSkillMarkdown,
+  skillFilename,
+} from '../lib/skillFormat'
+import {
+  ArtifactIcon,
+  ChatIcon,
+  DownloadIcon,
+  PlusIcon,
+  SparkleIcon,
+  TrashIcon,
+} from '../components/icons'
 
 type Skill = Database['public']['Tables']['skills']['Row']
 
 const ARTIFACT_TYPES: ArtifactType[] = ['markdown', 'code', 'html', 'text']
+
+/** Trigger a browser download of a skill in the portable SKILL.md format. */
+function downloadSkill(skill: Pick<Skill, 'name' | 'description' | 'instructions'>) {
+  const md = serializeSkillMarkdown({
+    name: skill.name,
+    description: skill.description ?? undefined,
+    instructions: skill.instructions,
+  })
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = skillFilename(skill.name)
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
 
 export default function SkillsPage() {
   const { user } = useAuth()
@@ -165,31 +196,51 @@ function SkillCard({
   alwaysOn?: boolean
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="group rounded-xl border border-border bg-surface p-4 text-left transition hover:border-brand-300 hover:shadow-sm"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      className="group cursor-pointer rounded-xl border border-border bg-surface p-4 text-left transition hover:border-brand-300 hover:shadow-sm"
     >
       <div className="flex items-center justify-between gap-2">
         <h3 className="truncate font-medium text-text group-hover:text-primary">
           {skill.name}
         </h3>
-        {skill.is_builtin ? (
-          <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-            Built-in
-          </span>
-        ) : alwaysOn ? null : (
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-faint">
-            {skill.output_mode === 'artifact' ? (
-              <>
-                <ArtifactIcon className="h-3.5 w-3.5" /> {skill.artifact_type}
-              </>
-            ) : (
-              <>
-                <ChatIcon className="h-3.5 w-3.5" /> reply
-              </>
-            )}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {skill.is_builtin ? (
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              Built-in
+            </span>
+          ) : alwaysOn ? null : (
+            <span className="flex items-center gap-1 text-[11px] text-faint">
+              {skill.output_mode === 'artifact' ? (
+                <>
+                  <ArtifactIcon className="h-3.5 w-3.5" /> {skill.artifact_type}
+                </>
+              ) : (
+                <>
+                  <ChatIcon className="h-3.5 w-3.5" /> reply
+                </>
+              )}
+            </span>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              downloadSkill(skill)
+            }}
+            title="Download as SKILL.md"
+            className="rounded-md p-1 text-faint opacity-0 transition hover:bg-surface-hover hover:text-primary focus:opacity-100 group-hover:opacity-100"
+          >
+            <DownloadIcon className="h-4 w-4" />
+          </button>
+        </div>
       </div>
       <p className="mt-1 line-clamp-2 text-xs text-muted">
         {skill.description || skill.instructions.slice(0, 120) || 'No description'}
@@ -197,7 +248,7 @@ function SkillCard({
       <p className="mt-3 text-[11px] uppercase tracking-wide text-faint">
         Updated {formatDate(skill.updated_at)}
       </p>
-    </button>
+    </div>
   )
 }
 
@@ -216,7 +267,45 @@ function SkillEditor({
 }) {
   const [draft, setDraft] = useState(skill)
   const [saving, setSaving] = useState(false)
+  const [polishing, setPolishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Ask the assistant to clean up and flesh out the skill, then fold its
+  // rewritten name/description/instructions back into the draft (unsaved until
+  // the user hits Save).
+  async function polish() {
+    setPolishing(true)
+    setError(null)
+    try {
+      const current = serializeSkillMarkdown({
+        name: draft.name,
+        description: draft.description ?? undefined,
+        instructions: draft.instructions,
+      })
+      const system = draft.auto_apply
+        ? 'You are helping an operator author an always-on prompt that shapes every AI chat in a workspace. Rewrite the draft below so it is clear, specific, and well-structured WITHOUT changing its intent. Give it a short human name, a one-sentence description, and flesh out the prompt itself.'
+        : 'You are helping an operator author a reusable "skill" — a saved instruction set an AI assistant runs on demand. Rewrite the draft below so it is clear, specific, and well-structured WITHOUT changing its intent. Give it a short human name, a one-sentence description of when to use it, and flesh out the instructions with concrete steps, tone, and any output-format expectations.'
+      const full = await streamChat(
+        [{ role: 'user', content: `Here is the current draft:\n\n${current}` }],
+        () => {},
+        {
+          replaceSystem: true,
+          system: `${system}\n\nReturn ONLY a Markdown skill file and nothing else: a YAML frontmatter block with "name" and "description" keys delimited by lines of ---, followed by the instructions as the body. Do not wrap the whole thing in code fences.`,
+        },
+      )
+      const parsed = parseSkillMarkdown(full)
+      setDraft((d) => ({
+        ...d,
+        name: parsed.name?.trim() || d.name,
+        description: parsed.description ?? d.description,
+        instructions: parsed.instructions || d.instructions,
+      }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not polish the skill.')
+    } finally {
+      setPolishing(false)
+    }
+  }
 
   async function save() {
     setSaving(true)
@@ -276,6 +365,28 @@ function SkillEditor({
               Only an admin can edit always-on prompts. You can view it here.
             </p>
           )}
+
+          <div className="flex flex-wrap gap-2">
+            {canEdit && (
+              <button
+                onClick={polish}
+                disabled={polishing}
+                title="Let AI clean up and flesh out this skill"
+                className="flex items-center gap-1.5 rounded-lg border border-border-strong px-3 py-1.5 text-sm font-medium text-text transition hover:border-primary hover:text-primary disabled:opacity-50"
+              >
+                <SparkleIcon className="h-4 w-4" />
+                {polishing ? 'Polishing…' : 'Polish with AI'}
+              </button>
+            )}
+            <button
+              onClick={() => downloadSkill(draft)}
+              title="Download as SKILL.md"
+              className="flex items-center gap-1.5 rounded-lg border border-border-strong px-3 py-1.5 text-sm font-medium text-text transition hover:border-primary hover:text-primary"
+            >
+              <DownloadIcon className="h-4 w-4" />
+              Download .md
+            </button>
+          </div>
 
           <Field label="Name">
             <input
