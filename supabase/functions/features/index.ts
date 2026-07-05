@@ -75,8 +75,15 @@ async function issueBody(db: DB, feature: { description: string; screenshots: st
   const parts = [feature.description || '(no description provided)']
   const shots: string[] = []
   for (const path of feature.screenshots ?? []) {
-    // 7-day signed URLs so the coding agent (and reviewers) can see the images.
-    const { data } = await db.storage.from('files').createSignedUrl(path, 7 * 24 * 3600)
+    // Signed URLs so the coding agent (and reviewers) can see the images. Kept
+    // SHORT (24h, not days): on a public repo the issue is world-readable, so
+    // every hour of validity is an hour the private-bucket screenshot is
+    // public. The agent runs within minutes of approval; a reviewer who needs
+    // the image later can re-open it from the board card. Note GitHub proxies
+    // rendered images through its camo cache, so treat anything screenshotted
+    // as published the moment the issue opens — the TTL only bounds NEW reads
+    // of the original file.
+    const { data } = await db.storage.from('files').createSignedUrl(path, 24 * 3600)
     if (data?.signedUrl) shots.push(`![screenshot](${data.signedUrl})`)
   }
   if (shots.length) parts.push('## Screenshots', shots.join('\n\n'))
