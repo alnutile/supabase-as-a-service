@@ -40,6 +40,11 @@ jobs:
 
       - name: Claude Code implements the feature
         uses: anthropics/claude-code-action@v1
+        # The action wires up GIT auth itself (push works), but the `gh` CLI
+        # reads GH_TOKEN from the environment — without this, `gh pr create`
+        # fails silently and the branch never gets a PR (issue #66 taught us).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -62,3 +67,20 @@ jobs:
             - Do NOT push to main. Do NOT merge the PR.
           claude_args: |
             --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"
+
+      # Green must mean "a PR exists", not "the agent didn't crash". If the
+      # agent finished without opening a PR, flag it on the issue (so the board
+      # card shows the comment) and fail the run.
+      - name: Verify a PR was opened
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="feature/issue-${{ github.event.issue.number }}"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            gh issue comment "${{ github.event.issue.number }}" --repo "$GITHUB_REPOSITORY" \
+              --body "⚠️ The build run pushed \`$branch\` (if it got that far) but opened no PR — see the [failed run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            echo "::error::No open PR for $branch — the agent finished without gh pr create succeeding."
+            exit 1
+          fi
+          echo "PR #$pr is open for $branch."
