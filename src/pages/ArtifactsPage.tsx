@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -28,6 +28,7 @@ const VIS_ICON = { private: LockIcon, unlisted: LinkIcon, public: GlobeIcon }
 
 export default function ArtifactsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
@@ -42,8 +43,24 @@ export default function ArtifactsPage() {
   const [searchResults, setSearchResults] = useState<Artifact[] | null>(null)
   const [searching, setSearching] = useState(false)
 
-  // Filter the grid to one collection (null = everything).
-  const [activeId, setActiveId] = useState<string | null>(null)
+  // Filter the grid to one collection (null = everything). Backed by the
+  // `?collection=<id>` URL param so the selection survives navigation — the
+  // browser Back button returns to the collection you were viewing (issue #82).
+  const activeId = searchParams.get('collection')
+  const setActiveId = useCallback(
+    (id: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (id) next.set('collection', id)
+          else next.delete('collection')
+          return next
+        },
+        { replace: false },
+      )
+    },
+    [setSearchParams],
+  )
   // Multi-select state for bulk "add to collection".
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
