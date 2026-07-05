@@ -5,9 +5,11 @@ import { useAuth } from '../contexts/AuthContext'
 import { streamChat } from '../lib/chat'
 import {
   ArrowRightIcon,
+  CalendarIcon,
   GlobeIcon,
   LockIcon,
   PlusIcon,
+  SearchIcon,
   SparkleIcon,
   TableIcon,
   TrashIcon,
@@ -50,12 +52,49 @@ const COLUMN_TYPES: { value: UserTableColumnType; label: string }[] = [
   { value: 'text', label: 'Text' },
   { value: 'longtext', label: 'Long text' },
   { value: 'number', label: 'Number' },
-  { value: 'integer', label: 'Integer' },
+  { value: 'integer', label: 'Whole number' },
   { value: 'boolean', label: 'Checkbox' },
   { value: 'date', label: 'Date' },
   { value: 'datetime', label: 'Date & time' },
   { value: 'json', label: 'JSON' },
 ]
+
+function typeLabel(t: UserTableColumnType): string {
+  return COLUMN_TYPES.find((c) => c.value === t)?.label ?? t
+}
+
+// Little Airtable-style field glyphs so column headers read as "what kind of
+// thing goes here" instead of database jargon.
+function TypeGlyph({ type }: { type: UserTableColumnType }) {
+  if (type === 'date' || type === 'datetime')
+    return <CalendarIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+  const glyph =
+    type === 'longtext' ? '≡' : type === 'number' || type === 'integer' ? '#' : type === 'boolean' ? '✓' : type === 'json' ? '{}' : 'A'
+  return (
+    <span className="w-3.5 shrink-0 text-center font-mono text-[11px] font-semibold leading-none opacity-70">
+      {glyph}
+    </span>
+  )
+}
+
+// Each table gets a stable accent color (hashed from its id) — the same trick
+// Airtable uses to make bases feel like "things" instead of schemas.
+const ACCENTS = [
+  'bg-violet-500/15 text-violet-600 dark:text-violet-400',
+  'bg-sky-500/15 text-sky-600 dark:text-sky-400',
+  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+  'bg-amber-500/20 text-amber-600 dark:text-amber-400',
+  'bg-rose-500/15 text-rose-600 dark:text-rose-400',
+  'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400',
+  'bg-orange-500/15 text-orange-600 dark:text-orange-400',
+  'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400',
+]
+
+function accentOf(id: string): string {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+  return ACCENTS[Math.abs(h) % ACCENTS.length]
+}
 
 function columnsOf(t: UserTable): UserTableColumn[] {
   return (Array.isArray(t.columns) ? t.columns : []) as unknown as UserTableColumn[]
@@ -138,12 +177,20 @@ export default function TablesPage() {
             <p className="px-2 text-sm text-faint">Loading…</p>
           ) : tables.length === 0 ? (
             <div className="px-2 py-6 text-center">
-              <TableIcon className="mx-auto mb-2 h-8 w-8 text-faint" />
-              <p className="text-sm text-muted">No tables yet.</p>
-              <p className="mt-1 text-xs text-faint">
-                Create one by hand or describe it to AI — then enter data, or ask the assistant in
-                Chat to add and read rows.
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
+                <TableIcon className="h-6 w-6" />
+              </div>
+              <p className="text-sm font-medium text-text">Track anything here</p>
+              <p className="mt-1 text-xs text-muted">
+                Leads, job applications, an inventory, a reading list — describe it and AI sets up
+                the columns, or build them yourself. No database skills needed.
               </p>
+              <button
+                onClick={() => setShowNew(true)}
+                className="mx-auto mt-4 flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
+              >
+                <PlusIcon className="h-4 w-4" /> Create your first table
+              </button>
             </div>
           ) : (
             <div className="space-y-1">
@@ -151,19 +198,35 @@ export default function TablesPage() {
                 <button
                   key={t.id}
                   onClick={() => setSelectedId(t.id)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition ${
-                    t.id === selectedId
-                      ? 'bg-primary-soft text-primary'
-                      : 'text-muted hover:bg-surface-hover hover:text-text'
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                    t.id === selectedId ? 'bg-primary-soft' : 'hover:bg-surface-hover'
                   }`}
                 >
-                  <TableIcon className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.name}</span>
-                  {t.visibility === 'workspace' ? (
-                    <GlobeIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                  ) : (
-                    <LockIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                  )}
+                  <span
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${accentOf(t.id)}`}
+                  >
+                    <TableIcon className="h-[18px] w-[18px]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={`block truncate text-sm font-medium ${
+                        t.id === selectedId ? 'text-primary' : 'text-text'
+                      }`}
+                    >
+                      {t.name}
+                    </span>
+                    <span className="flex items-center gap-1 text-[11px] text-faint">
+                      {t.visibility === 'workspace' ? (
+                        <>
+                          <GlobeIcon className="h-3 w-3" /> Shared with everyone
+                        </>
+                      ) : (
+                        <>
+                          <LockIcon className="h-3 w-3" /> Just you
+                        </>
+                      )}
+                    </span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -188,16 +251,17 @@ export default function TablesPage() {
         ) : (
           <div className="flex h-full items-center justify-center p-8">
             <div className="max-w-md text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-2 text-muted">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-soft text-primary">
                 <TableIcon className="h-7 w-7" />
               </div>
-              <h2 className="text-lg font-semibold text-text">Your data tables</h2>
+              <h2 className="text-lg font-semibold text-text">Your tables</h2>
               <p className="mt-2 text-sm text-muted">
-                Select a table to see its data and manage it — add, edit, and delete rows in the grid.
+                Pick a table on the left to see what's inside — click any cell to edit it, just
+                like a spreadsheet.
               </p>
               <p className="mt-2 text-sm text-muted">
-                Or create a new table: describe it to AI, or build the columns yourself. Share it with
-                the workspace and the assistant can read and update it for you right in Chat.
+                Or start a new one: describe what you want to track and AI sets up the columns for
+                you. The assistant in Chat can read and update your tables too.
               </p>
               <button
                 onClick={() => setShowNew(true)}
@@ -247,6 +311,9 @@ function TableGrid({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showAddField, setShowAddField] = useState(false)
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
 
   const loadRows = useCallback(async () => {
     setLoading(true)
@@ -261,6 +328,17 @@ function TableGrid({
   useEffect(() => {
     loadRows()
   }, [loadRows])
+
+  const visibleRows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) =>
+      cols.some((c) => {
+        const v = r[c.key]
+        return v !== null && v !== undefined && String(typeof v === 'object' ? JSON.stringify(v) : v).toLowerCase().includes(q)
+      }),
+    )
+  }, [rows, cols, query])
 
   async function addRow() {
     setBusy(true)
@@ -281,6 +359,7 @@ function TableGrid({
       return
     }
     setRows((rs) => rs.filter((r) => r.id !== id))
+    setExpandedRowId((cur) => (cur === id ? null : cur))
   }
 
   async function commitCell(id: string, key: string, value: unknown) {
@@ -295,22 +374,42 @@ function TableGrid({
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [key]: value } : r)))
   }
 
+  const expandedRow = expandedRowId ? rows.find((r) => String(r.id) === expandedRowId) ?? null : null
+
   return (
     <>
-      <div className="flex items-center gap-3 border-b border-border bg-surface px-5 py-3">
+      <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:px-5">
         <button
           onClick={onBack}
           className="rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-hover md:hidden"
         >
           ‹ Back
         </button>
+        <span
+          className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:flex ${accentOf(table.id)}`}
+        >
+          <TableIcon className="h-[18px] w-[18px]" />
+        </span>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold text-text">{table.name}</h2>
           <p className="truncate text-xs text-faint">
-            {table.visibility === 'workspace' ? 'Shared with the workspace' : 'Private to you'} ·{' '}
-            {rows.length} row{rows.length === 1 ? '' : 's'}
+            {table.visibility === 'workspace' ? 'Shared with everyone' : 'Just you'} ·{' '}
+            {query.trim()
+              ? `${visibleRows.length} of ${rows.length} row${rows.length === 1 ? '' : 's'}`
+              : `${rows.length} row${rows.length === 1 ? '' : 's'}`}
           </p>
         </div>
+        {rows.length > 0 && (
+          <div className="relative hidden sm:block">
+            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search rows…"
+              className="w-40 rounded-lg border border-border bg-bg py-1.5 pl-8 pr-2 text-sm outline-none transition focus:w-56 focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </div>
+        )}
         <button
           onClick={() => setShowSettings(true)}
           className="rounded-lg border border-border-strong px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover"
@@ -322,7 +421,7 @@ function TableGrid({
           disabled={busy}
           className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
         >
-          <PlusIcon className="h-4 w-4" /> Row
+          <PlusIcon className="h-4 w-4" /> New row
         </button>
       </div>
 
@@ -332,28 +431,64 @@ function TableGrid({
         {loading ? (
           <p className="p-5 text-sm text-faint">Loading…</p>
         ) : cols.length === 0 ? (
-          <p className="p-5 text-sm text-faint">
-            This table has no columns yet. Add one from Settings.
-          </p>
+          <div className="flex h-full items-center justify-center p-8">
+            <div className="max-w-sm text-center">
+              <p className="text-sm font-medium text-text">No fields yet</p>
+              <p className="mt-1 text-sm text-muted">
+                Add your first field — a field is just a column, like “Name” or “Due date”.
+              </p>
+              <button
+                onClick={() => setShowAddField(true)}
+                className="mx-auto mt-4 flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
+              >
+                <PlusIcon className="h-4 w-4" /> Add a field
+              </button>
+            </div>
+          </div>
         ) : (
           <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 bg-surface-2">
+            <thead className="sticky top-0 z-10 bg-surface">
               <tr>
+                <th className="w-12 border-b-2 border-border bg-surface px-2 py-2.5 text-center text-[11px] font-medium text-faint">
+                  #
+                </th>
                 {cols.map((c) => (
                   <th
                     key={c.key}
-                    className="border-b border-r border-border px-3 py-2 text-left font-semibold text-muted"
+                    title={typeLabel(c.type)}
+                    className="border-b-2 border-r border-border px-3 py-2.5 text-left font-medium text-muted"
                   >
-                    {c.label}
-                    <span className="ml-1 text-[10px] font-normal uppercase text-faint">{c.type}</span>
+                    <span className="flex items-center gap-1.5">
+                      <TypeGlyph type={c.type} />
+                      <span className="truncate">{c.label}</span>
+                    </span>
                   </th>
                 ))}
-                <th className="w-10 border-b border-border" />
+                <th className="w-12 border-b-2 border-border p-0 text-center">
+                  <button
+                    onClick={() => setShowAddField(true)}
+                    title="Add a field"
+                    aria-label="Add a field"
+                    className="flex h-full w-full items-center justify-center py-2.5 text-faint hover:bg-surface-hover hover:text-primary"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={String(r.id)} className="hover:bg-surface-hover">
+              {visibleRows.map((r, i) => (
+                <tr key={String(r.id)} className="group hover:bg-surface-hover/60">
+                  <td className="border-b border-border p-0 text-center align-middle">
+                    <button
+                      onClick={() => setExpandedRowId(String(r.id))}
+                      title="Open this row"
+                      className="flex h-full w-full items-center justify-center py-2 text-xs text-faint hover:text-primary"
+                    >
+                      <span className="group-hover:hidden">{i + 1}</span>
+                      <span className="hidden font-semibold group-hover:inline">↗</span>
+                    </button>
+                  </td>
                   {cols.map((c) => (
                     <td key={c.key} className="border-b border-r border-border p-0 align-top">
                       <Cell
@@ -366,7 +501,7 @@ function TableGrid({
                   <td className="border-b border-border text-center align-middle">
                     <button
                       onClick={() => deleteRow(String(r.id))}
-                      className="rounded p-1 text-faint hover:bg-red-50 hover:text-red-600"
+                      className="rounded p-1 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
                       title="Delete row"
                     >
                       <TrashIcon className="h-4 w-4" />
@@ -376,8 +511,32 @@ function TableGrid({
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={cols.length + 1} className="px-3 py-6 text-center text-sm text-faint">
-                    No rows yet. Click “Row” to add one.
+                  <td colSpan={cols.length + 2} className="px-3 py-10 text-center">
+                    <p className="text-sm font-medium text-text">Ready for your first row</p>
+                    <p className="mx-auto mt-1 max-w-xs text-xs text-muted">
+                      Click below to add one, then click any cell to type — it saves as you go. You
+                      can also ask the assistant in Chat to fill this table for you.
+                    </p>
+                  </td>
+                </tr>
+              )}
+              {rows.length > 0 && visibleRows.length === 0 && (
+                <tr>
+                  <td colSpan={cols.length + 2} className="px-3 py-8 text-center text-sm text-faint">
+                    Nothing matches “{query}”.
+                  </td>
+                </tr>
+              )}
+              {!query.trim() && (
+                <tr>
+                  <td colSpan={cols.length + 2} className="p-0">
+                    <button
+                      onClick={addRow}
+                      disabled={busy}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-faint hover:bg-primary-soft/40 hover:text-primary disabled:opacity-50"
+                    >
+                      <PlusIcon className="ml-1 h-4 w-4" /> New row
+                    </button>
                   </td>
                 </tr>
               )}
@@ -385,6 +544,28 @@ function TableGrid({
           </table>
         )}
       </div>
+
+      {expandedRow && (
+        <RecordModal
+          table={table}
+          row={expandedRow}
+          onClose={() => setExpandedRowId(null)}
+          onCommit={commitCell}
+          onDelete={() => deleteRow(String(expandedRow.id))}
+        />
+      )}
+
+      {showAddField && (
+        <AddFieldModal
+          table={table}
+          onClose={() => setShowAddField(false)}
+          onAdded={() => {
+            setShowAddField(false)
+            onChanged()
+            loadRows()
+          }}
+        />
+      )}
 
       {showSettings && (
         <TableSettingsModal
@@ -408,13 +589,16 @@ function Cell({
   column,
   value,
   onCommit,
+  inForm = false,
 }: {
   column: UserTableColumn
   value: unknown
   onCommit: (value: unknown) => Promise<void>
+  inForm?: boolean
 }) {
   const inputCls =
-    'w-full border-0 bg-transparent px-3 py-2 text-sm text-text outline-none focus:bg-primary-soft/40'
+    'w-full border-0 bg-transparent px-3 py-2 text-sm text-text outline-none' +
+    (inForm ? '' : ' focus:bg-primary-soft/40 focus:ring-2 focus:ring-inset focus:ring-primary/40')
 
   const [draft, setDraft] = useState(() => toInputValue(value, column.type))
   useEffect(() => {
@@ -423,7 +607,7 @@ function Cell({
 
   if (column.type === 'boolean') {
     return (
-      <div className="flex items-center justify-center px-3 py-2">
+      <div className={`flex items-center px-3 py-2 ${inForm ? '' : 'justify-center'}`}>
         <input
           type="checkbox"
           checked={value === true}
@@ -457,7 +641,7 @@ function Cell({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
-        rows={1}
+        rows={inForm ? 3 : 1}
         spellCheck={column.type !== 'json'}
         className={`${inputCls} resize-y ${column.type === 'json' ? 'font-mono text-xs' : ''}`}
       />
@@ -517,12 +701,185 @@ function fromInputValue(draft: string, type: UserTableColumnType): unknown {
 }
 
 // ---------------------------------------------------------------------------
-// New table modal (manual builder + AI generate)
+// Record view: one row opened as a friendly form (the Airtable "expand record")
+// ---------------------------------------------------------------------------
+function RecordModal({
+  table,
+  row,
+  onClose,
+  onCommit,
+  onDelete,
+}: {
+  table: UserTable
+  row: Row
+  onClose: () => void
+  onCommit: (id: string, key: string, value: unknown) => Promise<void>
+  onDelete: () => void
+}) {
+  const cols = columnsOf(table)
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2.5 border-b border-border px-5 py-3">
+          <span className={`flex h-7 w-7 items-center justify-center rounded-md ${accentOf(table.id)}`}>
+            <TableIcon className="h-3.5 w-3.5" />
+          </span>
+          <h2 className="flex-1 truncate text-sm font-semibold text-text">{table.name} — row</h2>
+          <button
+            onClick={onClose}
+            className="rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-hover"
+          >
+            Done
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {cols.map((c) => (
+            <label key={c.key} className="block">
+              <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted">
+                <TypeGlyph type={c.type} /> {c.label}
+              </span>
+              <div className="rounded-lg border border-border-strong transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary-soft">
+                <Cell
+                  column={c}
+                  value={row[c.key]}
+                  onCommit={(v) => onCommit(String(row.id), c.key, v)}
+                  inForm
+                />
+              </div>
+            </label>
+          ))}
+          <p className="text-xs text-faint">Changes save automatically as you move between fields.</p>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border px-5 py-3">
+          <button
+            onClick={onDelete}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+          >
+            <TrashIcon className="h-4 w-4" /> Delete row
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Add a field without leaving the grid
+// ---------------------------------------------------------------------------
+function AddFieldModal({
+  table,
+  onClose,
+  onAdded,
+}: {
+  table: UserTable
+  onClose: () => void
+  onAdded: () => void
+}) {
+  const [label, setLabel] = useState('')
+  const [type, setType] = useState<UserTableColumnType>('text')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function add() {
+    if (!label.trim()) return
+    setBusy(true)
+    setError(null)
+    const { error: e } = await supabase.rpc('add_user_column', {
+      p_table_id: table.id,
+      p_key: slugifyKey(label),
+      p_type: type,
+      p_label: label.trim(),
+    })
+    setBusy(false)
+    if (e) {
+      setError(e.message)
+      return
+    }
+    onAdded()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-text">Add a field</h2>
+        </div>
+        <div className="space-y-3 p-5">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">What do you want to call it?</span>
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+              placeholder="e.g. Due date, Status, Notes"
+              autoFocus
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">What kind of thing goes in it?</span>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as UserTableColumnType)}
+              className="w-full rounded-lg border border-border-strong px-2 py-2 text-sm"
+            >
+              {COLUMN_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={add}
+            disabled={busy || !label.trim()}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+          >
+            {busy ? 'Adding…' : 'Add field'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// New table modal (AI-first + manual builder)
 // ---------------------------------------------------------------------------
 interface DraftColumn {
   label: string
   type: UserTableColumnType
 }
+
+const TEMPLATE_PROMPTS: { label: string; prompt: string }[] = [
+  { label: 'Simple CRM', prompt: 'a CRM to track leads: company, contact, stage, deal value, next step, last touched' },
+  { label: 'Content calendar', prompt: 'a content calendar: title, channel, status, publish date, owner, notes' },
+  { label: 'Job applications', prompt: 'a job application tracker: company, role, status, applied date, salary range, notes' },
+  { label: 'Inventory', prompt: 'a simple inventory: item, SKU, quantity on hand, reorder point, supplier, last counted' },
+]
 
 function NewTableModal({
   ownerId,
@@ -545,13 +902,14 @@ function NewTableModal({
     setColumns((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)))
   }
 
-  async function generate() {
-    if (!aiPrompt.trim()) return
+  async function generate(promptText?: string) {
+    const prompt = (promptText ?? aiPrompt).trim()
+    if (!prompt) return
     setGenerating(true)
     setError(null)
     try {
       const text = await streamChat(
-        [{ role: 'user', content: aiPrompt }],
+        [{ role: 'user', content: prompt }],
         () => {},
         {
           replaceSystem: true,
@@ -572,7 +930,7 @@ function NewTableModal({
         )
       }
     } catch {
-      setError("AI couldn't produce a valid schema. Try rephrasing, or build it by hand.")
+      setError("AI couldn't produce a valid setup. Try rephrasing, or build it by hand below.")
     }
     setGenerating(false)
   }
@@ -584,7 +942,7 @@ function NewTableModal({
     }
     const cleaned = columns.filter((c) => c.label.trim())
     if (cleaned.length === 0) {
-      setError('Add at least one column.')
+      setError('Add at least one field.')
       return
     }
     setSaving(true)
@@ -608,30 +966,45 @@ function NewTableModal({
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
       <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 className="text-sm font-semibold text-text">New table</h2>
+          <h2 className="text-sm font-semibold text-text">Create a table</h2>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {/* AI generate */}
-          <div className="rounded-xl border border-border bg-surface-2 p-3">
-            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted">
-              <SparkleIcon className="h-3.5 w-3.5 text-primary" /> Describe it and let AI build the columns
+          <div className="rounded-xl border border-primary-soft-border bg-primary-soft/40 p-3.5">
+            <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-primary">
+              <SparkleIcon className="h-3.5 w-3.5" /> Describe what you want to track
             </label>
             <div className="flex gap-2">
               <input
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && generate()}
-                placeholder="e.g. a CRM to track leads: company, contact, stage, value, next step"
-                className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                placeholder="e.g. my plants and when I last watered them"
+                className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
               <button
-                onClick={generate}
+                onClick={() => generate()}
                 disabled={generating || !aiPrompt.trim()}
                 className="shrink-0 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
               >
-                {generating ? '…' : 'Generate'}
+                {generating ? 'Thinking…' : 'Set it up'}
               </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {TEMPLATE_PROMPTS.map((t) => (
+                <button
+                  key={t.label}
+                  onClick={() => {
+                    setAiPrompt(t.prompt)
+                    generate(t.prompt)
+                  }}
+                  disabled={generating}
+                  className="rounded-full border border-primary-soft-border bg-surface px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary-soft disabled:opacity-50"
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -646,20 +1019,22 @@ function NewTableModal({
           </label>
 
           <div>
-            <span className="mb-1 block text-xs font-medium text-muted">Columns</span>
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Fields <span className="font-normal text-faint">(the columns of your table)</span>
+            </span>
             <div className="space-y-2">
               {columns.map((c, i) => (
                 <div key={i} className="flex gap-2">
                   <input
                     value={c.label}
                     onChange={(e) => setCol(i, { label: e.target.value })}
-                    placeholder="Column name"
+                    placeholder="Field name"
                     className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
                   />
                   <select
                     value={c.type}
                     onChange={(e) => setCol(i, { type: e.target.value as UserTableColumnType })}
-                    className="w-32 shrink-0 rounded-lg border border-border-strong px-2 py-2 text-sm"
+                    className="w-36 shrink-0 rounded-lg border border-border-strong px-2 py-2 text-sm"
                   >
                     {COLUMN_TYPES.map((t) => (
                       <option key={t.value} value={t.value}>
@@ -670,7 +1045,7 @@ function NewTableModal({
                   <button
                     onClick={() => setColumns((cs) => cs.filter((_, idx) => idx !== i))}
                     className="shrink-0 rounded-lg px-2 text-faint hover:bg-red-50 hover:text-red-600"
-                    title="Remove column"
+                    title="Remove field"
                   >
                     <TrashIcon className="h-4 w-4" />
                   </button>
@@ -681,7 +1056,7 @@ function NewTableModal({
               onClick={() => setColumns((cs) => [...cs, { label: '', type: 'text' }])}
               className="mt-2 flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
             >
-              <PlusIcon className="h-4 w-4" /> Add column
+              <PlusIcon className="h-4 w-4" /> Add field
             </button>
           </div>
 
@@ -695,7 +1070,7 @@ function NewTableModal({
             <span className="text-sm text-text">
               Share with the workspace
               <span className="block text-xs text-faint">
-                Everyone can read and add rows. Otherwise it's private to you.
+                Everyone can see it and add rows. Otherwise it's just for you.
               </span>
             </span>
           </label>
@@ -724,7 +1099,7 @@ function NewTableModal({
 }
 
 // ---------------------------------------------------------------------------
-// Table settings (rename / share / add+drop columns / delete)
+// Table settings (rename / share / manage fields / delete)
 // ---------------------------------------------------------------------------
 function TableSettingsModal({
   table,
@@ -768,11 +1143,7 @@ function TableSettingsModal({
     setError(null)
     const { error: e } = await supabase.rpc('add_user_column', {
       p_table_id: table.id,
-      p_key: newColLabel
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '') || 'col',
+      p_key: slugifyKey(newColLabel),
       p_type: newColType,
       p_label: newColLabel.trim(),
     })
@@ -787,7 +1158,7 @@ function TableSettingsModal({
   }
 
   async function dropColumn(key: string) {
-    if (!confirm(`Delete column “${key}” and its data?`)) return
+    if (!confirm(`Delete this field and everything typed in it?`)) return
     const { error: e } = await supabase.rpc('drop_user_column', { p_table_id: table.id, p_key: key })
     if (e) {
       setError(e.message)
@@ -841,24 +1212,25 @@ function TableSettingsModal({
             />
             <span className="text-sm text-text">
               Share with the workspace
-              <span className="block text-xs text-faint">Everyone can read and add rows.</span>
+              <span className="block text-xs text-faint">Everyone can see it and add rows.</span>
             </span>
           </label>
 
           <div>
-            <span className="mb-1 block text-xs font-medium text-muted">Columns</span>
+            <span className="mb-1 block text-xs font-medium text-muted">Fields</span>
             <div className="space-y-1.5">
               {cols.map((c) => (
                 <div
                   key={c.key}
                   className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2"
                 >
+                  <TypeGlyph type={c.type} />
                   <span className="flex-1 text-sm text-text">{c.label}</span>
-                  <span className="text-[10px] uppercase text-faint">{c.type}</span>
+                  <span className="text-[11px] text-faint">{typeLabel(c.type)}</span>
                   <button
                     onClick={() => dropColumn(c.key)}
                     className="rounded p-1 text-faint hover:bg-red-50 hover:text-red-600"
-                    title="Drop column"
+                    title="Delete field"
                   >
                     <TrashIcon className="h-3.5 w-3.5" />
                   </button>
@@ -869,13 +1241,13 @@ function TableSettingsModal({
               <input
                 value={newColLabel}
                 onChange={(e) => setNewColLabel(e.target.value)}
-                placeholder="New column"
+                placeholder="New field"
                 className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
               <select
                 value={newColType}
                 onChange={(e) => setNewColType(e.target.value as UserTableColumnType)}
-                className="w-32 shrink-0 rounded-lg border border-border-strong px-2 py-2 text-sm"
+                className="w-36 shrink-0 rounded-lg border border-border-strong px-2 py-2 text-sm"
               >
                 {COLUMN_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
