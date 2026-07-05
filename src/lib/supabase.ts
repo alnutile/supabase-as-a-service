@@ -58,3 +58,6 @@ export const linkMetaUrl = `${supabaseUrl}/functions/v1/link-meta`
 
 /** Universal tool runner — invoke any active tool (or a chain) directly, no model. */
 export const runToolUrl = `${supabaseUrl}/functions/v1/run-tool`
+
+/** Slack Events API endpoint — paste into the Slack app's Event Subscriptions. */
+export const slackEventsUrl = `${supabaseUrl}/functions/v1/slack-events`

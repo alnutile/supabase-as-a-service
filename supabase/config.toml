@@ -71,3 +71,9 @@ verify_jwt = false
 # verify_jwt + an is_admin check in the body; the GitHub PAT lives in the vault.
 [functions.features]
 verify_jwt = true
+
+# Slack Events API endpoint (rooms bound to collections). Public because Slack
+# calls it; gated in code by the app's signing secret (HMAC over every request,
+# read from Vault) — not by a URL token.
+[functions.slack-events]
+verify_jwt = false

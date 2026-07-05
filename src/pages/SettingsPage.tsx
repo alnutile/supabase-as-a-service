@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Database } from '../lib/database.types'
-import { emailInboundUrl, mcpUrl, supabase } from '../lib/supabase'
+import { emailInboundUrl, mcpUrl, slackEventsUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
 import { Link } from 'react-router-dom'
@@ -82,6 +82,8 @@ export default function SettingsPage() {
         {isAdmin && <EmailCard />}
 
         {isAdmin && <McpCard />}
+
+        {isAdmin && <SlackCard />}
 
         {isAdmin && <InvitePeople />}
 
@@ -925,6 +927,379 @@ function InvitePeople() {
           ))
         )}
       </div>
+    </section>
+  )
+}
+
+// Slack bot (admin-only): invite the app to a channel, bind that channel to
+// collections (+ optionally an agent), and @mentions get answered with that
+// room's context. Credentials are write-only — they live in Supabase Vault,
+// written through the set_slack_integration RPC, never read back here.
+type SlackBinding = Database['public']['Tables']['slack_channel_bindings']['Row']
+
+function SlackCard() {
+  const { user } = useAuth()
+  const [configured, setConfigured] = useState(false)
+  const [teamName, setTeamName] = useState('')
+  const [botToken, setBotToken] = useState('')
+  const [signingSecret, setSigningSecret] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const [bindings, setBindings] = useState<SlackBinding[]>([])
+  const [collections, setCollections] = useState<{ id: string; name: string }[]>([])
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
+  const [showAdd, setShowAdd] = useState(false)
+  const [channelId, setChannelId] = useState('')
+  const [channelName, setChannelName] = useState('')
+  const [picked, setPicked] = useState<string[]>([])
+  const [agentId, setAgentId] = useState('')
+  const [allowTools, setAllowTools] = useState(false)
+  const [adding, setAdding] = useState(false)
+
+  const load = useCallback(async () => {
+    const [integ, binds, colls, ags] = await Promise.all([
+      supabase.from('slack_integration').select('team_name').maybeSingle(),
+      supabase.from('slack_channel_bindings').select('*').order('created_at', { ascending: true }),
+      supabase.from('collections').select('id, name').order('name'),
+      supabase.from('agents').select('id, name').order('name'),
+    ])
+    setConfigured(Boolean(integ.data))
+    setTeamName(integ.data?.team_name ?? '')
+    setBindings(binds.data ?? [])
+    setCollections((colls.data ?? []) as { id: string; name: string }[])
+    setAgents((ags.data ?? []) as { id: string; name: string }[])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function saveConfig() {
+    setError(null)
+    if (!configured && (!botToken.trim() || !signingSecret.trim())) {
+      setError('A bot token and signing secret are required to set up Slack.')
+      return
+    }
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('set_slack_integration', {
+      p_bot_token: botToken.trim(), // empty = keep existing
+      p_signing_secret: signingSecret.trim(),
+      p_team_name: teamName.trim() || null,
+    })
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    setBotToken('')
+    setSigningSecret('')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+    load()
+  }
+
+  async function disconnect() {
+    if (!confirm('Remove the Slack integration? Channel bindings are kept but stop answering.')) return
+    const { error: rpcError } = await supabase.rpc('delete_slack_integration')
+    if (rpcError) setError(rpcError.message)
+    load()
+  }
+
+  async function copyUrl() {
+    await navigator.clipboard.writeText(slackEventsUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  async function addBinding() {
+    setError(null)
+    if (!user) return
+    if (!channelId.trim()) {
+      setError('The Slack channel ID (C…) is required — channel details → About → Channel ID.')
+      return
+    }
+    setAdding(true)
+    const { error: insErr } = await supabase.from('slack_channel_bindings').insert({
+      channel_id: channelId.trim(),
+      channel_name: channelName.trim().replace(/^#/, ''),
+      collection_ids: picked,
+      agent_id: agentId || null,
+      owner_id: user.id,
+      allow_tools: allowTools,
+    })
+    setAdding(false)
+    if (insErr) {
+      setError(insErr.message)
+      return
+    }
+    setChannelId('')
+    setChannelName('')
+    setPicked([])
+    setAgentId('')
+    setAllowTools(false)
+    setShowAdd(false)
+    load()
+  }
+
+  async function toggleBinding(b: SlackBinding) {
+    await supabase.from('slack_channel_bindings').update({ is_active: !b.is_active }).eq('id', b.id)
+    load()
+  }
+
+  async function removeBinding(b: SlackBinding) {
+    if (!confirm(`Unlink #${b.channel_name || b.channel_id}?`)) return
+    await supabase.from('slack_channel_bindings').delete().eq('id', b.id)
+    load()
+  }
+
+  const collectionName = (id: string) => collections.find((c) => c.id === id)?.name ?? '…'
+
+  return (
+    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Slack</h2>
+      <p className="mt-1 text-sm text-muted">
+        Add the workspace bot to Slack rooms and bind each room to collections — @mention it and it
+        answers with that room's docs, files, to-dos and links. Credentials are stored in Supabase
+        Vault, never in the browser.
+      </p>
+
+      {loading ? (
+        <p className="mt-4 text-sm text-faint">Loading…</p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">Workspace name <span className="text-faint">— optional label</span></span>
+            <input
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              placeholder="acme.slack.com"
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Bot token {configured && <span className="text-faint">— leave blank to keep the current one</span>}
+            </span>
+            <input
+              type="password"
+              value={botToken}
+              onChange={(e) => setBotToken(e.target.value)}
+              autoComplete="off"
+              placeholder={configured ? '••• configured' : 'xoxb-…'}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Signing secret {configured && <span className="text-faint">— leave blank to keep the current one</span>}
+            </span>
+            <input
+              type="password"
+              value={signingSecret}
+              onChange={(e) => setSigningSecret(e.target.value)}
+              autoComplete="off"
+              placeholder={configured ? '••• configured' : 'From the Slack app’s Basic Information page'}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={saveConfig}
+              disabled={saving}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
+            >
+              {saving ? 'Saving…' : saved ? 'Saved!' : configured ? 'Update Slack' : 'Connect Slack'}
+            </button>
+            {configured && (
+              <button onClick={disconnect} className="text-xs font-medium text-red-600 hover:underline">
+                Remove
+              </button>
+            )}
+          </div>
+
+          {configured && (
+            <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
+              <p className="text-xs font-medium text-muted">Event subscriptions URL</p>
+              <p className="mt-1 text-[11px] text-muted">
+                In the Slack app: <em>Event Subscriptions → Enable → Request URL</em> (paste the link
+                below), subscribe to the <code>app_mention</code> bot event, and give the bot the{' '}
+                <code>app_mentions:read</code>, <code>chat:write</code>, <code>channels:history</code>{' '}
+                and <code>users:read</code> scopes. Then invite it to a channel with{' '}
+                <code>/invite</code>.
+              </p>
+              <div className="mt-2 flex items-start gap-2">
+                <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
+                  {slackEventsUrl}
+                </pre>
+                <button
+                  onClick={copyUrl}
+                  className="shrink-0 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {configured && (
+            <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted">Channel bindings</p>
+                <button
+                  onClick={() => setShowAdd((v) => !v)}
+                  className="flex items-center gap-1 rounded-lg border border-border-strong bg-surface px-2 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
+                >
+                  <PlusIcon className="h-3.5 w-3.5" /> {showAdd ? 'Cancel' : 'Bind a channel'}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-muted">
+                A binding runs as the admin who creates it — bind <strong>workspace</strong>-visibility
+                collections for team rooms so answers only draw on what everyone can already see.
+              </p>
+
+              {showAdd && (
+                <div className="mt-3 space-y-3 rounded-lg border border-border bg-surface p-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-muted">Channel ID</span>
+                      <input
+                        value={channelId}
+                        onChange={(e) => setChannelId(e.target.value)}
+                        placeholder="C0123ABCDEF"
+                        className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-muted">Channel name</span>
+                      <input
+                        value={channelName}
+                        onChange={(e) => setChannelName(e.target.value)}
+                        placeholder="project-acme"
+                        className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                      />
+                    </label>
+                  </div>
+                  <div>
+                    <span className="mb-1 block text-xs font-medium text-muted">Collections this room can use</span>
+                    {collections.length === 0 ? (
+                      <p className="text-[11px] text-faint">No collections yet — create one on the Artifacts page.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {collections.map((c) => {
+                          const on = picked.includes(c.id)
+                          return (
+                            <button
+                              key={c.id}
+                              onClick={() =>
+                                setPicked((p) => (on ? p.filter((x) => x !== c.id) : [...p, c.id]))
+                              }
+                              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                                on
+                                  ? 'border-primary bg-primary-soft text-primary'
+                                  : 'border-border-strong bg-surface text-muted hover:bg-surface-hover'
+                              }`}
+                            >
+                              {c.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-muted">Agent <span className="text-faint">— optional</span></span>
+                      <select
+                        value={agentId}
+                        onChange={(e) => setAgentId(e.target.value)}
+                        className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                      >
+                        <option value="">None — plain assistant</option>
+                        {agents.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="mt-5 flex items-center gap-2 text-sm text-muted">
+                      <input
+                        type="checkbox"
+                        checked={allowTools}
+                        onChange={(e) => setAllowTools(e.target.checked)}
+                        className="h-4 w-4 rounded border-border-strong"
+                      />
+                      Allow the agent's tools
+                    </label>
+                  </div>
+                  <button
+                    onClick={addBinding}
+                    disabled={adding}
+                    className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
+                  >
+                    {adding ? 'Binding…' : 'Bind channel'}
+                  </button>
+                </div>
+              )}
+
+              {bindings.length === 0 && !showAdd ? (
+                <p className="mt-3 text-[11px] text-faint">No channels bound yet.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {bindings.map((b) => (
+                    <li key={b.id} className="rounded-lg border border-border bg-surface p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-text">#{b.channel_name || b.channel_id}</span>
+                        <span className="font-mono text-[10px] text-faint">{b.channel_id}</span>
+                        {!b.is_active && (
+                          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-faint">paused</span>
+                        )}
+                        {b.allow_tools && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">tools on</span>
+                        )}
+                        <span className="ml-auto flex items-center gap-2">
+                          <button
+                            onClick={() => toggleBinding(b)}
+                            className="text-xs font-medium text-muted hover:underline"
+                          >
+                            {b.is_active ? 'Pause' : 'Resume'}
+                          </button>
+                          <button onClick={() => removeBinding(b)} className="text-faint hover:text-red-600">
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {(b.collection_ids ?? []).map((id) => (
+                          <span key={id} className="rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary">
+                            {collectionName(id)}
+                          </span>
+                        ))}
+                        {b.agent_id && (
+                          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted">
+                            agent: {agents.find((a) => a.id === b.agent_id)?.name ?? '…'}
+                          </span>
+                        )}
+                        {(b.collection_ids ?? []).length === 0 && !b.agent_id && (
+                          <span className="text-[10px] text-faint">no collections bound — answers without room context</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }
