@@ -338,8 +338,12 @@ PR workflows — GITHUB_TOKEN anti-recursion).
     system + the artifact protocol. The chat edge function loads all `auto_apply`
     rows (via service role) and concatenates them into the system prompt on every call.
   - `auto_apply = false` → **on-demand** skills (personal). In `ChatPage`, typing `/`
-    (or the ⚡ button) lists them; `runSkill()` sends them as the `system` (artifact
-    mode uses `replaceSystem: true` for clean output; reply mode appends to context).
+    (or the ⚡ button) lists them. Picking one **arms** it rather than firing a model
+    call on the click: `chooseSkill()` prefills the composer with `use the skill "…"`
+    (`skillInvocationSentence()` in `src/lib/util.ts`) and shows a cancelable chip, so the
+    user can add context and decide when to run. Sending then routes through `handleSend`
+    → `runSkill()`, which sends the skill as the `system` (artifact mode uses
+    `replaceSystem: true` for clean output; reply mode appends to context).
 - **Tools (tools-as-data):** the `tools` table defines capabilities the chat loop
   exposes to the model. `kind = 'http'` → a custom tool; the model calls it and the chat
   function POSTs the inputs to `config.url` and feeds the response back. `kind = 'web'`
