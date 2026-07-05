@@ -302,6 +302,31 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   event (so a wrong/missing secret can't spam the event log). Null = no secret (unchanged). Set
   it per-webhook in the editor ("Require a secret"); it's a plaintext shared secret on the row,
   same trust model as `token`.
+- **Slack bot (rooms bound to collections):** the workspace bot joins Slack channels and
+  answers `@mentions` with that room's context — Claude-Tag style. An admin connects the
+  Slack app once in **Settings → Slack** (bot token + signing secret, Vault-backed like
+  email/MCP: `set_slack_integration` / service-role-only `read_slack_secrets`, migration
+  0056), then **binds channels**: a `slack_channel_bindings` row maps a Slack `channel_id`
+  to `collection_ids` + an optional `agent_id`; the binding's creator is the identity the
+  bot runs as (like `webhooks.owner_id`), so bind workspace-visibility collections for team
+  rooms. The public **`slack-events` edge function** (`verify_jwt: false`; gated by the
+  HMAC `X-Slack-Signature` on every request, not a URL token) handles the Events API:
+  `url_verification` challenge, signature + replay-window check, dedupe on `event_id`
+  (unique insert into the admin-readable `slack_events` audit log), then **acks within
+  Slack's 3-second window and does the model work in the background**
+  (`EdgeRuntime.waitUntil`) — the reply goes back via `chat.postMessage` into the thread.
+  The background run is the same loop as webhooks: agent instructions (or a default
+  Slack-flavored prompt) + `loadCollectionsContext` (binding ∪ agent collections) +
+  `runGuardrails` in the `webhook` context (**fail closed**) + tools only when the binding
+  sets `allow_tools` (deterministic gate, mirroring `webhooks.allow_tools`). Thread/channel
+  transcript (`conversations.replies`/`.history`) and display names are fetched for
+  conversational context; bot/self messages and edit subtypes are skipped so it can't loop.
+  Pure logic (signature verify, mention stripping, Slack-text decode, markdown→mrkdwn,
+  skip rules, transcript formatting) lives in `_shared/slack.ts` and is unit-tested
+  (`tests/slack_test.ts`). Usage logs with `context='slack'`; replies log `slack.reply` to
+  the activity feed. Setup guide + app manifest: `docs/slack.md`. *(Planned: DMs, a
+  `send_slack_message` builtin for scheduled/ambient posts, in-channel binding commands,
+  filing channel messages back into the collection as memory.)*
 - **Prompts & skills:** one `skills` table, two modes.
   - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
     seeded `is_builtin` "How this workspace works" prompt teaches the assistant the
@@ -551,6 +576,7 @@ supabase/
   functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
   functions/p/index.ts         Public standalone-page server (verify_jwt: false): serves a shared HTML artifact as raw text/html
+  functions/slack-events/index.ts  Public Slack Events endpoint (verify_jwt: false, HMAC-gated): @mention → collections-scoped reply in-thread
 railway.json, DEPLOY.md        Deployment config + guide
 ```
 

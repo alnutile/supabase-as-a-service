@@ -48,6 +48,7 @@ const CORE_SLUGS = new Set([
   'openrouter-balance',
   'link-meta',
   'run-tool',
+  'slack-events',
 ])
 
 function admin() {
