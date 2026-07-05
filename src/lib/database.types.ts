@@ -63,6 +63,7 @@ export interface Database {
           id: string
           owner_id: string
           title: string
+          pinned: boolean
           created_at: string
           updated_at: string
         }
@@ -70,6 +71,7 @@ export interface Database {
           id?: string
           owner_id: string
           title?: string
+          pinned?: boolean
           created_at?: string
           updated_at?: string
         }
