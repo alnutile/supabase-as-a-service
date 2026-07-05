@@ -66,17 +66,22 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
-  **Standalone hosting:** an `html` artifact can also be served as a clean, chrome-free
-  public page by the **public `p` edge function** (`verify_jwt: false`):
-  `GET /functions/v1/p/‹slug›` returns the artifact's raw `content` as `text/html`
-  (injecting `<title>`/OpenGraph tags + a permissive CSP + `nosniff`) — for sharing "a
-  great diagram in HTML" with the public without deploying a whole app. It queries with
-  the **anon key**, so RLS only ever returns non-private rows (private artifacts are
-  invisible to it); only `type='html'` renders, anything else 404s. The editor's Sharing
-  panel and `PublicArtifactPage` link out to it (`standalonePageUrl(slug)` in
-  `src/lib/supabase.ts`). Because it serves straight from `artifacts.content`, editing the
-  artifact updates the page live; an external/local AI app can also push HTML up (via MCP)
-  to the same table and get the same URL. *(Planned: multi-file/bundled SPAs behind the
+  **Standalone hosting:** an `html` artifact can also be viewed as a clean, chrome-free
+  full-viewport page at the app's own public **`/p/:slug` route** (`StandaloneArtifactPage`)
+  — for sharing "a great diagram in HTML" with the public without deploying a whole app.
+  It renders inside `ArtifactFrame`'s opaque-origin sandbox (user HTML never runs raw on
+  the app origin, where visitors hold a session). The editor's Sharing panel and
+  `PublicArtifactPage` link to it (`standalonePageUrl(slug)` in `src/lib/supabase.ts`).
+  There is also a **public `p` edge function** (`verify_jwt: false`,
+  `GET /functions/v1/p/‹slug›`) that returns the artifact's raw `content` as `text/html`
+  (injecting `<title>`/OpenGraph tags + a permissive CSP + `nosniff`; anon-key query so RLS
+  hides private rows; only `type='html'` renders, anything else 404s) — **but Supabase
+  rewrites `text/html` → `text/plain` (+ a sandbox CSP) on `*.supabase.co` function URLs**
+  (anti-phishing), so browsers show raw source there. The function only truly renders behind
+  a Pro-plan custom functions domain, which is why the UI links to `/p/:slug` instead.
+  Because both serve straight from `artifacts.content`, editing the artifact updates the
+  page live; an external/local AI app can also push HTML up (via MCP) to the same table and
+  get the same URL. *(Planned: multi-file/bundled SPAs behind the
   same `p/‹slug›` URL via a public storage bucket; an MCP `publish_html` one-call helper.)*
   **Interactive artifacts (live trackers, migration 0054):** an `html` artifact can be a
   Claude.ai-style stateful mini-app (tracker/kanban/checklist) — the user clicks and the

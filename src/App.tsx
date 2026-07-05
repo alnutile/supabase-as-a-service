@@ -11,6 +11,7 @@ import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
 import PublicArtifactPage from './pages/PublicArtifactPage'
+import StandaloneArtifactPage from './pages/StandaloneArtifactPage'
 import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
 import WebhooksPage from './pages/WebhooksPage'
@@ -46,6 +47,7 @@ export default function App() {
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/share/a/:slug" element={<PublicArtifactPage />} />
+      <Route path="/p/:slug" element={<StandaloneArtifactPage />} />
 
       {/* Authenticated app */}
       <Route

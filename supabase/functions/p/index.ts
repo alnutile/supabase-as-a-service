@@ -5,6 +5,12 @@
 // "great diagram in HTML" can be shared with the public directly, instead of
 // deploying a whole app.
 //
+// PLATFORM CAVEAT: Supabase rewrites text/html responses to text/plain (+ a
+// sandbox CSP) on *.supabase.co function URLs (anti-phishing), so browsers
+// show raw source here unless the project has a Pro-plan custom functions
+// domain. The in-app UI therefore links to the app's own /p/:slug route
+// (StandaloneArtifactPage, sandboxed iframe) instead of this function.
+//
 // Security: we query with the ANON key, so Postgres RLS ("Read own or shared
 // artifacts") only ever returns rows whose visibility is unlisted/public — the
 // function never sees private artifacts. We serve user HTML on the functions
