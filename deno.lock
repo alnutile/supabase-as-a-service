@@ -1,0 +1,51 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/internal@^1.0.12": "1.0.14"
+  },
+  "jsr": {
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.14": {
+      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    }
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@dnd-kit/core@^6.3.1",
+        "npm:@dnd-kit/sortable@10",
+        "npm:@dnd-kit/utilities@^3.2.2",
+        "npm:@supabase/supabase-js@^2.45.4",
+        "npm:@testing-library/dom@^10.4.1",
+        "npm:@testing-library/react@^16.3.2",
+        "npm:@types/react-dom@^18.3.0",
+        "npm:@types/react@^18.3.5",
+        "npm:@typescript-eslint/eslint-plugin@^8.5.0",
+        "npm:@typescript-eslint/parser@^8.5.0",
+        "npm:@vitejs/plugin-react@^4.3.1",
+        "npm:autoprefixer@^10.4.20",
+        "npm:eslint-plugin-react-hooks@^4.6.2",
+        "npm:eslint-plugin-react-refresh@~0.4.11",
+        "npm:eslint@^8.57.0",
+        "npm:jsdom@^29.1.1",
+        "npm:postcss@^8.4.45",
+        "npm:react-dom@^18.3.1",
+        "npm:react-markdown@^9.0.1",
+        "npm:react-router-dom@^6.26.2",
+        "npm:react@^18.3.1",
+        "npm:remark-gfm@4",
+        "npm:serve@^14.2.3",
+        "npm:tailwindcss@^3.4.11",
+        "npm:typescript@^5.5.4",
+        "npm:vite@^5.4.5",
+        "npm:vitest@^4.1.9"
+      ]
+    }
+  }
+}

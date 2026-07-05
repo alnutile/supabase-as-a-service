@@ -58,7 +58,11 @@ jobs:
             Instructions:
             - Read CLAUDE.md first and follow the repository conventions.
             - Work on a new branch named feature/issue-${{ github.event.issue.number }}.
-            - Run `npm install` and verify your change with `npm run build` before finishing.
+            - Run `npm install` and verify your change with `npm run build` AND
+              `npm test` before finishing. If your change adds or alters logic
+              (parsing, validation, calculations), add or update tests for it —
+              frontend tests live next to the code as src/**/*.test.ts(x);
+              edge-function tests live in supabase/functions/tests/.
             - If the change needs a DB migration, add the next-numbered file under
               supabase/migrations/ (deploy-migrations.yml applies it on merge) and
               hand-update src/lib/database.types.ts to match.
@@ -67,6 +71,26 @@ jobs:
             - Do NOT push to main. Do NOT merge the PR.
           claude_args: |
             --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"
+
+      # PRs opened with the workflow's GITHUB_TOKEN don't trigger pull_request
+      # workflows (GitHub anti-recursion), so the Tests workflow will NOT run
+      # on the bot's PR — run the same checks here, deterministically, against
+      # the branch the agent pushed. Red here = don't merge.
+      - name: Test the built branch
+        run: |
+          branch="feature/issue-${{ github.event.issue.number }}"
+          git fetch origin "$branch"
+          git checkout "$branch"
+          npm ci
+          npm run lint
+          npm run build
+          npm test
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test edge functions on the built branch
+        run: deno test supabase/functions/tests/
 
       # Green must mean "a PR exists", not "the agent didn't crash". If the
       # agent finished without opening a PR, flag it on the issue (so the board
