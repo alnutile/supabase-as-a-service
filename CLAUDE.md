@@ -311,7 +311,7 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   answers `@mentions` with that room's context — Claude-Tag style. An admin connects the
   Slack app once in **Settings → Slack** (bot token + signing secret, Vault-backed like
   email/MCP: `set_slack_integration` / service-role-only `read_slack_secrets`, migration
-  0056), then **binds channels**: a `slack_channel_bindings` row maps a Slack `channel_id`
+  0057), then **binds channels**: a `slack_channel_bindings` row maps a Slack `channel_id`
   to `collection_ids` + an optional `agent_id`; the binding's creator is the identity the
   bot runs as (like `webhooks.owner_id`), so bind workspace-visibility collections for team
   rooms. The public **`slack-events` edge function** (`verify_jwt: false`; gated by the
