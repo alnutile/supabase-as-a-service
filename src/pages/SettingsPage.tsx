@@ -948,6 +948,7 @@ function SlackCard() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedManifest, setCopiedManifest] = useState(false)
 
   const [bindings, setBindings] = useState<SlackBinding[]>([])
   const [collections, setCollections] = useState<{ id: string; name: string }[]>([])
@@ -1015,6 +1016,46 @@ function SlackCard() {
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
+
+  // Paste-ready app manifest: creating the Slack app "From a manifest" sets the
+  // name, scopes, events, and this workspace's Request URL in one step.
+  const appManifest = `display_information:
+  name: Workspace Assistant
+  description: Answers with the room's collection context.
+features:
+  bot_user:
+    display_name: assistant
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - channels:history
+      - groups:history
+      - users:read
+settings:
+  event_subscriptions:
+    request_url: ${slackEventsUrl}
+    bot_events:
+      - app_mention
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+`
+
+  async function copyManifest() {
+    await navigator.clipboard.writeText(appManifest)
+    setCopiedManifest(true)
+    setTimeout(() => setCopiedManifest(false), 1500)
+  }
+
+  // Link straight to their Slack when the workspace-name field looks usable
+  // ("acme" or "acme.slack.com" both work).
+  const workspaceHost = teamName.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  const workspaceUrl = workspaceHost
+    ? `https://${workspaceHost.includes('.') ? workspaceHost : `${workspaceHost}.slack.com`}`
+    : null
 
   async function addBinding() {
     setError(null)
@@ -1125,29 +1166,76 @@ function SlackCard() {
             )}
           </div>
 
-          {configured && (
-            <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
-              <p className="text-xs font-medium text-muted">Event subscriptions URL</p>
-              <p className="mt-1 text-[11px] text-muted">
-                In the Slack app: <em>Event Subscriptions → Enable → Request URL</em> (paste the link
-                below), subscribe to the <code>app_mention</code> bot event, and give the bot the{' '}
-                <code>app_mentions:read</code>, <code>chat:write</code>, <code>channels:history</code>{' '}
-                and <code>users:read</code> scopes. Then invite it to a channel with{' '}
-                <code>/invite</code>.
-              </p>
-              <div className="mt-2 flex items-start gap-2">
-                <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
-                  {slackEventsUrl}
-                </pre>
-                <button
-                  onClick={copyUrl}
-                  className="shrink-0 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
+          <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
+            <p className="text-xs font-medium text-muted">Setup guide — about 5 minutes</p>
+            <ol className="mt-2 list-decimal space-y-2 pl-4 text-[11px] leading-relaxed text-muted">
+              <li>
+                Go to{' '}
+                <a
+                  href="https://api.slack.com/apps"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary underline"
                 >
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
-              </div>
+                  api.slack.com/apps
+                </a>{' '}
+                → <em>Create New App</em> → <em>From a manifest</em> → pick your workspace and paste
+                the manifest:{' '}
+                <button
+                  onClick={copyManifest}
+                  className="rounded border border-border-strong bg-surface px-1.5 py-0.5 text-[11px] font-medium text-muted hover:bg-surface-hover"
+                >
+                  {copiedManifest ? 'Copied!' : 'Copy app manifest'}
+                </button>{' '}
+                — it pre-fills the bot's name, permissions, and this workspace's event URL, so
+                there's nothing to configure by hand.
+              </li>
+              <li>
+                Click <em>Install to Workspace</em> (under <em>OAuth &amp; Permissions</em> in the
+                left sidebar), then copy the <strong>Bot User OAuth Token</strong> — it starts with{' '}
+                <code>xoxb-</code> — into the field above.
+              </li>
+              <li>
+                Copy the <strong>Signing Secret</strong> from <em>Basic Information</em> →{' '}
+                <em>App Credentials</em> (click <em>Show</em>) into the field above, and hit{' '}
+                <em>{configured ? 'Update Slack' : 'Connect Slack'}</em>.
+              </li>
+              <li>
+                Back in the Slack app config, open <em>Event Subscriptions</em> and confirm the
+                Request URL shows <strong>Verified</strong>. (Save the credentials here first —
+                verification is signed with them. If it shows failed, click <em>Retry</em>.)
+              </li>
+              <li>
+                In{' '}
+                {workspaceUrl ? (
+                  <a
+                    href={workspaceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-primary underline"
+                  >
+                    your Slack workspace
+                  </a>
+                ) : (
+                  'your Slack workspace'
+                )}
+                , type <code>/invite @assistant</code> in the room you want it in, then bind that
+                room to collections below.
+              </li>
+            </ol>
+            <p className="mt-3 text-xs font-medium text-muted">Event subscriptions URL (step 4)</p>
+            <div className="mt-1.5 flex items-start gap-2">
+              <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
+                {slackEventsUrl}
+              </pre>
+              <button
+                onClick={copyUrl}
+                className="shrink-0 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
             </div>
-          )}
+          </div>
 
           {configured && (
             <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
@@ -1176,6 +1264,10 @@ function SlackCard() {
                         placeholder="C0123ABCDEF"
                         className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
                       />
+                      <span className="mt-1 block text-[11px] text-faint">
+                        In Slack: click the channel name → <em>About</em> tab → Channel ID is at the
+                        bottom (starts with C).
+                      </span>
                     </label>
                     <label className="block">
                       <span className="mb-1 block text-xs font-medium text-muted">Channel name</span>
