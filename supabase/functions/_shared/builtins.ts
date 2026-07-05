@@ -19,6 +19,7 @@
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from './knowledge.ts'
+import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
@@ -110,6 +111,16 @@ export async function runBuiltin(
       return setLinkScreenshot(db, input, userId)
     case 'add_table_to_collection':
       return addTableToCollection(db, input, userId)
+    case 'create_file':
+      return createFile(db, userId, input)
+    case 'list_files':
+      return listFiles(db, userId, input)
+    case 'get_file':
+      return getFile(db, userId, input)
+    case 'delete_file':
+      return deleteFile(db, userId, input)
+    case 'add_file_to_collection':
+      return addFileToCollection(db, userId, input)
     case 'http_request':
       return httpRequest(db, input, userId)
     default:
