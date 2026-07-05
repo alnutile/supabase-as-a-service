@@ -1207,7 +1207,7 @@ export default function ChatPage() {
                     ? 'Message the team…  (@ai brings in the assistant, / runs a skill)'
                     : 'Message the assistant…  (type / to run a skill)'
                 }
-                className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-border-strong px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                className="max-h-64 min-h-[120px] flex-1 resize-none rounded-xl border border-border-strong px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
               <button
                 type="submit"
