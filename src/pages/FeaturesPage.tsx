@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
+import { removeFeature, upsertFeature } from '../lib/features'
 import { LinkIcon, PaperclipIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 // The self-improvement pipeline as a kanban. Lane moves are the approvals:
@@ -94,6 +95,33 @@ export default function FeaturesPage() {
     Promise.allSettled(inFlight.map((f) => callFeaturesFn('sync', f.id))).then(() => load())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin])
+
+  // Live board: the PR link (and lane/state) lands on the row asynchronously —
+  // the `features` edge function syncs it in the background, so without Realtime
+  // the freshly-synced PR only shows after a manual reload (issue #104). Push
+  // every INSERT/UPDATE/DELETE straight into the list (and the open detail).
+  useEffect(() => {
+    if (!user) return
+    const channel = supabase
+      .channel('features-board')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'features' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const id = (payload.old as { id?: string })?.id
+          if (!id) return
+          setFeatures((prev) => removeFeature(prev, id))
+          setDetail((d) => (d?.id === id ? null : d))
+          return
+        }
+        const row = payload.new as Feature
+        if (!row?.id) return
+        setFeatures((prev) => upsertFeature(prev, row))
+        setDetail((d) => (d?.id === row.id ? row : d))
+      })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user])
 
   async function moveTo(feature: Feature, lane: Lane) {
     if (!isAdmin || feature.lane === lane) return
