@@ -66,6 +66,16 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
+  **Inline images (GitHub-style):** in `ArtifactEditorPage` you can paste, drag-drop, or
+  attach (📎 "Image") an image into the body; it uploads to the **public `artifact-images`
+  bucket** (migration 0058) and a markdown `![](url)` link is spliced in at the caret. The
+  bucket is public (not owner-private like `files`) on purpose: the URL is baked into stored
+  markdown and re-rendered forever — a signed URL (7-day max) would break — and it must load
+  for anonymous visitors once the artifact is shared. Objects live under
+  `‹owner›/‹uuid›/‹name›` (unguessable "secret-URL" privacy, same trust model as public
+  slugs); writes are folder-scoped, reads are public. Pure logic (image detection, filename
+  sanitizing, cursor-aware markdown insertion) lives in `src/lib/artifactImages.ts` and is
+  unit-tested; the resilient upload reuses `uploadPickedFile(path, file, bucket)`.
   **Standalone hosting:** an `html` artifact can also be viewed as a clean, chrome-free
   full-viewport page at the app's own public **`/p/:slug` route** (`StandaloneArtifactPage`)
   — for sharing "a great diagram in HTML" with the public without deploying a whole app.

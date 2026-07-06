@@ -1,25 +1,34 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
+import { imageMarkdown, insertAtCursor, isImageFile, sanitizeImageName } from '../lib/artifactImages'
+import { uploadPickedFile } from '../lib/upload'
 import { makeSlug } from '../lib/util'
 import { ArtifactFrame } from '../components/ArtifactFrame'
 import { Markdown } from '../components/Markdown'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { VisibilityControl } from '../components/VisibilityControl'
-import { ChatIcon, TrashIcon } from '../components/icons'
+import { ChatIcon, PaperclipIcon, TrashIcon } from '../components/icons'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
 
 const TYPES: ArtifactType[] = ['markdown', 'code', 'html', 'text']
+const IMAGE_BUCKET = 'artifact-images'
 
 export default function ArtifactEditorPage() {
   const { artifactId } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [artifact, setArtifact] = useState<Artifact | null>(null)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const panelResize = usePanelResize('artifact-editor-panel-w', 384)
 
   useEffect(() => {
@@ -39,6 +48,77 @@ export default function ArtifactEditorPage() {
     setArtifact((a) => (a ? { ...a, ...fields } : a))
     setDirty(true)
   }, [])
+
+  // GitHub-style image drop/paste: upload each image to the public
+  // `artifact-images` bucket (a stable, non-expiring URL that keeps working
+  // when the artifact is shared publicly) and splice a markdown `![](url)`
+  // link into the body at the caret. Non-image files are ignored.
+  const insertImages = useCallback(
+    async (files: File[]) => {
+      if (!user) return
+      const images = files.filter(isImageFile)
+      if (images.length === 0) return
+      setUploading(true)
+      setUploadError(null)
+      try {
+        const urls: string[] = []
+        for (const file of images) {
+          const name = sanitizeImageName(file.name, file.type)
+          const path = `${user.id}/${crypto.randomUUID()}/${name}`
+          await uploadPickedFile(path, file, IMAGE_BUCKET)
+          const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path)
+          urls.push(data.publicUrl)
+        }
+        const block = urls.map((u) => imageMarkdown(u)).join('\n')
+        const el = textareaRef.current
+        const current = artifact?.content ?? ''
+        const start = el ? el.selectionStart : current.length
+        const end = el ? el.selectionEnd : current.length
+        const { text, cursor } = insertAtCursor(current, start, end, block)
+        patch({ content: text })
+        // Restore the caret just after the inserted markdown once React repaints.
+        requestAnimationFrame(() => {
+          const node = textareaRef.current
+          if (node) {
+            node.focus()
+            node.setSelectionRange(cursor, cursor)
+          }
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Image upload failed'
+        setUploadError(
+          /failed to fetch|networkerror|load failed/i.test(msg)
+            ? 'Couldn’t upload that image — the request didn’t reach the server. Try again.'
+            : msg,
+        )
+      } finally {
+        setUploading(false)
+      }
+    },
+    [artifact?.content, patch, user],
+  )
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = Array.from(e.clipboardData?.files ?? [])
+      if (files.some(isImageFile)) {
+        e.preventDefault() // don't paste the OS file path / blob text too
+        void insertImages(files)
+      }
+    },
+    [insertImages],
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLTextAreaElement>) => {
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.some(isImageFile)) {
+        e.preventDefault()
+        void insertImages(files)
+      }
+    },
+    [insertImages],
+  )
 
   const save = useCallback(
     async (overrides?: Partial<Artifact>) => {
@@ -128,6 +208,25 @@ export default function ArtifactEditorPage() {
             ))}
           </select>
           <button
+            onClick={() => imageInputRef.current?.click()}
+            disabled={uploading}
+            title="Attach an image — it uploads and is inserted as markdown. You can also paste or drag one into the editor."
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary disabled:opacity-50"
+          >
+            <PaperclipIcon className="h-4 w-4" /> {uploading ? 'Uploading…' : 'Image'}
+          </button>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void insertImages(Array.from(e.target.files ?? []))
+              e.target.value = ''
+            }}
+          />
+          <button
             onClick={() => navigate(`/chat?artifact=${artifact.id}`)}
             title="Chat with the assistant about this artifact — it opens live beside the thread"
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
@@ -151,12 +250,20 @@ export default function ArtifactEditorPage() {
         </div>
 
         <textarea
+          ref={textareaRef}
           value={artifact.content}
           onChange={(e) => patch({ content: e.target.value })}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
           spellCheck={false}
           className="min-h-[45vh] flex-1 resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
-          placeholder="Write here…"
+          placeholder="Write here…  (paste or drop an image to embed it)"
         />
+        {uploadError && (
+          <div className="border-t border-border bg-red-50 px-4 py-2 text-xs text-red-600 md:px-5">
+            {uploadError}
+          </div>
+        )}
       </div>
 
       {/* Side panel: sharing + preview — drag its left edge to widen (md+) */}
