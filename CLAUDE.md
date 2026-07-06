@@ -68,7 +68,8 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   `PublicArtifactPage` at route `/share/a/:slug`.
   **Inline images (GitHub-style):** in `ArtifactEditorPage` you can paste, drag-drop, or
   attach (📎 "Image") an image into the body; it uploads to the **public `artifact-images`
-  bucket** (migration 0058) and a markdown `![](url)` link is spliced in at the caret. The
+  bucket** (migration 0059 — shipped as a second `0058_*.sql` colliding with
+  `0058_security_scans.sql`, renumbered) and a markdown `![](url)` link is spliced in at the caret. The
   bucket is public (not owner-private like `files`) on purpose: the URL is baked into stored
   markdown and re-rendered forever — a signed URL (7-day max) would break — and it must load
   for anonymous visitors once the artifact is shared. Objects live under

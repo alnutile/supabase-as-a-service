@@ -16,6 +16,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # `supabase db push` derives each migration's version from the numeric
+      # filename prefix, so two files sharing a prefix means one silently never
+      # deploys (it has already happened twice: 0056_security_scans,
+      # 0058_artifact_images). Fail the PR instead.
+      - name: Migration prefixes must be unique
+        run: |
+          dups=$(ls supabase/migrations | grep -oE '^[0-9]+' | sort | uniq -d)
+          if [ -n "$dups" ]; then
+            echo "::error::Duplicate migration number prefix(es): $dups — renumber to the next free number (see CLAUDE.md)."
+            exit 1
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 20
