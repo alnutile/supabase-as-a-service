@@ -224,12 +224,6 @@ export const TableIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
-export const PluginIcon = (p: SVGProps<SVGSVGElement>) => (
-  <svg {...base(p)}>
-    <path d="M10 3v3a2 2 0 0 0 4 0V3h4v4h-3a2 2 0 0 0 0 4h3v6h-4v-3a2 2 0 0 0-4 0v3H6v-6h3a2 2 0 0 0 0-4H6V3z" />
-  </svg>
-)
-
 export const CollectionIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="3" y="7" width="18" height="13" rx="2" />

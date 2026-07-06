@@ -3,8 +3,7 @@ import type { Database } from '../lib/database.types'
 import { emailInboundUrl, mcpUrl, slackEventsUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { Link } from 'react-router-dom'
-import { CopyIcon, PluginIcon, PlusIcon, TrashIcon } from '../components/icons'
+import { CopyIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
 type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
@@ -88,23 +87,6 @@ export default function SettingsPage() {
         {isAdmin && <InvitePeople />}
 
         <ConnectClaude />
-
-        <Link
-          to="/plugins"
-          className="mt-4 flex items-center gap-3 rounded-xl border border-border bg-surface p-5 transition hover:border-brand-300 hover:bg-primary-soft/40"
-        >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-            <PluginIcon className="h-5 w-5" />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-text">Plugins</span>
-            <span className="block text-sm text-muted">
-              Browse Supabase Edge Function examples — email, payments, bots, AI providers — and
-              track what this workspace has set up.
-            </span>
-          </span>
-          <span className="ml-auto shrink-0 text-faint">→</span>
-        </Link>
 
         <section className="mt-4 rounded-xl border border-border bg-surface p-5">
           <h2 className="text-sm font-semibold text-text">About this workspace</h2>

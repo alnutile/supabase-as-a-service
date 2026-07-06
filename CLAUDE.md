@@ -510,18 +510,6 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   `search_documents` — so the "morning agent emails me" flow works through the scheduler,
   not just chat. *Planned follow-up (not built): email-triggered agents — run an agent per
   `inbox_messages` row.*
-- **Plugins:** `PluginsPage` (route `/plugins`, in the sidebar) is a discovery + management
-  surface for upstream Supabase Edge Function examples. The **catalog** of *available* plugins
-  is a static, hand-maintained list in `src/lib/plugins.ts` (slug → name/description/category/
-  required secrets) linking to each example's folder in the `supabase/supabase` repo — kept in
-  the codebase so it's offline-readable and not subject to GitHub rate limits. The **installed**
-  list is the `plugins` table (an in-app registry): admins "Add" a catalog entry once they've
-  deployed it, can pause/enable it, keep setup notes, and remove it. The browser can't introspect
-  actually-deployed functions (that needs a Management API token), so this table is the
-  system-of-record an admin curates. RLS mirrors `tools`/`guardrails` (authenticated SELECT,
-  admin write). Settings links here. *Planned follow-up (not built): one-click install — either
-  an `install_plugin` MCP tool (Claude Code pulls the example into `supabase/functions` + deploys)
-  or a server-side deploy via the Supabase Management API.*
 - **Usage tracking:** every OpenRouter call returns a `usage` object (tokens + `cost`);
   the shared client surfaces it on `ORResult.usage` and `recordUsage()`
   (`supabase/functions/_shared/usage.ts`) writes one `usage_events` row per call from
@@ -604,15 +592,14 @@ src/
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
                                TodosPage, FilesPage, TablesPage, SkillsPage, WebhooksPage, ToolsPage,
-                               AgentsPage, PluginsPage, ApiPage, ActivityPage, SettingsPage
+                               AgentsPage, ApiPage, ActivityPage, SettingsPage
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
-    plugins.ts                 Static catalog of upstream Edge Function examples
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0018 plugins registry; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
@@ -633,7 +620,7 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
 `allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
 `mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
-config), `inbox_messages`, `plugins` (installed-plugin registry), `usage_events`
+config), `inbox_messages`, `usage_events`
 (per-call token/cost accounting), `user_tables` (registry for the Tables feature;
 the actual user tables are real `ut_*` tables created at runtime), `collections` +
 `collection_artifacts` (named groups of artifacts you can scope a chat to), `mcp_servers`
