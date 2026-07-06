@@ -23,6 +23,11 @@ Connect Claude** (table `mcp_tokens`). Every call runs **as that token's
 owner** — you only ever see and modify your own artifacts. Revoke a token in
 the same place to cut off access.
 
+A **Supabase session JWT** also works in the same header (the app uses this so a
+signed-in user's own session authenticates the call). It's verified server-side
+via `auth.getUser`, so — like `run-tool` and the to-dos API — either credential
+authenticates the request.
+
 > The function runs with the service role and re‑enforces ownership in code, so
 > the token → owner mapping *is* the security boundary. Treat the token like a
 > password; rotate it if leaked.
