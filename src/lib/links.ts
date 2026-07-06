@@ -1,24 +1,15 @@
 import { supabase, linkMetaUrl } from './supabase'
 
+// Pure helpers live in ./linkEdit (no side-effect imports) so they're unit-testable.
+export { buildLinkEditPatch, normalizeUrl } from './linkEdit'
+export type { LinkEditForm, LinkEditResult } from './linkEdit'
+
 export type LinkMeta = {
   url: string
   title: string
   description: string
   image_url: string | null
   favicon_url: string | null
-}
-
-/** Prepend https:// when the user pastes a bare domain ("example.com"). */
-export function normalizeUrl(raw: string): string | null {
-  const s = raw.trim()
-  if (!s) return null
-  const withScheme = /^https?:\/\//i.test(s) ? s : `https://${s}`
-  try {
-    const u = new URL(withScheme)
-    return u.hostname.includes('.') || u.hostname === 'localhost' ? u.toString() : null
-  } catch {
-    return null
-  }
 }
 
 /**
