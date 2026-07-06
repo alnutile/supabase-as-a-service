@@ -847,6 +847,7 @@ export interface Database {
           summary: string
           findings_count: number
           error: string | null
+          progress: Json
           triggered_by: string | null
           started_at: string
           finished_at: string | null
@@ -857,6 +858,7 @@ export interface Database {
           summary?: string
           findings_count?: number
           error?: string | null
+          progress?: Json
           triggered_by?: string | null
           started_at?: string
           finished_at?: string | null

@@ -44,7 +44,7 @@
         "npm:tailwindcss@^3.4.11",
         "npm:typescript@^5.5.4",
         "npm:vite@^5.4.5",
-        "npm:vitest@^4.1.9"
+        "npm:vitest@^2.1.9"
       ]
     }
   }

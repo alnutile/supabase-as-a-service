@@ -387,7 +387,9 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Security dashboard (Governance):** `SecurityPage` (route `/security`, sidebar
   "Security" under Governance, admin-only) is the workspace posture scan as a repeatable
   feature. The seeded `run_security_scan` builtin (handler `_shared/security.ts`, migration
-  0056) runs **deterministic checks over configuration** — active webhooks without shared
+  0058 — first shipped as a second `0056_*.sql`, which collided with
+  `0056_conversation_pinned.sql` and silently never deployed; renumbered + made idempotent)
+  runs **deterministic checks over configuration** — active webhooks without shared
   secrets, tool-enabled (`allow_tools`) webhooks, missing blocking webhook guardrails,
   `send_email` without a recipient allowlist, `get_secret` + workspace-scoped vault secrets,
   active external MCP handles, MCP/API tokens unused ≥90 days, public-artifact inventory,
@@ -403,7 +405,11 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   itself never touches GitHub. Trigger surfaces (zero new plumbing, it's an ordinary builtin):
   the dashboard's "Run scan" button calls it via `run-tool`; a daily run is an agent scoped to
   this tool on a `schedules` row; chat works too. The builtin re-checks `profiles.is_admin`
-  in code, since the loops run builtins with the service role.
+  in code, since the loops run builtins with the service role. **Live progress:** the scan
+  row carries a `progress` jsonb checklist (`SCAN_STEPS`/`scanProgress` in `_shared/security.ts`,
+  written step-by-step by `runSecurityScan`), and `security_scans` is in the
+  `supabase_realtime` publication — the dashboard subscribes and renders the running scan's
+  steps ticking live, then refetches findings when the row flips to `ok`/`error`.
 - **AI-created artifacts:** the assistant emits a `:::artifact {"title","type"}\n…\n:::`
   block; `materializeArtifacts()` in `ChatPage` parses it after streaming, inserts an
   `artifacts` row, and replaces the block with an `/artifacts/:id` share link.

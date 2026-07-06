@@ -34,7 +34,7 @@ export function serializeSkillMarkdown(doc: SkillDoc): string {
  * text is then treated as the instructions).
  */
 export function parseSkillMarkdown(raw: string): SkillDoc {
-  let text = raw.replace(/^﻿/, '').trim()
+  let text = raw.replace(/^\uFEFF/, '').trim()
 
   // Unwrap a single surrounding code fence, e.g. ```markdown … ```
   const fence = text.match(/^```[a-zA-Z]*\r?\n([\s\S]*?)\r?\n```$/)

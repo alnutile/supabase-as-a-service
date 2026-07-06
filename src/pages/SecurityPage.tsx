@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { LockIcon, RadarIcon, SparkleIcon } from '../components/icons'
+import { CheckIcon, LockIcon, RadarIcon, SparkleIcon } from '../components/icons'
 
 // Governance → Security: the workspace posture scan as a dashboard. "Run scan"
 // invokes the run_security_scan builtin through the universal run-tool function
@@ -13,14 +13,29 @@ import { LockIcon, RadarIcon, SparkleIcon } from '../components/icons'
 // agent scoped to the run_security_scan tool with a schedule — see the hint in
 // the header.
 
+interface ProgressStep {
+  key: string
+  label: string
+  status: 'pending' | 'running' | 'done'
+}
+
 interface Scan {
   id: string
   status: 'running' | 'ok' | 'error'
   summary: string
   findings_count: number
   error: string | null
+  progress: ProgressStep[] | null
   started_at: string
   finished_at: string | null
+}
+
+// A 'running' row this old with no finish is a scan whose function died
+// mid-run — render it as failed instead of spinning forever.
+const STALE_SCAN_MS = 10 * 60 * 1000
+
+function isLiveScan(s: Scan | undefined): s is Scan {
+  return Boolean(s && s.status === 'running' && Date.now() - Date.parse(s.started_at) < STALE_SCAN_MS)
 }
 
 interface Finding {
@@ -35,6 +50,16 @@ interface Finding {
   feature_id: string | null
   created_at: string
 }
+
+// Placeholder checklist shown between clicking "Run scan" and the Realtime
+// arrival of the scan row (which carries the authoritative progress). Keep the
+// labels in sync with SCAN_STEPS in supabase/functions/_shared/security.ts.
+const PLACEHOLDER_STEPS: ProgressStep[] = [
+  { key: 'gather', label: 'Collecting workspace configuration', status: 'pending' },
+  { key: 'evaluate', label: 'Running the posture checks', status: 'pending' },
+  { key: 'save', label: 'Saving findings (carrying over triage)', status: 'pending' },
+  { key: 'summarize', label: 'Writing the summary', status: 'pending' },
+]
 
 const SEVERITY_STYLE: Record<Finding['severity'], string> = {
   critical: 'bg-red-100 text-red-700',
@@ -105,6 +130,31 @@ export default function SecurityPage() {
     if (isAdmin) load()
   }, [isAdmin, load])
 
+  // Live progress: the scan builtin inserts a 'running' security_scans row,
+  // updates its `progress` checklist step by step, then flips it to ok/error —
+  // all pushed here over Realtime so the card ticks while the scan works.
+  useEffect(() => {
+    if (!isAdmin) return
+    const channel = supabase
+      .channel('security-scans')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'security_scans' }, (payload) => {
+        const row = payload.new as Scan
+        if (!row?.id) return
+        setScans((prev) => {
+          const without = prev.filter((s) => s.id !== row.id)
+          return [row, ...without]
+            .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
+            .slice(0, 10)
+        })
+        // Terminal state → the findings for this run just landed; refetch.
+        if (row.status !== 'running') load()
+      })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [isAdmin, load])
+
   async function onRun() {
     setRunning(true)
     setNotice(null)
@@ -165,6 +215,9 @@ export default function SecurityPage() {
   if (isAdmin === null) return null
 
   const latest = scans[0]
+  const liveScan = isLiveScan(latest) ? latest : undefined
+  const scanning = running || Boolean(liveScan)
+  const lastFinished = scans.find((s) => s.status !== 'running')
   const open = findings.filter((f) => f.status === 'open')
   const triaged = findings.filter((f) => f.status !== 'open')
 
@@ -175,10 +228,10 @@ export default function SecurityPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-text">Security</h1>
           <button
             onClick={onRun}
-            disabled={running}
+            disabled={scanning}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
           >
-            <RadarIcon className="h-4 w-4" /> {running ? 'Scanning…' : 'Run scan'}
+            <RadarIcon className="h-4 w-4" /> {scanning ? 'Scanning…' : 'Run scan'}
           </button>
         </div>
         <p className="mb-6 text-sm text-muted">
@@ -196,29 +249,53 @@ export default function SecurityPage() {
           </div>
         )}
 
-        {latest ? (
+        {scanning && (
+          <div className="mb-6 rounded-xl border border-primary/30 bg-surface p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-text">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              Scan in progress
+              {liveScan && (
+                <span className="ml-auto font-normal text-faint">started {formatDate(liveScan.started_at)}</span>
+              )}
+            </div>
+            <ul className="mt-3 space-y-1.5">
+              {(liveScan?.progress?.length ? liveScan.progress : PLACEHOLDER_STEPS).map((step) => (
+                <li key={step.key} className="flex items-center gap-2.5 text-sm">
+                  {step.status === 'done' ? (
+                    <CheckIcon className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                  ) : step.status === 'running' ? (
+                    <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  ) : (
+                    <span className="mx-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
+                  )}
+                  <span className={step.status === 'pending' ? 'text-faint' : 'text-text'}>{step.label}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {lastFinished ? (
           <div className="mb-6 rounded-xl border border-border bg-surface p-4">
             <div className="flex items-center gap-2 text-sm">
               <span
                 className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                  latest.status === 'ok'
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : latest.status === 'error'
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-amber-100 text-amber-700'
+                  lastFinished.status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
                 }`}
               >
-                {latest.status === 'ok' ? 'completed' : latest.status}
+                {lastFinished.status === 'ok' ? 'completed' : lastFinished.status}
               </span>
-              <span className="text-muted">Last scan {formatDate(latest.started_at)}</span>
+              <span className="text-muted">Last scan {formatDate(lastFinished.started_at)}</span>
               <span className="ml-auto text-faint">{scans.length} recent run{scans.length === 1 ? '' : 's'}</span>
             </div>
-            <p className="mt-2 text-sm text-text">{latest.error ?? latest.summary}</p>
+            <p className="mt-2 text-sm text-text">{lastFinished.error ?? lastFinished.summary}</p>
           </div>
         ) : (
-          <p className="mb-6 rounded-xl border border-dashed border-border px-6 py-10 text-center text-sm text-faint">
-            No scans yet. Run the first one to see where the workspace stands.
-          </p>
+          !scanning && (
+            <p className="mb-6 rounded-xl border border-dashed border-border px-6 py-10 text-center text-sm text-faint">
+              No scans yet. Run the first one to see where the workspace stands.
+            </p>
+          )
         )}
 
         {open.length > 0 && (
@@ -255,7 +332,7 @@ export default function SecurityPage() {
               </div>
             </div>
           ))}
-          {latest?.status === 'ok' && open.length === 0 && (
+          {lastFinished?.status === 'ok' && open.length === 0 && (
             <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
               No open findings — everything the scan checks looks good.
             </p>

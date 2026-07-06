@@ -1,7 +1,7 @@
 // Tests for the pure posture evaluator behind run_security_scan
 // (_shared/security.ts). Snapshot in, findings out — no DB, no model.
 import { assert, assertEquals } from 'jsr:@std/assert@1'
-import { evaluatePosture, type PostureSnapshot } from '../_shared/security.ts'
+import { evaluatePosture, SCAN_STEPS, scanProgress, type PostureSnapshot } from '../_shared/security.ts'
 
 // A quiet, well-configured workspace: nothing should fire.
 function cleanSnapshot(): PostureSnapshot {
@@ -125,4 +125,19 @@ Deno.test('findings sort by severity, most severe first', () => {
   const order = ['critical', 'high', 'medium', 'low', 'info']
   const sorted = [...sevs].sort((a, b) => order.indexOf(a) - order.indexOf(b))
   assertEquals(sevs, sorted)
+})
+
+Deno.test('scanProgress marks earlier steps done, current running, rest pending', () => {
+  const start = scanProgress(0)
+  assertEquals(start.length, SCAN_STEPS.length)
+  assertEquals(start[0].status, 'running')
+  assert(start.slice(1).every((s) => s.status === 'pending'))
+
+  const mid = scanProgress(2)
+  assertEquals(mid.map((s) => s.status), ['done', 'done', 'running', 'pending'])
+
+  const finished = scanProgress(SCAN_STEPS.length)
+  assert(finished.every((s) => s.status === 'done'))
+  // Keys are stable + unique — the dashboard uses them as list keys.
+  assertEquals(new Set(finished.map((s) => s.key)).size, SCAN_STEPS.length)
 })
