@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   DndContext,
   closestCenter,
@@ -17,12 +18,16 @@ import { CSS } from '@dnd-kit/utilities'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { filterAndSortTodos } from '../lib/todos'
 import {
+  ArrowRightIcon,
   CalendarIcon,
   CheckIcon,
+  CloseIcon,
   CollectionIcon,
   DragHandleIcon,
   PlusIcon,
+  SearchIcon,
   TrashIcon,
   TodoIcon,
 } from '../components/icons'
@@ -77,6 +82,10 @@ function DuePill({ due, overdue, onChange }: { due: string | null; overdue: bool
 
 export default function TodosPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  // The open to-do lives in the URL (/todos/:todoId) so it's bookmarkable, back
+  // works, and the global ⌘K search can deep-link straight to a to-do.
+  const { todoId } = useParams()
   const [todos, setTodos] = useState<Todo[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
   const [members, setMembers] = useState<Record<string, Set<string>>>({}) // collection_id -> todo ids
@@ -87,6 +96,7 @@ export default function TodosPage() {
   const [sortMode, setSortMode] = useState<SortMode>('manual')
   const [showDone, setShowDone] = useState(false)
   const [activeCollection, setActiveCollection] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
@@ -116,26 +126,20 @@ export default function TodosPage() {
 
   const selectedIds = useMemo(() => [...selected], [selected])
 
-  // The visible list: collection filter → done filter → sort.
-  const visible = useMemo(() => {
-    let list = todos
-    if (activeCollection) {
-      const set = members[activeCollection] ?? new Set()
-      list = list.filter((t) => set.has(t.id))
-    }
-    if (!showDone) list = list.filter((t) => !t.done)
-    if (sortMode === 'due') {
-      list = [...list].sort((a, b) => {
-        if (a.done !== b.done) return a.done ? 1 : -1
-        const av = a.due_date ? new Date(a.due_date).getTime() : Infinity
-        const bv = b.due_date ? new Date(b.due_date).getTime() : Infinity
-        if (av !== bv) return av - bv
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      })
-    }
-    // manual order already comes from the DB query (position asc, created_at desc)
-    return list
-  }, [todos, members, activeCollection, showDone, sortMode])
+  // The visible list: collection filter → done filter → quick search → sort.
+  const visible = useMemo(
+    () =>
+      filterAndSortTodos(todos, {
+        memberIds: activeCollection ? members[activeCollection] ?? new Set<string>() : null,
+        showDone,
+        sortMode,
+        query: search,
+      }),
+    [todos, members, activeCollection, showDone, sortMode, search],
+  )
+
+  // Drag reorder only makes sense over the raw manual order, not a searched subset.
+  const dragEnabled = sortMode === 'manual' && !search.trim()
 
   const openCount = useMemo(() => todos.filter((t) => !t.done).length, [todos])
 
@@ -193,6 +197,16 @@ export default function TodosPage() {
     })
     await supabase.from('todos').delete().eq('id', id)
   }
+
+  // Reflect an edit the detail modal already persisted, so the list matches
+  // without a full reload. If the row isn't loaded yet, the merge is a no-op
+  // and load() will pick it up.
+  function syncTodoInList(id: string, patch: Partial<Todo>) {
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  }
+
+  const openTodo = useCallback((id: string) => navigate(`/todos/${id}`), [navigate])
+  const closeTodo = useCallback(() => navigate('/todos'), [navigate])
 
   // Drag reorder (manual mode): reassign sequential positions to the visible set.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
@@ -364,6 +378,26 @@ export default function TodosPage() {
           </button>
         </div>
 
+        {/* Quick search — complements the global ⌘K search, scoped to this page */}
+        <div className="relative mt-3">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search to-dos…"
+            className="w-full rounded-lg border border-border bg-surface py-2 pl-9 pr-9 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         {/* Collection filter bar */}
         {collections.length > 0 && (
           <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -400,7 +434,11 @@ export default function TodosPage() {
             <p className="text-sm text-muted">Loading…</p>
           ) : visible.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted">
-              {activeCollection ? 'No to-dos in this collection yet.' : 'Nothing here yet — add your first to-do above.'}
+              {search.trim()
+                ? `No to-dos match “${search.trim()}”.`
+                : activeCollection
+                  ? 'No to-dos in this collection yet.'
+                  : 'Nothing here yet — add your first to-do above.'}
             </div>
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -410,11 +448,12 @@ export default function TodosPage() {
                     <TodoRow
                       key={t.id}
                       todo={t}
-                      dragDisabled={sortMode !== 'manual'}
+                      dragDisabled={!dragEnabled}
                       selected={selected.has(t.id)}
                       onToggleSelect={() => toggleSelect(t.id)}
                       onToggleDone={() => toggleDone(t)}
                       onToggleVisibility={() => toggleVisibility(t)}
+                      onOpen={() => openTodo(t.id)}
                       onChangeTitle={(title) => title.trim() && title !== t.title && patchTodo(t.id, { title: title.trim() })}
                       onChangeDue={(due) => patchTodo(t.id, { due_date: due || null })}
                       onDelete={() => deleteTodo(t.id)}
@@ -495,6 +534,21 @@ export default function TodosPage() {
           </div>
         </div>
       )}
+
+      {/* URL-addressed to-do detail (opened from a row, a collection, or the
+          global search — /todos/:todoId) */}
+      {todoId && (
+        <TodoDetailModal
+          key={todoId}
+          todoId={todoId}
+          onClose={closeTodo}
+          onPatched={syncTodoInList}
+          onDeleted={(id) => {
+            deleteTodo(id)
+            closeTodo()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -506,6 +560,7 @@ function TodoRow({
   onToggleSelect,
   onToggleDone,
   onToggleVisibility,
+  onOpen,
   onChangeTitle,
   onChangeDue,
   onDelete,
@@ -517,6 +572,7 @@ function TodoRow({
   onToggleSelect: () => void
   onToggleDone: () => void
   onToggleVisibility: () => void
+  onOpen: () => void
   onChangeTitle: (title: string) => void
   onChangeDue: (due: string) => void
   onDelete: () => void
@@ -598,6 +654,14 @@ function TodoRow({
 
         {/* Actions — always visible on mobile (no hover), reveal on hover on desktop */}
         <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 transition md:ml-0 md:opacity-0 md:group-hover:opacity-100">
+          <button
+            onClick={onOpen}
+            title="Open"
+            aria-label="Open to-do"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-primary"
+          >
+            <ArrowRightIcon className="h-4 w-4" />
+          </button>
           {onRemoveFromCollection && (
             <button
               onClick={onRemoveFromCollection}
@@ -624,5 +688,183 @@ function TodoRow({
         </div>
       </div>
     </li>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// To-do detail — a URL-addressed modal (/todos/:todoId). Opened from a row's
+// "Open" button, a collection item, or the global ⌘K search, so a link points
+// straight at the to-do and back returns to the list. Self-fetches its row
+// (the deep-link case where the page just loaded), edits it in place, and
+// syncs the persisted change back into the list via onPatched — no reload.
+// ---------------------------------------------------------------------------
+function TodoDetailModal({
+  todoId,
+  onClose,
+  onPatched,
+  onDeleted,
+}: {
+  todoId: string
+  onClose: () => void
+  onPatched: (id: string, patch: Partial<Todo>) => void
+  onDeleted: (id: string) => void
+}) {
+  const [todo, setTodo] = useState<Todo | null | 'missing'>(null)
+  const [title, setTitle] = useState('')
+  const [notes, setNotes] = useState('')
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('todos')
+      .select('*')
+      .eq('id', todoId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return
+        if (!data) return setTodo('missing')
+        setTodo(data)
+        setTitle(data.title)
+        setNotes(data.notes ?? '')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [todoId])
+
+  // Persist an edit + reflect it in the modal and the parent list.
+  async function persist(patch: Partial<Todo>) {
+    if (!todo || todo === 'missing') return
+    setTodo({ ...todo, ...patch })
+    onPatched(todoId, patch)
+    await supabase.from('todos').update(patch).eq('id', todoId)
+  }
+
+  function saveTitle() {
+    const t = title.trim()
+    if (todo && todo !== 'missing' && t && t !== todo.title) persist({ title: t })
+    else if (todo && todo !== 'missing') setTitle(todo.title) // revert empty edit
+  }
+
+  function saveNotes() {
+    if (todo && todo !== 'missing' && notes !== (todo.notes ?? '')) persist({ notes })
+  }
+
+  const overdue = todo && todo !== 'missing' ? isOverdue(todo.due_date, todo.done) : false
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+          <TodoIcon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-base font-semibold text-text">
+              {todo === 'missing' ? 'Not found' : todo ? 'To-do' : 'Loading…'}
+            </h3>
+            {todo && todo !== 'missing' && (
+              <p className="mt-0.5 text-xs text-faint">
+                {todo.done ? 'Done' : 'Open'}
+                {todo.visibility === 'workspace' ? ' · shared' : ' · private'}
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text" aria-label="Close">
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {todo === null ? (
+            <p className="text-sm text-faint">Loading…</p>
+          ) : todo === 'missing' ? (
+            <p className="text-sm text-muted">This to-do doesn’t exist or you don’t have access to it.</p>
+          ) : (
+            <div className="space-y-4">
+              {/* Title + done */}
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() =>
+                    persist({ done: !todo.done, completed_at: todo.done ? null : new Date().toISOString() })
+                  }
+                  aria-label={todo.done ? 'Mark not done' : 'Mark done'}
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition ${
+                    todo.done ? 'border-primary bg-primary text-white' : 'border-border-strong text-transparent hover:border-primary'
+                  }`}
+                >
+                  <CheckIcon className="h-4 w-4" />
+                </button>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={saveTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  }}
+                  placeholder="To-do title"
+                  className={`min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-1 py-1 text-base font-medium outline-none focus:border-border-strong ${
+                    todo.done ? 'text-faint line-through' : 'text-text'
+                  }`}
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-faint">Notes</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  onBlur={saveNotes}
+                  rows={5}
+                  placeholder="Add notes…"
+                  className="w-full resize-y rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+                />
+              </div>
+
+              {/* Due + visibility */}
+              <div className="flex flex-wrap items-center gap-2">
+                <DuePill due={todo.due_date} overdue={overdue} onChange={(d) => persist({ due_date: d || null })} />
+                <button
+                  onClick={() => persist({ visibility: todo.visibility === 'workspace' ? 'private' : 'workspace' })}
+                  title={todo.visibility === 'workspace' ? 'Shared with the workspace' : 'Private to you'}
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+                    todo.visibility === 'workspace' ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-faint hover:text-muted'
+                  }`}
+                >
+                  {todo.visibility === 'workspace' ? 'Team' : 'Mine'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {todo && todo !== 'missing' && (
+          <div className="flex items-center gap-2 border-t border-border px-5 py-3">
+            <button
+              onClick={() => {
+                if (confirm('Delete this to-do?')) onDeleted(todoId)
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+            >
+              <TrashIcon className="h-4 w-4" /> Delete
+            </button>
+            <button
+              onClick={onClose}
+              className="ml-auto flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
+            >
+              Done <ArrowRightIcon className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

@@ -206,7 +206,7 @@ async function runSearch(q: string, isAdmin: boolean): Promise<Result[]> {
       group: 'To-dos',
       title: t.title,
       subtitle: t.done ? 'done' : undefined,
-      to: '/todos',
+      to: `/todos/${t.id}`,
       icon: TodoIcon,
     })
   for (const l of links.data ?? [])

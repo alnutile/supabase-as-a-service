@@ -744,7 +744,7 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
       setDetail({
         title: data.title,
         meta: `${data.done ? 'Done' : 'Open'}${data.due_date ? ` · due ${data.due_date}` : ''}`,
-        fullPageTo: '/todos',
+        fullPageTo: `/todos/${data.id}`,
         body: data.notes ? <p className="whitespace-pre-wrap text-sm text-text">{data.notes}</p> : undefined,
       })
     } else if (kind === 'artifact') {
