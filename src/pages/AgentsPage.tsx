@@ -251,6 +251,8 @@ function AgentEditor({
     setToolIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
+  const allToolsSelected = tools.length > 0 && tools.every((t) => toolIds.includes(t.id))
+
   async function save() {
     setSaving(true)
     await supabase
@@ -363,7 +365,20 @@ function AgentEditor({
           </div>
 
           <div>
-            <span className="mb-1 block text-xs font-medium text-muted">Tools it may use</span>
+            <span className="mb-1 flex items-center justify-between text-xs font-medium text-muted">
+              <span>Tools it may use</span>
+              {tools.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setToolIds(allToolsSelected ? [] : tools.map((t) => t.id))
+                  }
+                  className="font-normal text-primary hover:underline"
+                >
+                  {allToolsSelected ? 'Clear all' : 'Select all'}
+                </button>
+              )}
+            </span>
             {tools.length === 0 ? (
               <p className="text-xs text-faint">No active tools. Add some on the Tools page.</p>
             ) : (
