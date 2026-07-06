@@ -2,15 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { fetchLinkMeta, normalizeUrl } from '../lib/links'
+import { buildLinkEditPatch, fetchLinkMeta, normalizeUrl } from '../lib/links'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import {
   CheckIcon,
+  CloseIcon,
   CollectionIcon,
   CopyIcon,
   GlobeIcon,
   LinkIcon,
   LoopIcon,
+  PencilIcon,
   PlusIcon,
   TrashIcon,
 } from '../components/icons'
@@ -39,6 +41,7 @@ export default function LinksPage() {
   const [screenshots, setScreenshots] = useState<Record<string, string>>({}) // link id -> signed URL
   const [activeCollection, setActiveCollection] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [editing, setEditing] = useState<Link | null>(null)
 
   const load = useCallback(async () => {
     const [lRes, cRes, mRes] = await Promise.all([
@@ -267,6 +270,7 @@ export default function LinksPage() {
                     patchLink(l.id, { visibility: l.visibility === 'workspace' ? 'private' : 'workspace' })
                   }
                   onRefresh={() => refreshMeta(l.id, l.url)}
+                  onEdit={() => setEditing(l)}
                   onDelete={() => deleteLink(l.id)}
                   onRemoveFromCollection={activeCollection ? () => removeFromActive(l.id) : undefined}
                 />
@@ -277,6 +281,128 @@ export default function LinksPage() {
       </div>
 
       <AddToCollectionBar kind="link" selectedIds={selectedIds} onClear={() => setSelected(new Set())} />
+
+      {editing && (
+        <EditLinkModal
+          link={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (patch) => {
+            await patchLink(editing.id, patch)
+            setEditing(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function EditLinkModal({
+  link,
+  onClose,
+  onSave,
+}: {
+  link: Link
+  onClose: () => void
+  onSave: (patch: { url: string; title: string; description: string; notes: string }) => Promise<void>
+}) {
+  const [url, setUrl] = useState(link.url)
+  const [title, setTitle] = useState(link.title)
+  const [description, setDescription] = useState(link.description)
+  const [notes, setNotes] = useState(link.notes)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (saving) return
+    const res = buildLinkEditPatch({ url, title, description, notes })
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    setSaving(true)
+    await onSave(res.patch)
+    setSaving(false)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-text">
+            <PencilIcon className="h-4 w-4 text-muted" /> Edit link
+          </h2>
+          <button
+            onClick={onClose}
+            title="Close"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-muted">URL</span>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              inputMode="url"
+              className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-muted">Title</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-muted">Description</span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              className="resize-y rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-muted">Notes</span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Your private notes about this link…"
+              className="resize-y rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+            />
+          </label>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-surface-hover"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -289,6 +415,7 @@ function LinkCard({
   onToggleSelect,
   onToggleVisibility,
   onRefresh,
+  onEdit,
   onDelete,
   onRemoveFromCollection,
 }: {
@@ -299,6 +426,7 @@ function LinkCard({
   onToggleSelect: () => void
   onToggleVisibility: () => void
   onRefresh: () => void
+  onEdit: () => void
   onDelete: () => void
   onRemoveFromCollection?: () => void
 }) {
@@ -406,6 +534,13 @@ function LinkCard({
             className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted disabled:opacity-50"
           >
             <LoopIcon className={`h-4 w-4 ${fetching ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={onEdit}
+            title="Edit link"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+          >
+            <PencilIcon className="h-4 w-4" />
           </button>
           <button
             onClick={onToggleSelect}
