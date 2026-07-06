@@ -19,6 +19,7 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { filterAndSortTodos } from '../lib/todos'
+import { openDatePicker } from '../lib/datePicker'
 import {
   ArrowRightIcon,
   CalendarIcon,
@@ -73,6 +74,9 @@ function DuePill({ due, overdue, onChange }: { due: string | null; overdue: bool
         type="date"
         value={due ?? ''}
         onChange={(e) => onChange(e.target.value)}
+        // Open the picker deterministically instead of trusting the browser's
+        // flaky click-to-open on a transparent overlaid input (see openDatePicker).
+        onClick={(e) => openDatePicker(e.currentTarget)}
         aria-label="Set a due date"
         className="absolute inset-0 cursor-pointer opacity-0"
       />
