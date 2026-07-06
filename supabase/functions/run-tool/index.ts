@@ -25,6 +25,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import { expandMcpTools, runMcpTool } from '../_shared/mcp.ts'
+import { parseBearer, resolveApiUser } from '../_shared/apiauth.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -56,21 +57,9 @@ type ToolRow = {
   config: Record<string, unknown> | null
 }
 
-// Resolve the caller: an mcp_tokens token, else a verified Supabase JWT.
-async function resolveUser(db: DB, token: string): Promise<string | null> {
-  if (!token) return null
-  const { data: tok } = await db.from('mcp_tokens').select('owner_id').eq('token', token).maybeSingle()
-  if (tok?.owner_id) {
-    db.from('mcp_tokens').update({ last_used_at: new Date().toISOString() }).eq('token', token).then(() => {})
-    return tok.owner_id as string
-  }
-  try {
-    const { data } = await db.auth.getUser(token)
-    return data?.user?.id ?? null
-  } catch {
-    return null
-  }
-}
+// Caller resolution (an mcp_tokens token, else a verified Supabase JWT) is the
+// shared _shared/apiauth.ts resolveApiUser — the same one the artifacts / todos
+// REST APIs use, so one credential works across all three.
 
 // Replace "{{prev}}" in any string value (deep) with the previous step result.
 function substitutePrev(input: unknown, prev: string): unknown {
@@ -183,9 +172,9 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get('Authorization') ?? ''
   if (tail === 'docs' || (req.method === 'GET' && !tail && !authHeader)) return docsResponse()
 
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+  const token = parseBearer(authHeader)
   const db = admin()
-  const userId = await resolveUser(db, token)
+  const userId = await resolveApiUser(db, token)
   if (!userId) return err('Unauthorized. See GET /functions/v1/run-tool/docs.', 401)
 
   if (req.method === 'GET' && tail === 'list') {

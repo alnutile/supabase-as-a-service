@@ -18,9 +18,12 @@ Authorization: Bearer <token>
 
 The token is a personal connection token — mint one in the app under
 **Settings → Connect Claude** (the same `mcp_tokens` used for MCP and the
-Artifacts API). The function runs with the service role but re-enforces ownership
-in code from the token → owner mapping: **you only ever see and modify your own
-to-dos.** Treat a token like a password; revoke it in Settings if it leaks.
+Artifacts API). A **Supabase session JWT** also works in the same header
+(verified server-side via `auth.getUser`), so a signed-in user's own session
+authenticates the call too — same as `run-tool` and the Artifacts API. The
+function runs with the service role but re-enforces ownership in code from the
+token → owner mapping: **you only ever see and modify your own to-dos.** Treat a
+token like a password; revoke it in Settings if it leaks.
 
 ## Base URL
 

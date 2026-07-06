@@ -2,10 +2,12 @@
 //
 // A small, plain-REST CRUD API around artifacts so you can push content in from
 // anywhere — a script, a Zap, another app, a cron job — without speaking MCP or
-// holding a Supabase session. Auth is a per-user bearer token (the same
-// `mcp_tokens` you mint in Settings → Connect Claude); every call runs AS that
-// token's owner and the function re-enforces ownership in code (it uses the
-// service role, so RLS is not the gate here — the token → owner mapping is).
+// holding a Supabase session. Auth is a bearer token: EITHER a per-user
+// `mcp_tokens` token (the same one you mint in Settings → Connect Claude) OR a
+// Supabase session JWT (verified in code via auth.getUser — see _shared/apiauth).
+// Every call runs AS that token's owner and the function re-enforces ownership
+// in code (it uses the service role, so RLS is not the gate here — the token →
+// owner mapping is).
 //
 // Routes (base: /functions/v1/artifacts):
 //   GET    /                       → list your artifacts (filter ?collection=, ?type=, ?q=, ?limit=, ?offset=, ?include=content)
@@ -20,6 +22,7 @@
 // `collections` (an array of them) on create/update to file the artifact into
 // one or more collections — the same groups you chat with in the app.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { parseBearer, resolveApiUser } from '../_shared/apiauth.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -164,8 +167,9 @@ AUTH
   Send a bearer token in the Authorization header:
       Authorization: Bearer <token>
   The token is a personal connection token — create one in the app under
-  Settings → Connect Claude (these are your "MCP" tokens). Every call runs as
-  that token's owner; you only ever see and modify your own artifacts.
+  Settings → Connect Claude (these are your "MCP" tokens). A Supabase session
+  JWT works too (verified server-side). Every call runs as that token's owner;
+  you only ever see and modify your own artifacts.
 
 BASE URL
   ${SUPABASE_URL}/functions/v1/artifacts
@@ -380,14 +384,14 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get('Authorization') ?? ''
   if (tail === 'docs' || (req.method === 'GET' && !tail && !authHeader)) return docsResponse()
 
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+  const token = parseBearer(authHeader)
   if (!token) return err('Missing bearer token. See GET /functions/v1/artifacts/docs.', 401)
 
   const db = admin()
-  const { data: tok } = await db.from('mcp_tokens').select('owner_id').eq('token', token).maybeSingle()
-  if (!tok) return err('Invalid token.', 401)
-  const owner = tok.owner_id as string
-  db.from('mcp_tokens').update({ last_used_at: new Date().toISOString() }).eq('token', token).then(() => {})
+  // Accept an mcp_tokens token OR a Supabase session JWT (shared with run-tool /
+  // todos), so the same credential works across the token-gated APIs.
+  const owner = await resolveApiUser(db, token)
+  if (!owner) return err('Invalid token.', 401)
 
   // Parse a JSON body for write methods.
   let body: Record<string, unknown> = {}
