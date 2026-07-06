@@ -41,7 +41,7 @@ import {
   reasoningParam,
   toolResultMsg,
   toORTool,
-  WEB_PLUGIN,
+  WEB_SEARCH_TOOL,
   type ORMessage,
   type ORTool,
 } from '../_shared/openrouter.ts'
@@ -221,7 +221,7 @@ async function processEvent(db: any, secrets: SlackSecrets, event: SlackEvent, e
       ? `Recent messages in this ${event.thread_ts ? 'thread' : 'channel'}:\n${transcript}\n\n${asker} now asks:\n${text}`
       : `${asker} asks:\n${text}`
 
-    const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+    if (webEnabled) tools.push(WEB_SEARCH_TOOL)
     const reasoning = reasoningParam()
     const messages: ORMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -233,7 +233,6 @@ async function processEvent(db: any, secrets: SlackSecrets, event: SlackEvent, e
         model: MODEL,
         messages,
         tools: tools.length ? tools : undefined,
-        plugins,
         reasoning,
         maxTokens: 4096,
       })

@@ -357,8 +357,10 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Tools (tools-as-data):** the `tools` table defines capabilities the chat loop
   exposes to the model. `kind = 'http'` → a custom tool; the model calls it and the chat
   function POSTs the inputs to `config.url` and feeds the response back. `kind = 'web'`
-  → switches on OpenRouter's **web plugin** (`plugins:[{id:'web'}]`), the portable
-  replacement for Anthropic's server-side web tools (works with any OpenRouter model).
+  → switches on OpenRouter's **web search server tool** (`{type:'openrouter:web_search'}`
+  in the `tools` array — NOT the deprecated `plugins:[{id:'web'}]`, which injected results
+  as a mid-conversation system message that Anthropic 400s on multi-turn threads), the
+  portable replacement for Anthropic's server-side web tools (works with any OpenRouter model).
   Admin-managed (`ToolsPage`); a seeded `is_builtin` "web_browsing" row is on by default.
   The chat function runs an **agentic loop** (model → tool_calls → execute →
   tool result messages → … → stop), pushing the assistant turn (content + `tool_calls`)
@@ -676,7 +678,7 @@ secrets. It assembles the system prompt by reading the always-on prompts
 appends/replaces with an invoked skill's instructions (`body.system` +
 `body.replaceSystem`); the system prompt is sent as the first `{role:'system'}`
 message. Request body: `{ messages, system?, replaceSystem? }`. It also loads active
-`tools` rows and runs an **agentic loop**: the OpenRouter web plugin (for `kind = 'web'`)
+`tools` rows and runs an **agentic loop**: the OpenRouter web search server tool (for `kind = 'web'`)
 and custom `http` tools (POST inputs to `config.url`, feed the response back). It
 appends each assistant turn (content + `tool_calls`) before sending one
 `{role:'tool', tool_call_id}` message per call, then loops to `MAX_TOOL_TURNS`.

@@ -1,7 +1,7 @@
 // Shared OpenRouter client. OpenRouter is OpenAI-compatible
 // (POST https://openrouter.ai/api/v1/chat/completions), so this is a thin fetch
 // wrapper rather than the OpenAI SDK — that lets us pass the extra fields
-// OpenRouter adds (`reasoning`, `plugins`) without fighting SDK types. ALL model
+// OpenRouter adds (`reasoning`, server tools) without fighting SDK types. ALL model
 // calls (chat, webhook, scheduler, guardrails) go through here so the request
 // shape, auth, and reasoning/effort handling stay identical everywhere.
 //
@@ -14,10 +14,15 @@ const OR_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 export type Effort = 'low' | 'medium' | 'high'
 
-export type ORTool = {
-  type: 'function'
-  function: { name: string; description: string; parameters: Record<string, unknown> }
-}
+export type ORTool =
+  | {
+      type: 'function'
+      function: { name: string; description: string; parameters: Record<string, unknown> }
+    }
+  // OpenRouter server tool (e.g. web search): executed on OpenRouter's side, so
+  // the agent loops never receive a tool_call for it — results come back inline
+  // as content + url_citation annotations.
+  | { type: 'openrouter:web_search'; parameters?: Record<string, unknown> }
 
 export type ORToolCall = {
   id: string
@@ -65,7 +70,6 @@ export interface ORRequest {
   model: string
   messages: ORMessage[]
   tools?: ORTool[]
-  plugins?: Array<Record<string, unknown>>
   reasoning?: { effort: Effort }
   maxTokens?: number
 }
@@ -78,7 +82,6 @@ function buildBody(req: ORRequest, stream: boolean): Record<string, unknown> {
     stream,
   }
   if (req.tools && req.tools.length) body.tools = req.tools
-  if (req.plugins && req.plugins.length) body.plugins = req.plugins
   if (req.reasoning) body.reasoning = req.reasoning
   return body
 }
@@ -241,6 +244,10 @@ export function parseToolArgs(args: string): Record<string, unknown> {
   }
 }
 
-// OpenRouter web search plugin — the portable replacement for Anthropic's
-// server-side web_search/web_fetch. Works with any model.
-export const WEB_PLUGIN = { id: 'web' }
+// OpenRouter web search server tool — the portable replacement for Anthropic's
+// server-side web_search/web_fetch. Works with any model. Goes in the `tools`
+// array, NOT the deprecated `plugins:[{id:'web'}]` field: the old plugin
+// injected its results as a mid-conversation system message, which Anthropic
+// rejects with 400 "role 'system' must precede an 'assistant' message" on any
+// multi-turn thread.
+export const WEB_SEARCH_TOOL: ORTool = { type: 'openrouter:web_search' }

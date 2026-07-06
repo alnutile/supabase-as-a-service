@@ -16,7 +16,7 @@ import {
   reasoningParam,
   toolResultMsg,
   toORTool,
-  WEB_PLUGIN,
+  WEB_SEARCH_TOOL,
   type ORMessage,
   type ORTool,
 } from '../_shared/openrouter.ts'
@@ -95,7 +95,7 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
     { role: 'system', content: system },
     { role: 'user', content: input.trim() || "It's time for your scheduled run. Carry out your task now, following your instructions." },
   ]
-  const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+  if (webEnabled) tools.push(WEB_SEARCH_TOOL)
   const reasoning = reasoningParam()
   let result = ''
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
@@ -103,7 +103,6 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
       model,
       messages,
       tools: tools.length ? tools : undefined,
-      plugins,
       reasoning,
       maxTokens: 4096,
     })

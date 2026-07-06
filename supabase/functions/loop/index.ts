@@ -34,7 +34,7 @@ import {
   systemMsg,
   toolResultMsg,
   toORTool,
-  WEB_PLUGIN,
+  WEB_SEARCH_TOOL,
   type ORMessage,
   type ORTool,
 } from '../_shared/openrouter.ts'
@@ -148,7 +148,6 @@ async function produceCandidate(
   tools: ORTool[],
   httpTools: Map<string, ToolRow>,
   builtins: Set<string>,
-  plugins: Array<Record<string, unknown>> | undefined,
   userId: string | null,
   agentId: string | null,
   remainingBudget: () => number,
@@ -161,7 +160,7 @@ async function produceCandidate(
 
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
     if (remainingBudget() - cost <= 0) break
-    const out = await orComplete({ model, messages, tools: allTools, plugins, reasoning, maxTokens: 8000 })
+    const out = await orComplete({ model, messages, tools: allTools, reasoning, maxTokens: 8000 })
     cost += out.usage?.cost ?? UNKNOWN_CALL_COST
     await recordUsage(db, { context: 'loop', model, actorId: userId, agentId, usage: out.usage })
     if (out.content) text = out.content
@@ -384,7 +383,7 @@ async function runLoop(db: DB, { loop, agent, feedbackTool, userId, runId }: Run
   const startedAt = Date.now()
   const model = await resolveModel(db, 'orchestrator')
   const { tools, httpTools, builtins, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
-  const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+  if (webEnabled) tools.push(WEB_SEARCH_TOOL)
 
   const budget = Number(loop.budget_usd)
   const maxIter = Number(loop.max_iterations)
@@ -441,7 +440,7 @@ async function runLoop(db: DB, { loop, agent, feedbackTool, userId, runId }: Run
       }
 
       const turn = await produceCandidate(
-        db, messages, model, tools, httpTools, builtins, plugins, userId, loop.agent_id, () => budget - costSpent,
+        db, messages, model, tools, httpTools, builtins, userId, loop.agent_id, () => budget - costSpent,
       )
       costSpent += turn.cost
 

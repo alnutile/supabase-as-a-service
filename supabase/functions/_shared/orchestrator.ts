@@ -19,7 +19,7 @@ import {
   systemMsg,
   toolResultMsg,
   toORTool,
-  WEB_PLUGIN,
+  WEB_SEARCH_TOOL,
   type ORMessage,
   type ORTool,
 } from './openrouter.ts'
@@ -100,7 +100,7 @@ export async function runOrchestrator(
   const system = (opts.system && opts.system.trim()) ? opts.system : await loadAlwaysOnSystem(db)
 
   const messages: ORMessage[] = [systemMsg(system), { role: 'user', content: opts.question }]
-  const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+  if (webEnabled) tools.push(WEB_SEARCH_TOOL)
   const reasoning = reasoningParam()
   const toolsUsed: string[] = []
   let cost = 0
@@ -111,7 +111,6 @@ export async function runOrchestrator(
       model,
       messages,
       tools: tools.length ? tools : undefined,
-      plugins,
       reasoning,
       maxTokens: 4000,
     })

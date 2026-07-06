@@ -20,7 +20,7 @@ import {
   reasoningParam,
   toolResultMsg,
   toORTool,
-  WEB_PLUGIN,
+  WEB_SEARCH_TOOL,
   type ORMessage,
   type ORTool,
 } from '../_shared/openrouter.ts'
@@ -223,7 +223,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const plugins = webEnabled ? [WEB_PLUGIN] : undefined
+    if (webEnabled) tools.push(WEB_SEARCH_TOOL)
     const reasoning = reasoningParam()
     const messages: ORMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -235,7 +235,6 @@ Deno.serve(async (req: Request) => {
         model: MODEL,
         messages,
         tools: tools.length ? tools : undefined,
-        plugins,
         reasoning,
         maxTokens: 4096,
       })
