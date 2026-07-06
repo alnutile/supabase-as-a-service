@@ -10,6 +10,7 @@ import {
   ArrowRightIcon,
   ArtifactIcon,
   TodoIcon,
+  BoltIcon,
   ChatIcon,
   ChevronDownIcon,
   CloseIcon,
@@ -19,7 +20,9 @@ import {
   FileIcon,
   ForgeIcon,
   HomeIcon,
+  InboxIcon,
   LinkIcon,
+  PulseIcon,
   LockIcon,
   LoopIcon,
   LogoutIcon,
@@ -55,6 +58,7 @@ const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
     items: [
       { to: '/home', label: 'Home', icon: HomeIcon },
       { to: '/chat', label: 'Chat', icon: ChatIcon },
+      { to: '/inbox', label: 'Inbox', icon: InboxIcon },
     ],
   },
   {
@@ -73,6 +77,8 @@ const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
     label: 'Automation',
     items: [
       { to: '/agents', label: 'Agents', icon: AgentIcon },
+      { to: '/listeners', label: 'Listeners', icon: BoltIcon },
+      { to: '/events', label: 'Events', icon: PulseIcon },
       { to: '/loops', label: 'Loops', icon: LoopIcon },
       { to: '/tools', label: 'Tools', icon: ToolIcon },
       { to: '/forge', label: 'Forge', icon: ForgeIcon, adminOnly: true },

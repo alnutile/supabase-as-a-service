@@ -316,6 +316,104 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_links']['Insert']>
         Relationships: []
       }
+      collection_inbox_messages: {
+        Row: {
+          collection_id: string
+          inbox_message_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          inbox_message_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_inbox_messages']['Insert']>
+        Relationships: []
+      }
+      events: {
+        Row: {
+          id: string
+          type: string
+          entity_type: string | null
+          entity_id: string | null
+          actor_id: string | null
+          summary: string
+          data: Json
+          visibility: CollectionVisibility
+          processed_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          type: string
+          entity_type?: string | null
+          entity_id?: string | null
+          actor_id?: string | null
+          summary?: string
+          data?: Json
+          visibility?: CollectionVisibility
+          processed_at?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['events']['Insert']>
+        Relationships: []
+      }
+      event_listeners: {
+        Row: {
+          id: string
+          owner_id: string
+          name: string
+          is_active: boolean
+          event_type: string
+          match: Json
+          action_type: string
+          action_config: Json
+          visibility: CollectionVisibility
+          last_run_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          name: string
+          is_active?: boolean
+          event_type: string
+          match?: Json
+          action_type: string
+          action_config?: Json
+          visibility?: CollectionVisibility
+          last_run_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['event_listeners']['Insert']>
+        Relationships: []
+      }
+      event_listener_runs: {
+        Row: {
+          id: string
+          listener_id: string
+          event_id: string | null
+          status: string
+          result: string | null
+          error: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          listener_id: string
+          event_id?: string | null
+          status?: string
+          result?: string | null
+          error?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['event_listener_runs']['Insert']>
+        Relationships: []
+      }
       files: {
         Row: {
           id: string
@@ -983,20 +1081,32 @@ export interface Database {
       inbox_messages: {
         Row: {
           id: string
+          owner_id: string | null
+          source: string
+          external_id: string | null
+          from_name: string
           from_address: string
           to_address: string | null
           subject: string
           body_text: string
+          url: string | null
+          visibility: CollectionVisibility
           received_at: string
           read_at: string | null
           raw: Json | null
         }
         Insert: {
           id?: string
-          from_address: string
+          owner_id?: string | null
+          source?: string
+          external_id?: string | null
+          from_name?: string
+          from_address?: string
           to_address?: string | null
           subject?: string
           body_text?: string
+          url?: string | null
+          visibility?: CollectionVisibility
           received_at?: string
           read_at?: string | null
           raw?: Json | null

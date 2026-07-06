@@ -1,8 +1,9 @@
 // Supabase Edge Function: `email-inbound` (PUBLIC — verify_jwt=false).
 // Email providers (Postmark inbound / Resend inbound) POST each incoming message
 // to /functions/v1/email-inbound/<inbound_token>. We resolve the integration by
-// token, normalize the provider's payload into an `inbox_messages` row, and log
-// it. The `check_email` builtin reads that table — receiving is push, not polling.
+// token, normalize the provider's payload, and store it in the unified `messages`
+// inbox (source='email', shared workspace-wide). The `check_email` builtin reads
+// email rows there — receiving is push, not polling.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 
 const MAX_BODY = 50_000
@@ -112,11 +113,24 @@ Deno.serve(async (req: Request) => {
   }
 
   const msg = normalize(payload)
+  // Shared email lands in the unified inbox owned by the first admin, visible to
+  // the whole workspace (matching the old admin-readable inbox model).
+  const { data: owner } = await db
+    .from('profiles')
+    .select('id')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  const messageId = typeof msg.raw.message_id === 'string' ? msg.raw.message_id : null
   await db.from('inbox_messages').insert({
+    owner_id: owner?.id ?? null,
+    source: 'email',
+    external_id: messageId,
     from_address: msg.from || '(unknown)',
     to_address: msg.to || null,
     subject: msg.subject,
     body_text: msg.text.slice(0, MAX_BODY),
+    visibility: 'workspace',
     raw: msg.raw,
   })
   await db.from('activity_log').insert({

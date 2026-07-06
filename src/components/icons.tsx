@@ -39,6 +39,25 @@ export const DragHandleIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const InboxIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+  </svg>
+)
+
+export const BoltIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+  </svg>
+)
+
+export const PulseIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+  </svg>
+)
+
 export const ArtifactIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />

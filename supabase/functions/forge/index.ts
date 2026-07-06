@@ -49,6 +49,8 @@ const CORE_SLUGS = new Set([
   'link-meta',
   'run-tool',
   'slack-events',
+  'event-dispatch',
+  'message-inbound',
 ])
 
 function admin() {

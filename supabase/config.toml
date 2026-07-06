@@ -77,3 +77,15 @@ verify_jwt = true
 # read from Vault) — not by a URL token.
 [functions.slack-events]
 verify_jwt = false
+
+# Event-listener dispatcher: ticked by pg_cron (via pg_net), it matches new
+# `events` rows to active `event_listeners` and runs their actions. Gated by the
+# same cron secret as the scheduler.
+[functions.event-dispatch]
+verify_jwt = false
+
+# Unified inbox ingest: accepts arbitrary pushed messages (Slack / WhatsApp /
+# Zapier / scripts) into `messages`. Gated by a per-user bearer token
+# (mcp_tokens), same auth as run-tool, so it must stay verify_jwt = false.
+[functions.message-inbound]
+verify_jwt = false

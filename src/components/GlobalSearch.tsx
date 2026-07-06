@@ -54,6 +54,7 @@ type Result = {
 const PAGES: Array<{ label: string; to: string; keywords?: string; adminOnly?: boolean }> = [
   { label: 'Home', to: '/home', keywords: 'dashboard' },
   { label: 'Chat', to: '/chat', keywords: 'ai assistant conversation' },
+  { label: 'Inbox', to: '/inbox', keywords: 'messages email slack whatsapp unified' },
   { label: 'Collections', to: '/collections' },
   { label: 'Files', to: '/files', keywords: 'upload storage pdf' },
   { label: 'Tables', to: '/tables', keywords: 'data spreadsheet' },
@@ -62,6 +63,8 @@ const PAGES: Array<{ label: string; to: string; keywords?: string; adminOnly?: b
   { label: 'Links', to: '/links', keywords: 'bookmarks' },
   { label: 'Skills', to: '/skills', keywords: 'prompts' },
   { label: 'Agents', to: '/agents' },
+  { label: 'Listeners', to: '/listeners', keywords: 'automation events rules triggers' },
+  { label: 'Events', to: '/events', keywords: 'automation stream feed' },
   { label: 'Loops', to: '/loops' },
   { label: 'Tools', to: '/tools' },
   { label: 'Forge', to: '/forge', keywords: 'functions deploy', adminOnly: true },

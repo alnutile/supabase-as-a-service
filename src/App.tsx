@@ -10,6 +10,9 @@ import ArtifactEditorPage from './pages/ArtifactEditorPage'
 import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
+import InboxPage from './pages/InboxPage'
+import EventsPage from './pages/EventsPage'
+import ListenersPage from './pages/ListenersPage'
 import PublicArtifactPage from './pages/PublicArtifactPage'
 import StandaloneArtifactPage from './pages/StandaloneArtifactPage'
 import FilesPage from './pages/FilesPage'
@@ -61,6 +64,7 @@ export default function App() {
         <Route path="home" element={<HomePage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:conversationId" element={<ChatPage />} />
+        <Route path="inbox" element={<InboxPage />} />
         <Route path="artifacts" element={<ArtifactsPage />} />
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
         <Route path="collections" element={<CollectionsPage />} />
@@ -80,6 +84,8 @@ export default function App() {
         <Route path="security" element={<SecurityPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="loops" element={<LoopsPage />} />
+        <Route path="listeners" element={<ListenersPage />} />
+        <Route path="events" element={<EventsPage />} />
         <Route path="api" element={<ApiPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="usage" element={<UsagePage />} />
