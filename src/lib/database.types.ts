@@ -130,6 +130,7 @@ export interface Database {
           visibility: Visibility
           public_slug: string | null
           data: Json
+          share_password_hash: string | null
           created_at: string
           updated_at: string
         }
@@ -144,6 +145,7 @@ export interface Database {
           visibility?: Visibility
           public_slug?: string | null
           data?: Json
+          share_password_hash?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1377,6 +1379,29 @@ export interface Database {
       drop_user_table: {
         Args: { p_table_id: string }
         Returns: undefined
+      }
+      set_artifact_password: {
+        Args: { p_id: string; p_password: string | null }
+        Returns: undefined
+      }
+      artifact_share_meta: {
+        Args: { p_slug: string }
+        Returns: { found: boolean; requires_password: boolean }[]
+      }
+      get_shared_artifact: {
+        Args: { p_slug: string; p_password?: string | null }
+        Returns: {
+          id: string
+          title: string
+          type: ArtifactType
+          language: string | null
+          content: string
+          visibility: Visibility
+          public_slug: string | null
+          data: Json
+          created_at: string
+          updated_at: string
+        }[]
       }
     }
     Enums: { [_ in never]: never }

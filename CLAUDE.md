@@ -66,6 +66,19 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
+  **Optional share password (migration 0060):** when an artifact is unlisted/public the
+  editor's Sharing panel (`VisibilityControl`) can require a password before a viewer sees
+  it — for handing a customer a link + password. This is NOT client-side theater: setting a
+  password (owner-only `set_artifact_password()` RPC, bcrypt via pgcrypto) makes the read
+  RLS policy **hide the whole row from non-owners** (`visibility <> 'private' AND
+  share_password_hash IS NULL`), so the content never reaches anon. The viewer pages
+  (`PublicArtifactPage`, `StandaloneArtifactPage`) share `useSharedArtifact()`
+  (`src/components/ArtifactPasswordGate.tsx`): a normal RLS read still fast-paths
+  non-password shares; when it comes back empty, `artifact_share_meta(slug)` says whether a
+  password is needed and `get_shared_artifact(slug, password)` (security-definer, returns the
+  row WITHOUT the hash only when the bcrypt check passes) unlocks it. Pure branching logic
+  (password validation, gate decision) is in `src/lib/artifactShare.ts` and unit-tested. The
+  raw `p` edge function has no gate, so password-protected artifacts simply 404 there.
   **Inline images (GitHub-style):** in `ArtifactEditorPage` you can paste, drag-drop, or
   attach (📎 "Image") an image into the body; it uploads to the **public `artifact-images`
   bucket** (migration 0058) and a markdown `![](url)` link is spliced in at the caret. The

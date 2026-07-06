@@ -164,6 +164,27 @@ export default function ArtifactEditorPage() {
     await save(overrides)
   }
 
+  async function setSharePassword(password: string) {
+    if (!artifact) return
+    const { error } = await supabase.rpc('set_artifact_password', {
+      p_id: artifact.id,
+      p_password: password,
+    })
+    if (error) throw error
+    // We don't get the hash back; a non-null placeholder flags "protected".
+    setArtifact((a) => (a ? { ...a, share_password_hash: 'set' } : a))
+  }
+
+  async function removeSharePassword() {
+    if (!artifact) return
+    const { error } = await supabase.rpc('set_artifact_password', {
+      p_id: artifact.id,
+      p_password: null,
+    })
+    if (error) throw error
+    setArtifact((a) => (a ? { ...a, share_password_hash: null } : a))
+  }
+
   async function remove() {
     if (!artifact) return
     if (!confirm('Delete this artifact? This cannot be undone.')) return
@@ -280,6 +301,11 @@ export default function ArtifactEditorPage() {
             visibility={artifact.visibility}
             shareUrl={shareUrl}
             onChange={changeVisibility}
+            password={{
+              protectedWithPassword: !!artifact.share_password_hash,
+              onSave: setSharePassword,
+              onRemove: removeSharePassword,
+            }}
           />
           {artifact.type === 'html' && artifact.visibility !== 'private' && artifact.public_slug && (
             <a
