@@ -10,6 +10,7 @@ type Activity = Database['public']['Tables']['activity_log']['Row']
 // (e.g. 'schedule' matches 'schedule.run' / 'schedule.error').
 const FILTERS = [
   { key: 'all', label: 'All' },
+  { key: 'chat', label: 'Chat' },
   { key: 'schedule', label: 'Schedules' },
   { key: 'webhook', label: 'Webhooks' },
   { key: 'tool', label: 'Tools' },
@@ -27,6 +28,7 @@ function badgeStyle(type: string): string {
   if (type.startsWith('guardrail')) return type.endsWith('.flagged') ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
   if (type.startsWith('feedback')) return type.endsWith('.down') ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
   if (type.endsWith('.error')) return 'bg-red-100 text-red-700'
+  if (type.startsWith('chat')) return 'bg-primary-soft text-primary'
   if (type.startsWith('schedule')) return 'bg-violet-100 text-violet-700'
   if (type.startsWith('webhook')) return 'bg-amber-100 text-amber-700'
   if (type.startsWith('tool')) return 'bg-indigo-100 text-indigo-700'

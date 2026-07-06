@@ -9,6 +9,7 @@ import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { uploadPickedFile } from '../lib/upload'
 import { estimateTokensFromChars } from '../lib/tokens'
 import { skillInvocationSentence } from '../lib/util'
+import { friendlyChatError } from '../lib/chatError'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextUsage } from '../components/ContextMeter'
 import { useAuth } from '../contexts/AuthContext'
@@ -621,7 +622,7 @@ export default function ChatPage() {
       loadConversations()
     } catch (err) {
       setStreaming(null)
-      setError(err instanceof Error ? err.message : 'Failed to send')
+      setError(friendlyChatError(err, 'Failed to send'))
     } finally {
       setSending(false)
     }
@@ -763,7 +764,7 @@ export default function ChatPage() {
       loadConversations()
     } catch (err) {
       setStreaming(null)
-      setError(err instanceof Error ? err.message : 'Skill failed')
+      setError(friendlyChatError(err, 'Skill failed'))
     } finally {
       setSending(false)
     }
