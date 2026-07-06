@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatMessage } from '../lib/chat'
+import { loadCollectionChat, saveCollectionChat, type CollectionChatMessage } from '../lib/collectionChat'
 import { uploadPickedFile } from '../lib/upload'
 import { fetchLinkMeta, normalizeUrl } from '../lib/links'
 import { useAuth } from '../contexts/AuthContext'
@@ -912,11 +913,23 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
 // collection's content and nudges the assistant to file new items into it.
 function CollectionChat({ collection, onChanged }: { collection: Collection; onChanged: () => void }) {
   const [open, setOpen] = useState(false)
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+  // Seed from localStorage so closing the panel / leaving the dashboard (which
+  // unmounts this component) doesn't lose the conversation.
+  const [messages, setMessages] = useState<CollectionChatMessage[]>(() => loadCollectionChat(collection.id))
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Switching to a different collection reloads that collection's history.
+  useEffect(() => {
+    setMessages(loadCollectionChat(collection.id))
+  }, [collection.id])
+
+  // Persist whenever the settled history changes (not mid-stream).
+  useEffect(() => {
+    saveCollectionChat(collection.id, messages)
+  }, [collection.id, messages])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -968,6 +981,16 @@ function CollectionChat({ collection, onChanged }: { collection: Collection; onC
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <CollectionIcon className="h-4 w-4 text-primary" />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{collection.name}</span>
+        {messages.length > 0 && (
+          <button
+            onClick={() => setMessages([])}
+            disabled={sending}
+            className="rounded-md px-1.5 py-1 text-xs font-medium text-faint hover:bg-surface-hover hover:text-text disabled:opacity-50"
+            title="Clear chat history"
+          >
+            Clear
+          </button>
+        )}
         <button onClick={() => setOpen(false)} className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-text" aria-label="Close chat">
           <CloseIcon className="h-4 w-4" />
         </button>
