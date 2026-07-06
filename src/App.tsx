@@ -65,6 +65,8 @@ export default function App() {
         <Route path="artifacts" element={<ArtifactsPage />} />
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
         <Route path="collections" element={<CollectionsPage />} />
+        <Route path="collections/:collectionId" element={<CollectionsPage />} />
+        <Route path="collections/:collectionId/:kindSlug/:itemId" element={<CollectionsPage />} />
         <Route path="todos" element={<TodosPage />} />
         <Route path="links" element={<LinksPage />} />
         <Route path="skills" element={<SkillsPage />} />

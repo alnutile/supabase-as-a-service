@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { streamChat, type ChatMessage } from '../lib/chat'
@@ -15,6 +15,8 @@ import {
   ArrowRightIcon,
   ArtifactIcon,
   ChatIcon,
+  CheckIcon,
+  ChevronDownIcon,
   CloseIcon,
   CollectionIcon,
   FileIcon,
@@ -45,18 +47,27 @@ const KINDS: Record<
 }
 const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link']
 
+// URL segment for each kind: /collections/:collectionId/todos/:itemId etc.
+const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links' }
+const SLUG_TO_KIND: Record<string, Kind> = Object.fromEntries(Object.entries(KIND_TO_SLUG).map(([k, s]) => [s, k as Kind]))
+
 type Item = { id: string; label: string; meta?: string }
 type Items = Record<Kind, Item[]>
 
 export default function CollectionsPage() {
   const { user } = useAuth()
   const model = useOrchestratorContext()
+  const navigate = useNavigate()
+  // Selection lives in the URL (/collections/:collectionId[/:kindSlug/:itemId])
+  // so a collection — and an open item — can be bookmarked and back works.
+  const { collectionId, kindSlug, itemId } = useParams()
+  const selectedId = collectionId ?? null
+  const openItemKind = kindSlug ? SLUG_TO_KIND[kindSlug] ?? null : null
 
   const [collections, setCollections] = useState<Collection[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [tokens, setTokens] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   const load = useCallback(async () => {
@@ -98,7 +109,7 @@ export default function CollectionsPage() {
         .single()
       if (data) {
         setCollections((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
-        setSelectedId(data.id)
+        navigate(`/collections/${data.id}`)
       }
     } finally {
       setCreating(false)
@@ -132,7 +143,7 @@ export default function CollectionsPage() {
               {collections.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => setSelectedId(c.id)}
+                  onClick={() => navigate(`/collections/${c.id}`)}
                   className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition ${
                     c.id === selectedId ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover hover:text-text'
                   }`}
@@ -166,10 +177,11 @@ export default function CollectionsPage() {
             isOwner={selected.owner_id === user?.id}
             tokens={tokens[selected.id] ?? 0}
             model={model}
-            onBack={() => setSelectedId(null)}
+            openItem={openItemKind && itemId ? { kind: openItemKind, id: itemId } : null}
+            onBack={() => navigate('/collections')}
             onChanged={load}
             onDeleted={() => {
-              setSelectedId(null)
+              navigate('/collections')
               load()
             }}
           />
@@ -199,6 +211,7 @@ function CollectionDashboard({
   isOwner,
   tokens,
   model,
+  openItem,
   onBack,
   onChanged,
   onDeleted,
@@ -207,14 +220,33 @@ function CollectionDashboard({
   isOwner: boolean
   tokens: number
   model: ReturnType<typeof useOrchestratorContext>
+  openItem: { kind: Kind; id: string } | null
   onBack: () => void
   onChanged: () => void
   onDeleted: () => void
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const [items, setItems] = useState<Items | null>(null)
   const [editing, setEditing] = useState(false)
+
+  // Which cards are collapsed, remembered per collection across visits.
+  const collapseKey = `collections:collapsed:${collection.id}`
+  const [collapsed, setCollapsed] = useState<Partial<Record<Kind, boolean>>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(collapseKey) ?? '{}')
+    } catch {
+      return {}
+    }
+  })
+  function toggleCollapsed(kind: Kind, next?: boolean) {
+    setCollapsed((prev) => {
+      const v = { ...prev, [kind]: next ?? !prev[kind] }
+      localStorage.setItem(collapseKey, JSON.stringify(v))
+      return v
+    })
+  }
 
   const loadItems = useCallback(async () => {
     const [a, f, t, u, l] = await Promise.all([
@@ -355,12 +387,16 @@ function CollectionDashboard({
     onDeleted()
   }
 
-  const openItem = (kind: Kind, id: string) => {
-    if (kind === 'artifact') navigate(`/artifacts/${id}`)
-    else if (kind === 'file') navigate('/files')
-    else if (kind === 'table') navigate('/tables')
-    else if (kind === 'link') navigate('/links')
-    else navigate('/todos')
+  // Open an item in a modal, addressed by URL so back/forward/bookmark work:
+  // /collections/:collectionId/todos/:itemId etc.
+  const viewItem = (kind: Kind, id: string) => {
+    navigate(`/collections/${collection.id}/${KIND_TO_SLUG[kind]}/${id}`)
+  }
+  const closeItem = () => {
+    // Prefer history back (keeps back/forward sane); fall back to the plain
+    // collection URL when the modal URL was opened directly (deep link).
+    if (location.key !== 'default') navigate(-1)
+    else navigate(`/collections/${collection.id}`, { replace: true })
   }
 
   return (
@@ -447,7 +483,10 @@ function CollectionDashboard({
                 key={kind}
                 kind={kind}
                 items={items[kind]}
-                onOpen={(id) => openItem(kind, id)}
+                collapsed={!!collapsed[kind]}
+                onToggleCollapsed={() => toggleCollapsed(kind)}
+                onExpand={() => toggleCollapsed(kind, false)}
+                onOpen={(id) => viewItem(kind, id)}
                 onRemove={(id) => removeItem(kind, id)}
                 onAdd={(id) => addItem(kind, id)}
                 onCreate={kind === 'file' ? undefined : (label) => createAndAdd(kind, label)}
@@ -460,6 +499,19 @@ function CollectionDashboard({
 
       {/* Floating chat bubble — chat with this collection, add things to it */}
       <CollectionChat collection={collection} onChanged={() => { loadItems(); onChanged() }} />
+
+      {/* URL-addressed item viewer */}
+      {openItem && (
+        <ItemModal
+          kind={openItem.kind}
+          id={openItem.id}
+          onClose={closeItem}
+          onChanged={() => {
+            loadItems()
+            onChanged()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -468,6 +520,9 @@ function CollectionDashboard({
 function Card({
   kind,
   items,
+  collapsed,
+  onToggleCollapsed,
+  onExpand,
   onOpen,
   onRemove,
   onAdd,
@@ -476,6 +531,9 @@ function Card({
 }: {
   kind: Kind
   items: Item[]
+  collapsed: boolean
+  onToggleCollapsed: () => void
+  onExpand: () => void
   onOpen: (id: string) => void
   onRemove: (id: string) => void
   onAdd: (id: string) => void
@@ -496,6 +554,7 @@ function Card({
   async function openPicker() {
     const next = !adding
     setAdding(next)
+    if (next) onExpand() // adding to a collapsed card should show the picker
     if (!next || candidates) return
     const { data } = await supabase.from(cfg.base as 'artifacts').select(`id, ${cfg.label}`).limit(200)
     setCandidates(((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), label: String(r[cfg.label]) })))
@@ -517,20 +576,28 @@ function Card({
   const addable = (candidates ?? []).filter((c) => !present.has(c.id))
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-surface">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-        <Icon className="h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold text-text">{cfg.title}</span>
-        <span className="text-xs text-faint">{items.length}</span>
+    <div className={`flex flex-col rounded-xl border border-border bg-surface ${collapsed ? 'self-start' : ''}`}>
+      <div className={`flex items-center gap-2 px-4 py-2.5 ${collapsed ? '' : 'border-b border-border'}`}>
+        <button
+          onClick={onToggleCollapsed}
+          aria-expanded={!collapsed}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          title={collapsed ? `Expand ${cfg.title}` : `Collapse ${cfg.title}`}
+        >
+          <ChevronDownIcon className={`h-3.5 w-3.5 shrink-0 text-faint transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+          <Icon className="h-4 w-4 shrink-0 text-primary" />
+          <span className="text-sm font-semibold text-text">{cfg.title}</span>
+          <span className="text-xs text-faint">{items.length}</span>
+        </button>
         <button
           onClick={openPicker}
-          className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary-soft"
+          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary-soft"
         >
           <PlusIcon className="h-3.5 w-3.5" /> Add
         </button>
       </div>
 
-      {adding && (
+      {!collapsed && adding && (
         <div className="border-b border-border bg-surface-2/40">
           {/* Create new */}
           <div className="flex items-center gap-1.5 px-3 py-2">
@@ -614,6 +681,7 @@ function Card({
         </div>
       )}
 
+      {!collapsed && (
       <div className="min-h-[3rem] divide-y divide-border">
         {items.length === 0 ? (
           <p className="px-4 py-4 text-xs text-faint">None yet.</p>
@@ -634,6 +702,206 @@ function Card({
               </button>
             </div>
           ))
+        )}
+      </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Item viewer modal — addressed by URL (/collections/:id/:kindSlug/:itemId)
+// so viewing an item keeps you in the collection and back returns to it.
+// ---------------------------------------------------------------------------
+type ItemDetail = {
+  title: string
+  meta?: string
+  body?: JSX.Element
+  fullPageTo?: string // in-app route for the dedicated area
+  externalHref?: string // e.g. the link's URL or a file's signed URL
+  externalLabel?: string
+}
+
+function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; onClose: () => void; onChanged: () => void }) {
+  const navigate = useNavigate()
+  const cfg = KINDS[kind]
+  const Icon = cfg.icon
+  const [detail, setDetail] = useState<ItemDetail | null | 'missing'>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const load = useCallback(async () => {
+    if (kind === 'todo') {
+      const { data } = await supabase.from('todos').select('*').eq('id', id).maybeSingle()
+      if (!data) return setDetail('missing')
+      setDetail({
+        title: data.title,
+        meta: `${data.done ? 'Done' : 'Open'}${data.due_date ? ` · due ${data.due_date}` : ''}`,
+        fullPageTo: '/todos',
+        body: data.notes ? <p className="whitespace-pre-wrap text-sm text-text">{data.notes}</p> : undefined,
+      })
+    } else if (kind === 'artifact') {
+      const { data } = await supabase.from('artifacts').select('id, title, type, language, content, updated_at').eq('id', id).maybeSingle()
+      if (!data) return setDetail('missing')
+      setDetail({
+        title: data.title,
+        meta: `${data.type} · updated ${formatDate(data.updated_at)}`,
+        fullPageTo: `/artifacts/${data.id}`,
+        body:
+          data.type === 'markdown' ? (
+            <div className="prose-sm max-w-none">
+              <Markdown>{data.content}</Markdown>
+            </div>
+          ) : (
+            <pre className="max-w-full overflow-x-auto rounded-lg bg-surface-2 p-3 text-xs text-text">{data.content}</pre>
+          ),
+      })
+    } else if (kind === 'file') {
+      const { data } = await supabase.from('files').select('*').eq('id', id).maybeSingle()
+      if (!data) return setDetail('missing')
+      const { data: signed } = await supabase.storage.from(data.bucket).createSignedUrl(data.path, 3600)
+      const isImage = (data.mime_type ?? '').startsWith('image/')
+      setDetail({
+        title: data.name,
+        meta: `${data.mime_type ?? 'file'} · ${formatBytes(data.size_bytes ?? 0)} · ${formatDate(data.created_at)}`,
+        fullPageTo: '/files',
+        externalHref: signed?.signedUrl,
+        externalLabel: 'Download / open file',
+        body:
+          isImage && signed?.signedUrl ? (
+            <img src={signed.signedUrl} alt={data.name} className="max-h-96 w-auto rounded-lg border border-border" />
+          ) : undefined,
+      })
+    } else if (kind === 'table') {
+      const { data } = await supabase.from('user_tables').select('*').eq('id', id).maybeSingle()
+      if (!data) return setDetail('missing')
+      const cols = (Array.isArray(data.columns) ? data.columns : []) as Array<{ key?: string; label?: string; type?: string }>
+      setDetail({
+        title: data.name,
+        meta: `updated ${formatDate(data.updated_at)}`,
+        fullPageTo: '/tables',
+        body: (
+          <div>
+            {data.description && <p className="mb-3 text-sm text-muted">{data.description}</p>}
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-faint">Columns</p>
+            <ul className="space-y-1">
+              {cols.map((c, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm text-text">
+                  <span className="font-medium">{c.label ?? c.key}</span>
+                  <span className="text-xs text-faint">{c.type}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ),
+      })
+    } else {
+      const { data } = await supabase.from('links').select('*').eq('id', id).maybeSingle()
+      if (!data) return setDetail('missing')
+      setDetail({
+        title: data.title || data.url,
+        meta: data.url,
+        fullPageTo: '/links',
+        externalHref: data.url,
+        externalLabel: 'Visit link',
+        body: (
+          <div className="space-y-3">
+            {data.image_url && <img src={data.image_url} alt="" className="max-h-56 w-auto rounded-lg border border-border" />}
+            {data.description && <p className="text-sm text-muted">{data.description}</p>}
+            {data.notes && <p className="whitespace-pre-wrap text-sm text-text">{data.notes}</p>}
+          </div>
+        ),
+      })
+    }
+  }, [kind, id])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Quick done/undone without leaving the collection (to-dos only).
+  async function toggleTodoDone() {
+    if (busy) return
+    setBusy(true)
+    try {
+      const { data } = await supabase.from('todos').select('done').eq('id', id).maybeSingle()
+      if (data) {
+        await supabase
+          .from('todos')
+          .update({ done: !data.done, completed_at: !data.done ? new Date().toISOString() : null })
+          .eq('id', id)
+        await load()
+        onChanged()
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+          <Icon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-base font-semibold text-text">
+              {detail && detail !== 'missing' ? detail.title : detail === 'missing' ? 'Not found' : 'Loading…'}
+            </h3>
+            {detail && detail !== 'missing' && detail.meta && <p className="mt-0.5 truncate text-xs text-faint">{detail.meta}</p>}
+          </div>
+          <button onClick={onClose} className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text" aria-label="Close">
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {detail === null ? (
+            <p className="text-sm text-faint">Loading…</p>
+          ) : detail === 'missing' ? (
+            <p className="text-sm text-muted">This {cfg.title.replace(/s$/, '').toLowerCase()} doesn’t exist or you don’t have access to it.</p>
+          ) : (
+            detail.body ?? <p className="text-sm text-faint">No further details.</p>
+          )}
+        </div>
+
+        {detail && detail !== 'missing' && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
+            {kind === 'todo' && (
+              <button
+                onClick={toggleTodoDone}
+                disabled={busy}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover disabled:opacity-50"
+              >
+                <CheckIcon className="h-4 w-4" /> {detail.meta?.startsWith('Done') ? 'Reopen' : 'Mark done'}
+              </button>
+            )}
+            {detail.externalHref && (
+              <a
+                href={detail.externalHref}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover"
+              >
+                <LinkIcon className="h-4 w-4" /> {detail.externalLabel ?? 'Open'}
+              </a>
+            )}
+            {detail.fullPageTo && (
+              <button
+                onClick={() => navigate(detail.fullPageTo!)}
+                className="ml-auto flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
+              >
+                Open full page <ArrowRightIcon className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
