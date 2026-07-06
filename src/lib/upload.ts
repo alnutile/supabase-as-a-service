@@ -17,13 +17,14 @@ const isNetworkFailure = (err: unknown) =>
  * reading the bytes into memory and retrying. Real errors (size, permission)
  * are surfaced as-is, and files that already uploaded fine are unaffected.
  *
- * Returns the stored byte size.
+ * Returns the stored byte size. Defaults to the private `files` bucket; pass a
+ * different bucket (e.g. `artifact-images`) to reuse the same resilient path.
  */
-export async function uploadPickedFile(path: string, file: File): Promise<number> {
+export async function uploadPickedFile(path: string, file: File, bucket = BUCKET): Promise<number> {
   // 1) Direct upload (handles both thrown and returned errors).
   try {
     const { error } = await supabase.storage
-      .from(BUCKET)
+      .from(bucket)
       .upload(path, file, { upsert: false, contentType: file.type || undefined })
     if (!error) return file.size
     throw error
@@ -45,7 +46,7 @@ export async function uploadPickedFile(path: string, file: File): Promise<number
     throw new Error(`“${file.name}” came through empty — download it to your device first, then try again.`)
   }
   const { error } = await supabase.storage
-    .from(BUCKET)
+    .from(bucket)
     .upload(path, body, { upsert: true, contentType: file.type || 'application/octet-stream' })
   if (error) throw error
   return body.byteLength
