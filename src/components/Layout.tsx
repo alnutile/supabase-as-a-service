@@ -25,7 +25,6 @@ import {
   LogoutIcon,
   MenuIcon,
   MoonIcon,
-  PluginIcon,
   RadarIcon,
   SearchIcon,
   SettingsIcon,
@@ -84,7 +83,6 @@ const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
     items: [
       { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon },
       { to: '/api', label: 'API', icon: ApiIcon },
-      { to: '/plugins', label: 'Plugins', icon: PluginIcon },
     ],
   },
   {

@@ -67,7 +67,6 @@ const PAGES: Array<{ label: string; to: string; keywords?: string; adminOnly?: b
   { label: 'Forge', to: '/forge', keywords: 'functions deploy', adminOnly: true },
   { label: 'Webhooks', to: '/webhooks' },
   { label: 'API', to: '/api', keywords: 'rest curl tokens' },
-  { label: 'Plugins', to: '/plugins' },
   { label: 'Activity', to: '/activity', keywords: 'log feed' },
   { label: 'Usage', to: '/usage', keywords: 'cost spend tokens', adminOnly: true },
   { label: 'Feedback', to: '/feedback', adminOnly: true },

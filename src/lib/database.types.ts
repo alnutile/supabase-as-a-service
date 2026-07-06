@@ -922,36 +922,6 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['vault_secrets']['Insert']>
         Relationships: []
       }
-      plugins: {
-        Row: {
-          id: string
-          slug: string
-          name: string
-          description: string | null
-          category: string | null
-          source_url: string | null
-          enabled: boolean
-          notes: string | null
-          installed_by: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          slug: string
-          name: string
-          description?: string | null
-          category?: string | null
-          source_url?: string | null
-          enabled?: boolean
-          notes?: string | null
-          installed_by?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: Partial<Database['public']['Tables']['plugins']['Insert']>
-        Relationships: []
-      }
       integrations: {
         Row: {
           id: string

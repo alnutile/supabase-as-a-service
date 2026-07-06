@@ -11,7 +11,6 @@ import {
   ChatIcon,
   FileIcon,
   ForgeIcon,
-  PluginIcon,
   SearchIcon,
   SettingsIcon,
   ShieldIcon,
@@ -44,7 +43,6 @@ const CARDS: Card[] = [
   { to: '/activity', title: 'Activity', icon: ActivityIcon, desc: 'See everything happening across your system — built for logging and troubleshooting.' },
   { to: '/usage', title: 'Usage', icon: UsageIcon, adminOnly: true, desc: 'Track the tokens being spent and the models in use, with cost insights pulled straight from OpenRouter.' },
   { to: '/files', title: 'Files', icon: FileIcon, desc: 'Every uploaded file and its indexing status — soon usable across chats so your team can build shared context.' },
-  { to: '/plugins', title: 'Plugins', icon: PluginIcon, desc: 'Known open-source integrations that drop proven, existing solutions right into your intranet.' },
   { to: '/settings', title: 'Settings', icon: SettingsIcon, desc: 'Set up your email, your OpenRouter connection for AI, and the rest of your account details.' },
 ]
 

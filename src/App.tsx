@@ -24,7 +24,6 @@ import VaultPage from './pages/VaultPage'
 import SecurityPage from './pages/SecurityPage'
 import AgentsPage from './pages/AgentsPage'
 import LoopsPage from './pages/LoopsPage'
-import PluginsPage from './pages/PluginsPage'
 import ActivityPage from './pages/ActivityPage'
 import ApiPage from './pages/ApiPage'
 import UsagePage from './pages/UsagePage'
@@ -81,7 +80,6 @@ export default function App() {
         <Route path="security" element={<SecurityPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="loops" element={<LoopsPage />} />
-        <Route path="plugins" element={<PluginsPage />} />
         <Route path="api" element={<ApiPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="usage" element={<UsagePage />} />
