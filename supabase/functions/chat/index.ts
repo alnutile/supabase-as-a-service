@@ -360,7 +360,12 @@ Deno.serve(async (req: Request) => {
         }
         controller.enqueue(sse('[DONE]'))
       } catch (err) {
-        controller.enqueue(sse({ type: 'error', error: err instanceof Error ? err.message : 'stream failed' }))
+        // The model/tool loop blew up. Surface a legible message to the user
+        // (orStream already parses the raw OpenRouter blob into a friendly line)
+        // AND record it in Activity so failures are visible after the fact.
+        const message = err instanceof Error ? err.message : 'stream failed'
+        await logActivity(db, 'chat.error', `Chat failed — ${message}`.slice(0, 200), { error: message, model: MODEL }, userId)
+        controller.enqueue(sse({ type: 'error', error: message }))
       } finally {
         controller.close()
       }

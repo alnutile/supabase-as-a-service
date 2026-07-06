@@ -8,6 +8,8 @@
 // Model ids are OpenRouter slugs (e.g. 'anthropic/claude-sonnet-4.5') resolved
 // from the model_profiles table via ../_shared/models.ts — never hardcoded.
 
+import { describeModelError } from './errors.ts'
+
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 export type Effort = 'low' | 'medium' | 'high'
@@ -130,7 +132,7 @@ function textOfContent(content: unknown): string {
 export async function orComplete(req: ORRequest): Promise<ORResult> {
   const res = await fetch(OR_URL, { method: 'POST', headers: headers(), body: JSON.stringify(buildBody(req, false)) })
   if (!res.ok) {
-    throw new Error(`OpenRouter error ${res.status}: ${(await res.text().catch(() => '')).slice(0, 500)}`)
+    throw new Error(describeModelError(res.status, await res.text().catch(() => '')))
   }
   const data = await res.json()
   const choice = data?.choices?.[0] ?? {}
@@ -149,7 +151,7 @@ export async function orComplete(req: ORRequest): Promise<ORResult> {
 export async function orStream(req: ORRequest, onText: (delta: string) => void): Promise<ORResult> {
   const res = await fetch(OR_URL, { method: 'POST', headers: headers(), body: JSON.stringify(buildBody(req, true)) })
   if (!res.ok || !res.body) {
-    throw new Error(`OpenRouter error ${res.status}: ${(await res.text().catch(() => '')).slice(0, 500)}`)
+    throw new Error(describeModelError(res.status, await res.text().catch(() => '')))
   }
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
