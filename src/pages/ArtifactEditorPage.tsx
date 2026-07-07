@@ -211,71 +211,78 @@ export default function ArtifactEditorPage() {
     <div className="flex h-full flex-col overflow-y-auto md:flex-row md:overflow-hidden">
       {/* Editor */}
       <div className="flex min-w-0 flex-1 flex-col border-b border-border md:border-b-0 md:border-r">
-        <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:px-5">
+        {/* Header. On mobile the title takes its own full-width row and the
+            controls wrap below it — otherwise the buttons squeeze the title
+            input to zero width and there's nowhere to type a name (issue #117).
+            md+ keeps the classic single row. */}
+        <div className="flex flex-col gap-3 border-b border-border bg-surface px-4 py-3 md:flex-row md:items-center md:px-5">
           <input
             value={artifact.title}
             onChange={(e) => patch({ title: e.target.value })}
             placeholder="Untitled"
-            className="min-w-0 flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-faint"
+            aria-label="Artifact title"
+            className="w-full min-w-0 bg-transparent text-lg font-semibold outline-none placeholder:text-faint md:flex-1"
           />
-          <select
-            value={artifact.type}
-            onChange={(e) => patch({ type: e.target.value as ArtifactType })}
-            className="rounded-md border border-border px-2 py-1 text-xs text-muted"
-          >
-            {TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => imageInputRef.current?.click()}
-            disabled={uploading}
-            title="Attach an image — it uploads and is inserted as markdown. You can also paste or drag one into the editor."
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary disabled:opacity-50"
-          >
-            <PaperclipIcon className="h-4 w-4" /> {uploading ? 'Uploading…' : 'Image'}
-          </button>
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              void insertImages(Array.from(e.target.files ?? []))
-              e.target.value = ''
-            }}
-          />
-          <CopyButton
-            text={artifact.content}
-            label="Copy"
-            title="Copy the artifact content"
-            iconClassName="h-4 w-4"
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
-          />
-          <button
-            onClick={() => navigate(`/chat?artifact=${artifact.id}`)}
-            title="Chat with the assistant about this artifact — it opens live beside the thread"
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
-          >
-            <ChatIcon className="h-4 w-4" /> Chat
-          </button>
-          <button
-            onClick={() => save()}
-            disabled={!dirty || saving}
-            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition hover:bg-primary-strong disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
-          </button>
-          <button
-            onClick={remove}
-            title="Delete"
-            className="rounded-lg p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
-          >
-            <TrashIcon className="h-[18px] w-[18px]" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            <select
+              value={artifact.type}
+              onChange={(e) => patch({ type: e.target.value as ArtifactType })}
+              className="rounded-md border border-border px-2 py-1 text-xs text-muted"
+            >
+              {TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              disabled={uploading}
+              title="Attach an image — it uploads and is inserted as markdown. You can also paste or drag one into the editor."
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary disabled:opacity-50"
+            >
+              <PaperclipIcon className="h-4 w-4" /> {uploading ? 'Uploading…' : 'Image'}
+            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void insertImages(Array.from(e.target.files ?? []))
+                e.target.value = ''
+              }}
+            />
+            <CopyButton
+              text={artifact.content}
+              label="Copy"
+              title="Copy the artifact content"
+              iconClassName="h-4 w-4"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
+            />
+            <button
+              onClick={() => navigate(`/chat?artifact=${artifact.id}`)}
+              title="Chat with the assistant about this artifact — it opens live beside the thread"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
+            >
+              <ChatIcon className="h-4 w-4" /> Chat
+            </button>
+            <button
+              onClick={() => save()}
+              disabled={!dirty || saving}
+              className="ml-auto rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition hover:bg-primary-strong disabled:opacity-50 md:ml-0"
+            >
+              {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+            </button>
+            <button
+              onClick={remove}
+              title="Delete"
+              className="rounded-lg p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
+            >
+              <TrashIcon className="h-[18px] w-[18px]" />
+            </button>
+          </div>
         </div>
 
         <textarea
