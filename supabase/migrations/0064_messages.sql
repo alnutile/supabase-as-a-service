@@ -12,7 +12,7 @@
 --   * source                 → email | slack | whatsapp | sms | webhook | manual | other
 --   * from_name / url / external_id  → richer, source-agnostic fields
 -- and join it into collections via `collection_inbox_messages` (mirror of
--- collection_links). Combined with 0060, an inserted row emits a
+-- collection_links). Combined with 0063, an inserted row emits a
 -- `message.received` event that event listeners can automate on.
 --
 -- Ingestion: `email-inbound` writes email rows here; the token-gated public
@@ -78,7 +78,7 @@ create policy "Delete own inbox messages"
 
 alter publication supabase_realtime add table public.inbox_messages;
 
--- Every incoming message emits an event so listeners can react (0060).
+-- Every incoming message emits an event so listeners can react (0063).
 create or replace function public.emit_message_event()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -139,7 +139,7 @@ create policy "Remove inbox messages from collaborable collections"
     )
   );
 
--- Emit collection.item_added for inbox messages too (0060's generic trigger fn).
+-- Emit collection.item_added for inbox messages too (0063's generic trigger fn).
 create trigger trg_emit_collection_inbox_message
   after insert on public.collection_inbox_messages
   for each row execute function public.emit_collection_item_added();

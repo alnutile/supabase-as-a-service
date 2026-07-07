@@ -1,4 +1,4 @@
--- 0060 artifact share password
+-- 0062 artifact share password
 -- ---------------------------------------------------------------------------
 -- Optional password on a SHARED (unlisted/public) artifact, so an owner can
 -- hand a customer a link + a password and only someone with both can read it.

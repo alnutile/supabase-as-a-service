@@ -66,7 +66,7 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
-  **Optional share password (migration 0060):** when an artifact is unlisted/public the
+  **Optional share password (migration 0062):** when an artifact is unlisted/public the
   editor's Sharing panel (`VisibilityControl`) can require a password before a viewer sees
   it — for handing a customer a link + password. This is NOT client-side theater: setting a
   password (owner-only `set_artifact_password()` RPC, bcrypt via pgcrypto) makes the read
@@ -81,7 +81,7 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   raw `p` edge function has no gate, so password-protected artifacts simply 404 there.
   **Inline images (GitHub-style):** in `ArtifactEditorPage` you can paste, drag-drop, or
   attach (📎 "Image") an image into the body; it uploads to the **public `artifact-images`
-  bucket** (migration 0058) and a markdown `![](url)` link is spliced in at the caret. The
+  bucket** (migration 0059) and a markdown `![](url)` link is spliced in at the caret. The
   bucket is public (not owner-private like `files`) on purpose: the URL is baked into stored
   markdown and re-rendered forever — a signed URL (7-day max) would break — and it must load
   for anonymous visitors once the artifact is shared. Objects live under
@@ -305,7 +305,7 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
   DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
   calls). RLS: you see your own rows, admins see all. Realtime-subscribed.
-- **Events & listeners (automation substrate, migrations 0060/0061):** a workspace
+- **Events & listeners (automation substrate, migrations 0063/0064):** a workspace
   pub/sub layer, deliberately SEPARATE from `activity_log` (which stays the human feed).
   Every meaningful record change emits an `events` row via SECURITY DEFINER DB triggers
   through the `emit_event(...)` helper — `artifact.created/updated`, `file.created/deleted`,
@@ -327,14 +327,14 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   `{{event}}` in a tool input is replaced with the event JSON). Per-tick action cap +
   the one-time claim bound runaway chains. RLS mirrors links (own/workspace/admin). Each
   dispatch logs `activity_log` `listener.run`/`listener.error`.
-- **Unified inbox (messages from any source, migration 0061):** one place to push every
+- **Unified inbox (messages from any source, migration 0064):** one place to push every
   message — email, Slack, WhatsApp, SMS, generic webhook/manual pushes — so a person (and
   the team, via collections) can read them, chat over them, and automate on them.
   Generalizes the old email-only `inbox_messages` (0016) in place rather than adding a
   colliding `messages` table (that name is chat's): adds `owner_id`/`visibility` (the
   private-or-workspace model of links/todos, replacing admin-only RLS), `source`,
   `from_name`/`url`/`external_id`, realtime, and a `collection_inbox_messages` join (mirror
-  of `collection_links`). Each incoming row emits `message.received` (0060), so
+  of `collection_links`). Each incoming row emits `message.received` (0063), so
   listeners can react ("when a Slack message arrives, run this agent"). `InboxPage`
   (route `/inbox`, top nav) lists/filters by source, marks read, files into collections,
   and composes manual messages. **Ingestion:** `email-inbound` now writes email rows here
@@ -652,7 +652,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0060 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0061 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0059 artifact_images (public artifact-images bucket); 0062 artifact_share_password (optional password on a shared artifact); 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
