@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { AgentIcon, ChatIcon, PlayIcon, PlusIcon, SkillIcon, TrashIcon } from '../components/icons'
+import { AddToCollectionBar } from '../components/AddToCollectionBar'
+import { AgentIcon, ChatIcon, CheckIcon, CollectionIcon, PlayIcon, PlusIcon, SkillIcon, TrashIcon } from '../components/icons'
 
 type Agent = Database['public']['Tables']['agents']['Row']
 type Tool = Database['public']['Tables']['tools']['Row']
@@ -25,22 +26,52 @@ export default function AgentsPage() {
   const navigate = useNavigate()
   const [agents, setAgents] = useState<Agent[]>([])
   const [tools, setTools] = useState<Tool[]>([])
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [members, setMembers] = useState<Record<string, Set<string>>>({}) // collection_id -> agent ids
+  const [activeCollection, setActiveCollection] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Agent | null>(null)
 
   const load = useCallback(async () => {
-    const [{ data: a }, { data: t }] = await Promise.all([
+    const [{ data: a }, { data: t }, { data: c }, { data: m }] = await Promise.all([
       supabase.from('agents').select('*').order('updated_at', { ascending: false }),
       supabase.from('tools').select('*').eq('is_active', true),
+      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collection_agents').select('collection_id, agent_id'),
     ])
     setAgents(a ?? [])
     setTools(t ?? [])
+    setCollections(c ?? [])
+    const map: Record<string, Set<string>> = {}
+    for (const row of m ?? []) {
+      const set = (map[row.collection_id] ??= new Set())
+      set.add(row.agent_id)
+    }
+    setMembers(map)
     setLoading(false)
   }, [])
 
   useEffect(() => {
     load()
   }, [load])
+
+  const selectedIds = useMemo(() => [...selected], [selected])
+
+  const visible = useMemo(() => {
+    if (!activeCollection) return agents
+    const set = members[activeCollection] ?? new Set()
+    return agents.filter((a) => set.has(a.id))
+  }, [agents, members, activeCollection])
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   async function create() {
     const { data } = await supabase
@@ -66,26 +97,73 @@ export default function AgentsPage() {
             <PlusIcon className="h-4 w-4" /> New agent
           </button>
         </div>
-        <p className="mb-6 text-sm text-muted">
+        <p className="mb-4 text-sm text-muted">
           An agent bundles a system prompt with the tools it may use. Build them here, or have an
           external Claude build them over MCP (Settings → Connect Claude).
         </p>
 
+        {/* Collection filter bar */}
+        {collections.length > 0 && (
+          <div className="mb-5 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setActiveCollection(null)}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                activeCollection === null
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              All ({agents.length})
+            </button>
+            {collections.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setActiveCollection(c.id)}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                  activeCollection === c.id
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-border text-muted hover:bg-surface-hover'
+                }`}
+              >
+                <CollectionIcon className="h-3.5 w-3.5" />
+                {c.name} ({(members[c.id] ?? new Set()).size})
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <p className="text-sm text-faint">Loading…</p>
-        ) : agents.length === 0 ? (
+        ) : visible.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border-strong py-16 text-center">
             <AgentIcon className="mx-auto mb-3 h-8 w-8 text-faint" />
-            <p className="text-sm text-muted">No agents yet. Create one, or build one from Claude over MCP.</p>
+            <p className="text-sm text-muted">
+              {activeCollection ? 'No agents in this collection yet.' : 'No agents yet. Create one, or build one from Claude over MCP.'}
+            </p>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {agents.map((a) => (
-              <div key={a.id} className="flex flex-col rounded-xl border border-border bg-surface p-4">
+            {visible.map((a) => (
+              <div
+                key={a.id}
+                className={`flex flex-col rounded-xl border bg-surface p-4 transition ${
+                  selected.has(a.id) ? 'border-primary' : 'border-border'
+                }`}
+              >
                 <div className="flex items-center gap-2">
                   <AgentIcon className="h-5 w-5 shrink-0 text-primary" />
                   <span className="min-w-0 flex-1 truncate font-medium text-text">{a.name}</span>
                   {!a.is_active && <span className="text-[10px] uppercase text-faint">off</span>}
+                  <button
+                    onClick={() => toggleSelect(a.id)}
+                    title="Select to add to a collection"
+                    aria-label="Select agent"
+                    className={`shrink-0 rounded-md p-1 hover:bg-surface-hover ${
+                      selected.has(a.id) ? 'text-primary' : 'text-faint hover:text-muted'
+                    }`}
+                  >
+                    <CheckIcon className="h-4 w-4" />
+                  </button>
                 </div>
                 <p className="mt-1 line-clamp-2 text-xs text-muted">
                   {a.description || a.instructions.slice(0, 100) || 'No description'}
@@ -120,6 +198,8 @@ export default function AgentsPage() {
           </div>
         )}
       </div>
+
+      <AddToCollectionBar kind="agent" selectedIds={selectedIds} onClear={() => setSelected(new Set())} />
 
       {editing && (
         <AgentEditor

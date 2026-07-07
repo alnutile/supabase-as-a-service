@@ -318,6 +318,22 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_links']['Insert']>
         Relationships: []
       }
+      collection_agents: {
+        Row: {
+          collection_id: string
+          agent_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          agent_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_agents']['Insert']>
+        Relationships: []
+      }
       collection_inbox_messages: {
         Row: {
           collection_id: string
