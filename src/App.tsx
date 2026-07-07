@@ -32,7 +32,14 @@ import ApiPage from './pages/ApiPage'
 import UsagePage from './pages/UsagePage'
 import FeedbackPage from './pages/FeedbackPage'
 import FeaturesPage from './pages/FeaturesPage'
-import SettingsPage from './pages/SettingsPage'
+import ProfileSettings from './pages/settings/ProfileSettings'
+import ConnectClaudeSettings from './pages/settings/ConnectClaudeSettings'
+import ModelsSettings from './pages/settings/ModelsSettings'
+import EmailSettings from './pages/settings/EmailSettings'
+import SlackSettings from './pages/settings/SlackSettings'
+import McpSettings from './pages/settings/McpSettings'
+import InviteSettings from './pages/settings/InviteSettings'
+import FeatureFlagsSettings from './pages/settings/FeatureFlagsSettings'
 
 export default function App() {
   const { loading } = useAuth()
@@ -92,7 +99,15 @@ export default function App() {
         <Route path="feedback" element={<FeedbackPage />} />
         <Route path="features" element={<FeaturesPage />} />
         <Route path="files" element={<FilesPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<Navigate to="/settings/profile" replace />} />
+        <Route path="settings/profile" element={<ProfileSettings />} />
+        <Route path="settings/connect" element={<ConnectClaudeSettings />} />
+        <Route path="settings/models" element={<ModelsSettings />} />
+        <Route path="settings/email" element={<EmailSettings />} />
+        <Route path="settings/slack" element={<SlackSettings />} />
+        <Route path="settings/mcp" element={<McpSettings />} />
+        <Route path="settings/people" element={<InviteSettings />} />
+        <Route path="settings/feature-flags" element={<FeatureFlagsSettings />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

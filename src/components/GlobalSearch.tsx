@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { allNavItems, isFeatureEnabled, type FlagMap } from '../lib/nav'
 import {
   AgentIcon,
   ArtifactIcon,
@@ -49,36 +50,9 @@ type Result = {
   icon: (p: IconProps) => JSX.Element
 }
 
-// Pages the palette can jump to (mirrors the sidebar). Kept local so the
-// palette works without threading Layout's nav config through props.
-const PAGES: Array<{ label: string; to: string; keywords?: string; adminOnly?: boolean }> = [
-  { label: 'Home', to: '/home', keywords: 'dashboard' },
-  { label: 'Chat', to: '/chat', keywords: 'ai assistant conversation' },
-  { label: 'Inbox', to: '/inbox', keywords: 'messages email slack whatsapp unified' },
-  { label: 'Collections', to: '/collections' },
-  { label: 'Files', to: '/files', keywords: 'upload storage pdf' },
-  { label: 'Tables', to: '/tables', keywords: 'data spreadsheet' },
-  { label: 'Artifacts', to: '/artifacts', keywords: 'documents docs' },
-  { label: 'To-dos', to: '/todos', keywords: 'tasks todo' },
-  { label: 'Links', to: '/links', keywords: 'bookmarks' },
-  { label: 'Skills', to: '/skills', keywords: 'prompts' },
-  { label: 'Agents', to: '/agents' },
-  { label: 'Listeners', to: '/listeners', keywords: 'automation events rules triggers' },
-  { label: 'Events', to: '/events', keywords: 'automation stream feed' },
-  { label: 'Loops', to: '/loops' },
-  { label: 'Tools', to: '/tools' },
-  { label: 'Forge', to: '/forge', keywords: 'functions deploy', adminOnly: true },
-  { label: 'Webhooks', to: '/webhooks' },
-  { label: 'API', to: '/api', keywords: 'rest curl tokens' },
-  { label: 'Activity', to: '/activity', keywords: 'log feed' },
-  { label: 'Usage', to: '/usage', keywords: 'cost spend tokens', adminOnly: true },
-  { label: 'Feedback', to: '/feedback', adminOnly: true },
-  { label: 'Features', to: '/features', keywords: 'roadmap' },
-  { label: 'Guardrails', to: '/guardrails', adminOnly: true },
-  { label: 'Evals', to: '/evals', adminOnly: true },
-  { label: 'Secrets', to: '/vault', keywords: 'vault keys', adminOnly: true },
-  { label: 'Settings', to: '/settings', keywords: 'account email models invite' },
-]
+// Pages the palette can jump to come from the shared sidebar config
+// (src/lib/nav.ts), so the palette, sidebar, and feature flags never drift —
+// a feature-flag-hidden area drops out of search too.
 
 // Build a PostgREST `.or()` filter matching `q` against several columns.
 // Patterns are double-quoted so commas/parens in the query can't break the
@@ -92,14 +66,16 @@ function orIlike(q: string, columns: string[]): string {
 
 const PER_SOURCE = 5
 
-async function runSearch(q: string, isAdmin: boolean): Promise<Result[]> {
+async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<Result[]> {
   const lower = q.toLowerCase()
 
-  const pageResults: Result[] = PAGES.filter(
-    (p) =>
-      (!p.adminOnly || isAdmin) &&
-      (p.label.toLowerCase().includes(lower) || p.keywords?.includes(lower)),
-  )
+  const pageResults: Result[] = allNavItems()
+    .filter(
+      (p) =>
+        (!p.adminOnly || isAdmin) &&
+        isFeatureEnabled(p, flags) &&
+        (p.label.toLowerCase().includes(lower) || p.keywords?.includes(lower)),
+    )
     .slice(0, PER_SOURCE)
     .map((p) => ({
       key: `page:${p.to}`,
@@ -277,7 +253,7 @@ async function runSearch(q: string, isAdmin: boolean): Promise<Result[]> {
   return out
 }
 
-export function GlobalSearch({ isAdmin }: { isAdmin: boolean }) {
+export function GlobalSearch({ isAdmin, flags }: { isAdmin: boolean; flags: FlagMap }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -328,7 +304,7 @@ export function GlobalSearch({ isAdmin }: { isAdmin: boolean }) {
     setLoading(true)
     const id = ++requestId.current
     const t = setTimeout(() => {
-      runSearch(q, isAdmin)
+      runSearch(q, isAdmin, flags)
         .then((r) => {
           if (requestId.current !== id) return
           setResults(r)
@@ -340,7 +316,7 @@ export function GlobalSearch({ isAdmin }: { isAdmin: boolean }) {
         })
     }, 220)
     return () => clearTimeout(t)
-  }, [open, query, isAdmin])
+  }, [open, query, isAdmin, flags])
 
   const grouped = useMemo(() => {
     const map = new Map<string, Result[]>()

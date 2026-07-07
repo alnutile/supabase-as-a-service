@@ -305,6 +305,21 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
   DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
   calls). RLS: you see your own rows, admins see all. Realtime-subscribed.
+- **Settings & feature flags (migration 0065):** Settings is a sidebar SECTION
+  (like Assets/Automation), one route/page per area under `/settings/*`
+  (`src/pages/settings/`): Profile + Connect Claude (all users), Models, Email, Slack,
+  External MCP, Invite people, and **Feature flags** (admin). The sidebar is now driven
+  by ONE config, `src/lib/nav.ts` — Layout renders it, the ⌘K palette (`GlobalSearch`)
+  jumps to its pages, and the Feature flags page lists its flaggable items, so the three
+  never drift. **Feature flags are feature HIDING, not permissions:** a `feature_flags`
+  row `{key, enabled:false}` (admin-writable, everyone-readable, realtime) removes a
+  sidebar area (and its palette entry) workspace-wide — because the company doesn't use
+  it or you're trying something out. RLS still protects the data; hiding a link doesn't
+  gate the route. Absence of a row = enabled (fresh workspaces show everything). Core
+  areas (Home, Chat, and every Settings item) are `alwaysOn` so a flag can never hide the
+  page that manages the flags. Layout subscribes to `feature_flags` so toggles apply live.
+  The pure filtering logic (`isFeatureEnabled`/`visibleGroups`/`flaggableGroups`) lives in
+  `nav.ts` and is unit-tested (`src/lib/nav.test.ts`).
 - **Events & listeners (automation substrate, migration 0063):** a workspace
   pub/sub layer, deliberately SEPARATE from `activity_log` (which stays the human feed).
   Every meaningful record change emits an `events` row via SECURITY DEFINER DB triggers
@@ -645,14 +660,22 @@ src/
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
                                TodosPage, FilesPage, TablesPage, SkillsPage, WebhooksPage, ToolsPage,
-                               AgentsPage, ApiPage, ActivityPage, SettingsPage
+                               AgentsPage, ApiPage, ActivityPage
+    settings/                  Settings is a sidebar SECTION, one page per area:
+                               ProfileSettings, ConnectClaudeSettings, ModelsSettings,
+                               EmailSettings, SlackSettings, McpSettings, InviteSettings,
+                               FeatureFlagsSettings. cards.tsx holds the shared card
+                               components; shell.tsx has SettingsShell/AdminGate/useIsAdmin.
   lib/
     supabase.ts                createClient<Database>(...) + chatFunctionUrl
     chat.ts                    streamChat(): SSE parser for the chat function
+    nav.ts                     Single source of truth for the sidebar (Layout,
+                               GlobalSearch, and Feature flags all consume it) +
+                               feature-flag filtering helpers (pure, unit-tested)
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection); 0065 feature_flags (admin-writable workspace-wide sidebar hide/show; realtime)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
