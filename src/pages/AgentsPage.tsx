@@ -4,6 +4,7 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
+import { allToolsSelected as allSelected, toggleAllTools } from '../lib/agentTools'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import { AgentIcon, ChatIcon, CheckIcon, CollectionIcon, PlayIcon, PlusIcon, SkillIcon, TrashIcon } from '../components/icons'
 
@@ -331,7 +332,8 @@ function AgentEditor({
     setToolIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  const allToolsSelected = tools.length > 0 && tools.every((t) => toolIds.includes(t.id))
+  const toolIdList = tools.map((t) => t.id)
+  const allToolsSelected = allSelected(toolIdList, toolIds)
 
   async function save() {
     setSaving(true)
@@ -450,9 +452,7 @@ function AgentEditor({
               {tools.length > 0 && (
                 <button
                   type="button"
-                  onClick={() =>
-                    setToolIds(allToolsSelected ? [] : tools.map((t) => t.id))
-                  }
+                  onClick={() => setToolIds(toggleAllTools(toolIdList, toolIds))}
                   className="font-normal text-primary hover:underline"
                 >
                   {allToolsSelected ? 'Clear all' : 'Select all'}
