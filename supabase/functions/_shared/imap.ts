@@ -196,7 +196,7 @@ function quote(s: string): string {
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
-  let timer: number
+  let timer: ReturnType<typeof setTimeout>
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`IMAP ${what} timed out after ${ms}ms`)), ms)
   })
