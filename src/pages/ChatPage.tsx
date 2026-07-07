@@ -14,6 +14,7 @@ import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextUsage } from '../components/ContextMeter'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
+import { CopyButton } from '../components/CopyButton'
 import {
   AgentIcon,
   ArtifactIcon,
@@ -1510,14 +1511,22 @@ function MessageBubble({
         </div>
         {!streaming && (onSaveArtifact || onFeedback) && (
           <div className="mt-1 space-y-1">
-            {onSaveArtifact && (
-              <button
-                onClick={onSaveArtifact}
+            <div className="flex items-center gap-3">
+              {/* Copy the raw answer so the user can paste it elsewhere. */}
+              <CopyButton
+                text={content}
+                title="Copy this response"
                 className="flex items-center gap-1 text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-primary"
-              >
-                <ArtifactIcon className="h-3.5 w-3.5" /> Save as artifact
-              </button>
-            )}
+              />
+              {onSaveArtifact && (
+                <button
+                  onClick={onSaveArtifact}
+                  className="flex items-center gap-1 text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-primary"
+                >
+                  <ArtifactIcon className="h-3.5 w-3.5" /> Save as artifact
+                </button>
+              )}
+            </div>
             {onFeedback && <MessageFeedback feedback={feedback} onFeedback={onFeedback} />}
           </div>
         )}

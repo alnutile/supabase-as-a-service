@@ -3,6 +3,7 @@ import { standalonePageUrl, supabase } from '../lib/supabase'
 import { ArtifactFrame } from '../components/ArtifactFrame'
 import { ArtifactPasswordGate, useSharedArtifact } from '../components/ArtifactPasswordGate'
 import { Markdown } from '../components/Markdown'
+import { CopyButton } from '../components/CopyButton'
 
 export default function PublicArtifactPage() {
   const { slug } = useParams()
@@ -55,7 +56,16 @@ export default function PublicArtifactPage() {
     <div className="min-h-full bg-surface">
       {header}
       <article className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="mb-6 text-3xl font-bold tracking-tight text-text">{artifact.title}</h1>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <h1 className="text-3xl font-bold tracking-tight text-text">{artifact.title}</h1>
+          <CopyButton
+            text={artifact.content}
+            label="Copy"
+            title="Copy the content"
+            iconClassName="h-4 w-4"
+            className="mt-1 flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
+          />
+        </div>
         {artifact.type === 'html' ? (
           <>
             <ArtifactFrame

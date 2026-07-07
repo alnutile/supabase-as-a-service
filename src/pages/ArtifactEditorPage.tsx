@@ -10,6 +10,7 @@ import { ArtifactFrame } from '../components/ArtifactFrame'
 import { Markdown } from '../components/Markdown'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { VisibilityControl } from '../components/VisibilityControl'
+import { CopyButton } from '../components/CopyButton'
 import { ChatIcon, PaperclipIcon, TrashIcon } from '../components/icons'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
@@ -246,6 +247,13 @@ export default function ArtifactEditorPage() {
               void insertImages(Array.from(e.target.files ?? []))
               e.target.value = ''
             }}
+          />
+          <CopyButton
+            text={artifact.content}
+            label="Copy"
+            title="Copy the artifact content"
+            iconClassName="h-4 w-4"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
           />
           <button
             onClick={() => navigate(`/chat?artifact=${artifact.id}`)}
