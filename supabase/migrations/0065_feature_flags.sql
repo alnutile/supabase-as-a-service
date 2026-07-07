@@ -20,11 +20,15 @@ create table if not exists public.feature_flags (
 alter table public.feature_flags enable row level security;
 
 -- Everyone signed in reads the flags (the sidebar needs them); only admins
--- write. Mirrors the tools/guardrails admin-write model.
+-- write. Mirrors the tools/guardrails admin-write model. Drop-then-create so a
+-- re-run (or a DB where the table pre-exists) is idempotent — otherwise the
+-- unguarded create errors 42710 and blocks the whole push.
+drop policy if exists "Members read feature flags" on public.feature_flags;
 create policy "Members read feature flags"
   on public.feature_flags for select
   using (auth.uid() is not null);
 
+drop policy if exists "Admins write feature flags" on public.feature_flags;
 create policy "Admins write feature flags"
   on public.feature_flags for all
   using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin))
