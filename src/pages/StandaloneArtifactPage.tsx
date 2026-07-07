@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { ArtifactFrame } from '../components/ArtifactFrame'
-
-type Artifact = Database['public']['Tables']['artifacts']['Row']
+import { ArtifactPasswordGate, useSharedArtifact } from '../components/ArtifactPasswordGate'
 
 // Chrome-free, full-viewport renderer for a shared `html` artifact — the
 // "standalone page" / "full screen" links target this route. It replaced
@@ -15,26 +13,7 @@ type Artifact = Database['public']['Tables']['artifacts']['Row']
 // opaque-origin sandbox, never on this origin where visitors hold a session.
 export default function StandaloneArtifactPage() {
   const { slug } = useParams()
-  const [artifact, setArtifact] = useState<Artifact | null>(null)
-  const [status, setStatus] = useState<'loading' | 'ok' | 'missing'>('loading')
-
-  useEffect(() => {
-    if (!slug) return
-    // RLS only returns rows whose visibility is public/unlisted, so anon read is safe.
-    supabase
-      .from('artifacts')
-      .select('*')
-      .eq('public_slug', slug)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setArtifact(data)
-          setStatus('ok')
-        } else {
-          setStatus('missing')
-        }
-      })
-  }, [slug])
+  const { status, artifact, error, submitting, submitPassword } = useSharedArtifact(slug)
 
   useEffect(() => {
     if (artifact?.title) document.title = artifact.title
@@ -44,7 +23,7 @@ export default function StandaloneArtifactPage() {
     return <div className="flex h-full items-center justify-center text-sm text-faint">Loading…</div>
   }
 
-  if (status === 'missing' || !artifact) {
+  if (status === 'missing') {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
         <p className="text-lg font-semibold text-text">This page isn’t available</p>
@@ -52,6 +31,14 @@ export default function StandaloneArtifactPage() {
         <Link to="/" className="text-sm font-medium text-primary hover:underline">
           Go to the intranet
         </Link>
+      </div>
+    )
+  }
+
+  if (status === 'password' || !artifact) {
+    return (
+      <div className="flex h-full items-center justify-center bg-surface">
+        <ArtifactPasswordGate onSubmit={submitPassword} error={error} submitting={submitting} />
       </div>
     )
   }
