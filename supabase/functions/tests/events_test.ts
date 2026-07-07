@@ -46,6 +46,24 @@ Deno.test('matchListener: collection_id filter (the headline use case)', () => {
   )
 })
 
+Deno.test('matchListener: agent added to a collection (the new item type)', () => {
+  const ev: EventRow = {
+    type: 'collection.item_added',
+    entity_type: 'agent',
+    data: { collection_id: 'fubar-id', item_type: 'agent', item_id: 'a1' },
+  }
+  // "when an agent is added to collection Fubar, do X"
+  assertEquals(
+    matchListener(ev, { event_type: 'collection.item_added', match: { collection_id: 'fubar-id', entity_type: 'agent' } }),
+    true,
+  )
+  // an artifact-scoped listener must NOT fire on an agent membership
+  assertEquals(
+    matchListener(ev, { event_type: 'collection.item_added', match: { entity_type: 'artifact' } }),
+    false,
+  )
+})
+
 Deno.test('matchListener: source filter for messages', () => {
   const ev: EventRow = { type: 'message.received', entity_type: 'message', data: { source: 'email', subject: 'hi' } }
   assertEquals(matchListener(ev, { event_type: 'message.received', match: { source: 'email' } }), true)

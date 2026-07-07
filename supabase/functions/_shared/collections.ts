@@ -156,6 +156,27 @@ export async function loadCollectionsContext(
         .map((l) => ({ title: l.title, url: l.url, description: [l.description, l.notes].filter(Boolean).join(' — ') }))
     }
 
+    // Agents — small (name + description); a compact directory of the agents
+    // filed into the collection. Agents are a shared workspace catalogue, so any
+    // member (the caller) may see them.
+    const { data: agentRows } = await db
+      .from('collection_agents')
+      .select('agent_id')
+      .in('collection_id', visibleIds)
+    const agentIds = [...new Set((agentRows ?? []).map((l: { agent_id: string }) => l.agent_id))]
+    let agents: Array<{ name: string; description: string }> = []
+    if (agentIds.length) {
+      const { data: ag } = await db
+        .from('agents')
+        .select('name, description')
+        .in('id', agentIds)
+        .order('name', { ascending: true })
+      agents = ((ag ?? []) as Array<{ name: string; description: string }>).map((a) => ({
+        name: a.name,
+        description: a.description ?? '',
+      }))
+    }
+
     // To-dos — small (title + due + done), so no budgeting needed.
     const { data: todoLinks } = await db
       .from('collection_todos')
@@ -175,7 +196,7 @@ export async function loadCollectionsContext(
       ) as Array<{ title: string; due_date: string | null; done: boolean }>
     }
 
-    if (!readable.length && !todos.length && !fileDocs.length && !tableDocs.length && !webLinks.length) return ''
+    if (!readable.length && !todos.length && !fileDocs.length && !tableDocs.length && !webLinks.length && !agents.length) return ''
 
     const parts: string[] = []
 
@@ -215,6 +236,13 @@ export async function loadCollectionsContext(
       parts.push(`## Links in this collection\n${lines}`)
     }
 
+    if (agents.length) {
+      const lines = agents
+        .map((a) => `- ${a.name}${a.description ? `: ${a.description.slice(0, 300)}` : ''}`)
+        .join('\n')
+      parts.push(`## Agents in this collection\n${lines}`)
+    }
+
     if (todos.length) {
       const lines = todos
         .map((t) => `- [${t.done ? 'x' : ' '}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''}`)
@@ -222,7 +250,7 @@ export async function loadCollectionsContext(
       parts.push(`## To-dos in this collection\n${lines}`)
     }
 
-    const itemCount = readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length
+    const itemCount = readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length + agents.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (
