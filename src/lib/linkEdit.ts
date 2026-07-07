@@ -14,6 +14,24 @@ export function normalizeUrl(raw: string): string | null {
   }
 }
 
+// The subset of a link the quick search reads — the `links` row satisfies it,
+// and keeping it minimal makes the helper trivial to test with plain objects.
+export type SearchableLink = {
+  url: string
+  title: string
+  description: string | null
+  notes: string | null
+}
+
+// Case-insensitive substring match against the title, URL, description and
+// notes — the quick search on the Links page (complements the global ⌘K search,
+// mirrors matchesTodoQuery on To-dos).
+export function matchesLinkQuery(link: SearchableLink, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [link.title, link.url, link.description, link.notes].some((f) => (f ?? '').toLowerCase().includes(q))
+}
+
 export type LinkEditForm = {
   url: string
   title: string
