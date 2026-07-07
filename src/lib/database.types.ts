@@ -1050,6 +1050,54 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['integrations']['Insert']>
         Relationships: []
       }
+      imap_accounts: {
+        Row: {
+          id: string
+          owner_id: string
+          label: string
+          host: string
+          port: number
+          username: string
+          secret_id: string
+          folder: string
+          visibility: 'private' | 'workspace'
+          mark_seen: boolean
+          is_active: boolean
+          poll_interval_minutes: number
+          last_uid: number
+          uid_validity: number | null
+          last_polled_at: string | null
+          last_status: string | null
+          last_error: string | null
+          next_poll_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          label?: string
+          host: string
+          port?: number
+          username: string
+          secret_id: string
+          folder?: string
+          visibility?: 'private' | 'workspace'
+          mark_seen?: boolean
+          is_active?: boolean
+          poll_interval_minutes?: number
+          last_uid?: number
+          uid_validity?: number | null
+          last_polled_at?: string | null
+          last_status?: string | null
+          last_error?: string | null
+          next_poll_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['imap_accounts']['Insert']>
+        Relationships: []
+      }
       mcp_servers: {
         Row: {
           id: string
@@ -1391,6 +1439,25 @@ export interface Database {
       email_is_configured: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      set_imap_account: {
+        Args: {
+          p_id: string | null
+          p_label: string
+          p_host: string
+          p_port: number
+          p_username: string
+          p_password: string
+          p_folder?: string
+          p_visibility?: string
+          p_mark_seen?: boolean
+          p_poll_interval_minutes?: number
+        }
+        Returns: string
+      }
+      delete_imap_account: {
+        Args: { p_id: string }
+        Returns: undefined
       }
       set_mcp_server: {
         Args: {

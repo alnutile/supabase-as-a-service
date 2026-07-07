@@ -343,8 +343,25 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   pushes (Slack/WhatsApp/Zapier/scripts); seeded `is_builtin` tools
   `save_message`/`list_messages`/`add_message_to_collection` let the assistant + agents
   capture messages. `check_email` still works, now scoped to `source='email'` rows.
-  *(Planned: IMAP/Google/Microsoft account connectors that funnel into this table;
-  injecting a collection's messages into `loadCollectionsContext`; a REST API + MCP tools.)*
+  **IMAP connector (pull, migration 0062):** the first *pull* source — any member connects
+  a real mailbox (Gmail app-password, Fastmail, a work IMAP server) in **Settings → Email
+  accounts (IMAP)**. A `imap_accounts` row is Vault-backed exactly like the email
+  integration (password lives only in Vault via `set_imap_account`; only the service role
+  reads it through `read_imap_secret`) and is **personal** (owner-scoped, `private` or
+  `workspace` visibility for the mail it pulls). Because edge functions can't hold a live
+  IMAP socket, the public **`imap-poll`** function (`verify_jwt: false`) does a short
+  connect→LOGIN→SELECT→UID SEARCH→UID FETCH→(optional `\Seen`)→LOGOUT over
+  `Deno.connectTls` on each tick and funnels new mail into `inbox_messages` (`source='email'`).
+  It's driven two ways: **pg_cron** ticks it every minute with the `x-cron-secret` (same gate
+  as the scheduler; wired out-of-band after deploy) to poll every due account, and an
+  authenticated owner can POST `{account_id}` (session JWT / `mcp_tokens`, verified in code)
+  to poll one account on demand — the Settings "Poll now" button. Each account carries a UID
+  cursor (`last_uid`, reset on `UIDVALIDITY` change) so a poll only fetches mail newer than the
+  last, capped to a bounded batch; dedup rides the `(source, external_id)` unique index (the
+  RFC822 Message-ID). The minimal IMAP wire client + pure parsers live in
+  `supabase/functions/_shared/imap.ts` (unit-tested in `tests/imap_test.ts`), MIME parsing
+  uses `postal-mime`. *(Planned: Google/Microsoft OAuth account connectors; injecting a
+  collection's messages into `loadCollectionsContext`; a REST API + MCP tools.)*
 - **Webhooks:** `WebhooksPage` (master–detail) creates `webhooks` rows, each with an
   opaque `token` and an attached `prompt`. External systems POST to the **public**
   `webhook` edge function at `/functions/v1/webhook/‹token›` (`verify_jwt: false`); it
