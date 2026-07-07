@@ -1,8 +1,8 @@
 import { supabase, linkMetaUrl } from './supabase'
 
 // Pure helpers live in ./linkEdit (no side-effect imports) so they're unit-testable.
-export { buildLinkEditPatch, normalizeUrl } from './linkEdit'
-export type { LinkEditForm, LinkEditResult } from './linkEdit'
+export { buildLinkEditPatch, matchesLinkQuery, normalizeUrl } from './linkEdit'
+export type { LinkEditForm, LinkEditResult, SearchableLink } from './linkEdit'
 
 export type LinkMeta = {
   url: string

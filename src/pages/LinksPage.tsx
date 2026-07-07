@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { buildLinkEditPatch, fetchLinkMeta, normalizeUrl } from '../lib/links'
+import { buildLinkEditPatch, fetchLinkMeta, matchesLinkQuery, normalizeUrl } from '../lib/links'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import {
   CheckIcon,
@@ -14,6 +14,7 @@ import {
   LoopIcon,
   PencilIcon,
   PlusIcon,
+  SearchIcon,
   TrashIcon,
 } from '../components/icons'
 
@@ -40,6 +41,7 @@ export default function LinksPage() {
   const [fetchingIds, setFetchingIds] = useState<Set<string>>(new Set())
   const [screenshots, setScreenshots] = useState<Record<string, string>>({}) // link id -> signed URL
   const [activeCollection, setActiveCollection] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Link | null>(null)
 
@@ -81,11 +83,17 @@ export default function LinksPage() {
 
   const selectedIds = useMemo(() => [...selected], [selected])
 
+  // The visible list: collection filter → quick search (title/url/description/notes).
   const visible = useMemo(() => {
-    if (!activeCollection) return links
-    const set = members[activeCollection] ?? new Set()
-    return links.filter((l) => set.has(l.id))
-  }, [links, members, activeCollection])
+    let list = links
+    if (activeCollection) {
+      const set = members[activeCollection] ?? new Set()
+      list = list.filter((l) => set.has(l.id))
+    }
+    const q = search.trim()
+    if (q) list = list.filter((l) => matchesLinkQuery(l, q))
+    return list
+  }, [links, members, activeCollection, search])
 
   // --- mutations -----------------------------------------------------------
 
@@ -218,6 +226,26 @@ export default function LinksPage() {
           </button>
         </div>
 
+        {/* Quick search — complements the global ⌘K search, scoped to this page */}
+        <div className="relative mt-3">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search links…"
+            className="w-full rounded-lg border border-border bg-surface py-2 pl-9 pr-9 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         {/* Collection filter bar */}
         {collections.length > 0 && (
           <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -254,7 +282,11 @@ export default function LinksPage() {
             <p className="text-sm text-muted">Loading…</p>
           ) : visible.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted">
-              {activeCollection ? 'No links in this collection yet.' : 'Nothing here yet — paste your first URL above.'}
+              {search.trim()
+                ? `No links match “${search.trim()}”.`
+                : activeCollection
+                  ? 'No links in this collection yet.'
+                  : 'Nothing here yet — paste your first URL above.'}
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
