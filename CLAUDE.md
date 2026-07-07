@@ -305,6 +305,46 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Activity:** `ActivityPage` is a live feed of `activity_log`. Rows are written by
   DB triggers (`webhook_events`, `artifacts`, `files`) and by the chat function (tool
   calls). RLS: you see your own rows, admins see all. Realtime-subscribed.
+- **Events & listeners (automation substrate, migrations 0060/0061):** a workspace
+  pub/sub layer, deliberately SEPARATE from `activity_log` (which stays the human feed).
+  Every meaningful record change emits an `events` row via SECURITY DEFINER DB triggers
+  through the `emit_event(...)` helper — `artifact.created/updated`, `file.created/deleted`,
+  `todo.created/completed`, `link.created`, `chat.created`, `message.received`, and the
+  headline `collection.item_added` (one generic trigger over every `collection_*` join
+  table, carrying `{collection_id, item_type, item_id}`). Each event carries a stable
+  `entity_type`/`entity_id`, workspace `visibility` (so listeners react safely to shared
+  activity), and a `processed_at` dispatch cursor. `EventsPage` (route `/events`,
+  Automation) is the live feed. An `event_listeners` row is a rule — `event_type` (exact,
+  `file.*` prefix wildcard, or `*`) + a `match` jsonb (`entity_type`/`collection_id`/`source`
+  filters) + an `action_type` (`run_agent` | `run_tool` | `add_to_collection` | `log`) +
+  `action_config`. `ListenersPage` (route `/listeners`, Automation) is the "when this /
+  do this" CRUD, with recent `event_listener_runs`. The **`event-dispatch` edge function**
+  (`verify_jwt: false`, cron-secret gated like the scheduler; ticked by pg_cron via pg_net —
+  the `cron.schedule` is applied out-of-band after deploy, same convention as 0010) claims
+  unprocessed events (one-time `processed_at` claim = idempotent), matches them with the
+  pure `_shared/events.ts` `matchListener` (unit-tested), and runs each action AS the
+  listener's owner (agent loop mirrors the scheduler; `run_tool` mirrors run-tool's dispatch;
+  `{{event}}` in a tool input is replaced with the event JSON). Per-tick action cap +
+  the one-time claim bound runaway chains. RLS mirrors links (own/workspace/admin). Each
+  dispatch logs `activity_log` `listener.run`/`listener.error`.
+- **Unified inbox (messages from any source, migration 0061):** one place to push every
+  message — email, Slack, WhatsApp, SMS, generic webhook/manual pushes — so a person (and
+  the team, via collections) can read them, chat over them, and automate on them.
+  Generalizes the old email-only `inbox_messages` (0016) in place rather than adding a
+  colliding `messages` table (that name is chat's): adds `owner_id`/`visibility` (the
+  private-or-workspace model of links/todos, replacing admin-only RLS), `source`,
+  `from_name`/`url`/`external_id`, realtime, and a `collection_inbox_messages` join (mirror
+  of `collection_links`). Each incoming row emits `message.received` (0060), so
+  listeners can react ("when a Slack message arrives, run this agent"). `InboxPage`
+  (route `/inbox`, top nav) lists/filters by source, marks read, files into collections,
+  and composes manual messages. **Ingestion:** `email-inbound` now writes email rows here
+  (`source='email'`, workspace-shared); the token-gated public **`message-inbound`** edge
+  function (`verify_jwt: false`, `mcp_tokens` bearer like run-tool) accepts arbitrary
+  pushes (Slack/WhatsApp/Zapier/scripts); seeded `is_builtin` tools
+  `save_message`/`list_messages`/`add_message_to_collection` let the assistant + agents
+  capture messages. `check_email` still works, now scoped to `source='email'` rows.
+  *(Planned: IMAP/Google/Microsoft account connectors that funnel into this table;
+  injecting a collection's messages into `loadCollectionsContext`; a REST API + MCP tools.)*
 - **Webhooks:** `WebhooksPage` (master–detail) creates `webhooks` rows, each with an
   opaque `token` and an attached `prompt`. External systems POST to the **public**
   `webhook` edge function at `/functions/v1/webhook/‹token›` (`verify_jwt: false`); it
@@ -612,7 +652,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0060 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0061 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
@@ -620,7 +660,10 @@ supabase/
   functions/_shared/loops.ts   create/trigger/format helpers for the looping system, shared by the MCP server + builtins
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams the model via OpenRouter (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt
-  functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages
+  functions/email-inbound/index.ts  Public inbound-email sink (verify_jwt: false), token-gated → inbox_messages (source='email')
+  functions/message-inbound/index.ts  Public unified-inbox ingest (verify_jwt: false), mcp_tokens bearer → inbox_messages (any source)
+  functions/event-dispatch/index.ts  Cron-ticked (verify_jwt: false, cron-secret): matches new events to event_listeners and runs their actions
+  functions/_shared/events.ts  Pure matchListener/substituteEvent/describeEvent for the dispatcher (unit-tested in tests/events_test.ts)
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
   functions/p/index.ts         Public standalone-page server (verify_jwt: false): serves a shared HTML artifact as raw text/html
   functions/slack-events/index.ts  Public Slack Events endpoint (verify_jwt: false, HMAC-gated): @mention → collections-scoped reply in-thread
@@ -633,7 +676,9 @@ Schema lives in `supabase/migrations/` (0001 base + later migrations). Tables:
 `profiles`, `conversations`, `messages`, `artifacts`, `files`, `skills`,
 `allowed_emails`, `webhooks`, `webhook_events`, `tools`, `activity_log`, `agents`,
 `mcp_tokens`, `model_profiles`, `guardrails`, `integrations` (Vault-backed email
-config), `inbox_messages`, `usage_events`
+config), `inbox_messages` (the unified inbox — any `source`, not just email),
+`events` + `event_listeners` + `event_listener_runs` (the automation pub/sub),
+`usage_events`
 (per-call token/cost accounting), `user_tables` (registry for the Tables feature;
 the actual user tables are real `ut_*` tables created at runtime), `collections` +
 `collection_artifacts` (named groups of artifacts you can scope a chat to), `mcp_servers`

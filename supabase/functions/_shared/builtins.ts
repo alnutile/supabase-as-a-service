@@ -110,6 +110,12 @@ export async function runBuiltin(
       return addLinkToCollection(db, input, userId)
     case 'set_link_screenshot':
       return setLinkScreenshot(db, input, userId)
+    case 'save_message':
+      return saveMessage(db, input, userId)
+    case 'list_messages':
+      return listMessages(db, input, userId)
+    case 'add_message_to_collection':
+      return addMessageToCollection(db, input, userId)
     case 'add_table_to_collection':
       return addTableToCollection(db, input, userId)
     case 'create_file':
@@ -675,9 +681,11 @@ async function checkEmail(db: DB | null, input: Record<string, unknown>): Promis
   if (!Number.isFinite(limit) || limit <= 0) limit = 10
   limit = Math.min(Math.trunc(limit), 25)
 
+  // The inbox is now source-agnostic; check_email scopes to email rows.
   let q = db
     .from('inbox_messages')
     .select('id, from_address, subject, body_text, received_at, read_at')
+    .eq('source', 'email')
     .order('received_at', { ascending: false })
     .limit(limit)
   if (unreadOnly) q = q.is('read_at', null)
@@ -1211,6 +1219,105 @@ async function addLinkToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added link ${linkId} to collection "${col.name}".`
+}
+
+// --- Unified inbox (messages) ------------------------------------------------
+const MESSAGE_SOURCES = ['email', 'slack', 'whatsapp', 'sms', 'webhook', 'manual', 'other']
+
+async function saveMessage(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'The inbox is unavailable.'
+  const body = String(input?.body ?? '').trim()
+  if (!body) return 'A message body is required.'
+  const source = MESSAGE_SOURCES.includes(String(input?.source)) ? String(input?.source) : 'manual'
+  const { data, error } = await db
+    .from('inbox_messages')
+    .insert({
+      owner_id: userId,
+      source,
+      from_name: String(input?.from ?? ''),
+      from_address: String(input?.from ?? ''),
+      subject: String(input?.subject ?? ''),
+      body_text: body.slice(0, 50_000),
+      url: typeof input?.url === 'string' ? input.url : null,
+      visibility: 'private',
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not save the message: ${error.message}`
+  let note = ''
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (col) {
+      await db.from('collection_inbox_messages').upsert(
+        { collection_id: col.id, inbox_message_id: data.id, added_by: userId },
+        { onConflict: 'collection_id,inbox_message_id', ignoreDuplicates: true },
+      )
+      note = ` Filed into collection "${col.name}".`
+    }
+  }
+  await logActivity(db, 'message.saved', `Saved a ${source} message`, { id: data.id, source }, userId)
+  return `Saved message (id ${data.id}).${note}`
+}
+
+async function listMessages(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'The inbox is unavailable.'
+  let limit = Number(input?.limit ?? 20)
+  if (!Number.isFinite(limit) || limit <= 0) limit = 20
+  limit = Math.min(Math.trunc(limit), 50)
+  let query = db
+    .from('inbox_messages')
+    .select('id, source, from_address, subject, body_text, received_at, read_at')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .order('received_at', { ascending: false })
+    .limit(limit)
+  if (typeof input?.source === 'string' && input.source.trim()) query = query.eq('source', input.source.trim())
+  if (input?.unread_only === true) query = query.is('read_at', null)
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, false)
+    if (!col) return `Collection "${ref}" not found.`
+    const { data: members } = await db.from('collection_inbox_messages').select('inbox_message_id').eq('collection_id', col.id)
+    const ids = (members ?? []).map((m: { inbox_message_id: string }) => m.inbox_message_id)
+    if (!ids.length) return `No messages in collection "${col.name}".`
+    query = query.in('id', ids)
+  }
+  const { data } = await query
+  if (!data || !data.length) return 'No messages. Use save_message to add one, or connect an inbound source.'
+  return (data as Array<{ id: string; source: string; from_address: string; subject: string; body_text: string; received_at: string }>)
+    .map((m, i) => {
+      const when = new Date(m.received_at).toISOString().slice(0, 16).replace('T', ' ')
+      const preview = (m.body_text ?? '').slice(0, MAX_BODY_PREVIEW)
+      return `[${i + 1}] (${m.source}) From: ${m.from_address || '—'}\nSubject: ${m.subject || '(no subject)'}\nDate: ${when} UTC\n${preview}\nid: ${m.id}`
+    })
+    .join('\n\n---\n\n')
+}
+
+async function addMessageToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'The inbox is unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const messageId = String(input?.message_id ?? '').trim()
+  if (!ref || !messageId) return 'Pass both a collection (name or id) and a message_id.'
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_inbox_messages').upsert(
+    { collection_id: col.id, inbox_message_id: messageId, added_by: userId },
+    { onConflict: 'collection_id,inbox_message_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added message ${messageId} to collection "${col.name}".`
 }
 
 async function addTableToCollection(
