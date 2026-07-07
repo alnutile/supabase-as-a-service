@@ -492,6 +492,22 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['allowed_emails']['Insert']>
         Relationships: []
       }
+      feature_flags: {
+        Row: {
+          key: string
+          enabled: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          key: string
+          enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['feature_flags']['Insert']>
+        Relationships: []
+      }
       webhooks: {
         Row: {
           id: string

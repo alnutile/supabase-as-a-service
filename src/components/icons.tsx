@@ -388,3 +388,26 @@ export const CompassIcon = (p: SVGProps<SVGSVGElement>) => (
     <polygon points="15.5 8.5 13.5 13.5 8.5 15.5 10.5 10.5 15.5 8.5" />
   </svg>
 )
+
+export const FlagIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+    <line x1="4" y1="22" x2="4" y2="15" />
+  </svg>
+)
+
+export const MailIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3 7 9 6 9-6" />
+  </svg>
+)
+
+export const SlackIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="13" y="2" width="3" height="8" rx="1.5" />
+    <rect x="2" y="8" width="8" height="3" rx="1.5" />
+    <rect x="8" y="14" width="3" height="8" rx="1.5" />
+    <rect x="14" y="13" width="8" height="3" rx="1.5" />
+  </svg>
+)

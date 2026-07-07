@@ -4,114 +4,24 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { GlobalSearch, isMac, openGlobalSearch } from './GlobalSearch'
 import {
-  ActivityIcon,
-  AgentIcon,
-  ApiIcon,
+  navGroups,
+  settingsGroup,
+  visibleGroups,
+  type FlagMap,
+  type NavGroup,
+  type NavItem,
+} from '../lib/nav'
+import {
   ArrowRightIcon,
-  ArtifactIcon,
-  TodoIcon,
-  BoltIcon,
-  ChatIcon,
   ChevronDownIcon,
   CloseIcon,
-  CollectionIcon,
-  EvalIcon,
-  FeedbackIcon,
-  FileIcon,
-  ForgeIcon,
-  HomeIcon,
-  InboxIcon,
-  LinkIcon,
-  PulseIcon,
-  LockIcon,
-  LoopIcon,
   LogoutIcon,
   MenuIcon,
   MoonIcon,
-  RadarIcon,
   SearchIcon,
-  SettingsIcon,
-  ShieldIcon,
-  SkillIcon,
   SparkleIcon,
   SunIcon,
-  TableIcon,
-  ToolIcon,
-  UsageIcon,
-  WebhookIcon,
 } from './icons'
-
-type NavItem = {
-  to: string
-  label: string
-  icon: (p: { className?: string }) => JSX.Element
-  end?: boolean
-  adminOnly?: boolean
-}
-
-// The sidebar is organized into labeled, collapsible groups. Items at the top
-// (Home, Chat) live in an unlabeled group that always shows. `Settings` is pinned
-// to the bottom (rendered separately), matching the dashboard layout.
-const navGroups: Array<{ label: string | null; items: NavItem[] }> = [
-  {
-    label: null,
-    items: [
-      { to: '/home', label: 'Home', icon: HomeIcon },
-      { to: '/chat', label: 'Chat', icon: ChatIcon },
-      { to: '/inbox', label: 'Inbox', icon: InboxIcon },
-    ],
-  },
-  {
-    label: 'Assets',
-    items: [
-      { to: '/collections', label: 'Collections', icon: CollectionIcon },
-      { to: '/files', label: 'Files', icon: FileIcon },
-      { to: '/tables', label: 'Tables', icon: TableIcon },
-      { to: '/artifacts', label: 'Artifacts', icon: ArtifactIcon },
-      { to: '/todos', label: 'To-dos', icon: TodoIcon },
-      { to: '/links', label: 'Links', icon: LinkIcon },
-      { to: '/skills', label: 'Skills', icon: SkillIcon },
-    ],
-  },
-  {
-    label: 'Automation',
-    items: [
-      { to: '/agents', label: 'Agents', icon: AgentIcon },
-      { to: '/listeners', label: 'Listeners', icon: BoltIcon },
-      { to: '/events', label: 'Events', icon: PulseIcon },
-      { to: '/loops', label: 'Loops', icon: LoopIcon },
-      { to: '/tools', label: 'Tools', icon: ToolIcon },
-      { to: '/forge', label: 'Forge', icon: ForgeIcon, adminOnly: true },
-    ],
-  },
-  {
-    label: 'Connections',
-    items: [
-      { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon },
-      { to: '/api', label: 'API', icon: ApiIcon },
-    ],
-  },
-  {
-    label: 'Insights',
-    items: [
-      { to: '/activity', label: 'Activity', icon: ActivityIcon },
-      { to: '/usage', label: 'Usage', icon: UsageIcon, adminOnly: true },
-      { to: '/feedback', label: 'Feedback', icon: FeedbackIcon, adminOnly: true },
-      { to: '/features', label: 'Features', icon: SparkleIcon },
-    ],
-  },
-  {
-    label: 'Governance',
-    items: [
-      { to: '/guardrails', label: 'Guardrails', icon: ShieldIcon, adminOnly: true },
-      { to: '/security', label: 'Security', icon: RadarIcon, adminOnly: true },
-      { to: '/evals', label: 'Evals', icon: EvalIcon, adminOnly: true },
-      { to: '/vault', label: 'Secrets', icon: LockIcon, adminOnly: true },
-    ],
-  },
-]
-
-const settingsItem: NavItem = { to: '/settings', label: 'Settings', icon: SettingsIcon }
 
 // Persist which groups the user has collapsed, so it sticks across reloads.
 function useCollapsedGroups(): [Set<string>, (label: string) => void] {
@@ -184,6 +94,7 @@ export function Layout() {
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [flags, setFlags] = useState<FlagMap>({})
   const [theme, setTheme] = useTheme()
 
   useEffect(() => {
@@ -194,6 +105,30 @@ export function Layout() {
       .eq('id', user.id)
       .maybeSingle()
       .then(({ data }) => setIsAdmin(Boolean(data?.is_admin)))
+  }, [user])
+
+  // Feature flags hide/show sidebar areas workspace-wide. Load them once, then
+  // subscribe to changes so toggling on the Feature Flags page updates every
+  // open sidebar live (feature_flags is in the realtime publication, 0065).
+  useEffect(() => {
+    if (!user) return
+    const loadFlags = () =>
+      supabase
+        .from('feature_flags')
+        .select('key, enabled')
+        .then(({ data }) => {
+          const map: FlagMap = {}
+          for (const row of data ?? []) map[row.key] = row.enabled
+          setFlags(map)
+        })
+    loadFlags()
+    const channel = supabase
+      .channel('feature-flags')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'feature_flags' }, loadFlags)
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [user])
 
   const [collapsed, toggleGroup] = useCollapsedGroups()
@@ -225,6 +160,34 @@ export function Layout() {
       <span className={railHide}>{label}</span>
     </NavLink>
   )
+
+  const renderGroup = (group: NavGroup) => {
+    const isCollapsed = group.label ? collapsed.has(group.label) : false
+    return (
+      <div key={group.label ?? 'top'} className="mb-1.5 space-y-[3px]">
+        {group.label && (
+          <button
+            onClick={() => toggleGroup(group.label!)}
+            className={`flex w-full items-center justify-between px-[13px] pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-faint transition hover:text-muted ${railHide}`}
+            aria-expanded={!isCollapsed}
+          >
+            {group.label}
+            <ChevronDownIcon
+              className={`h-3.5 w-3.5 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+            />
+          </button>
+        )}
+        {/* When railed, headers are hidden, so always show the items. */}
+        {(railed || !isCollapsed) && group.items.map(renderItem)}
+      </div>
+    )
+  }
+
+  // Apply admin gating + feature flags to the sidebar. Settings is a section of
+  // its own, pinned to the bottom (its items are always-on, so flags never hide
+  // them — an admin can't lock themselves out of the flags page).
+  const mainGroups = visibleGroups(navGroups, { flags, isAdmin })
+  const [settingsVisible] = visibleGroups([settingsGroup], { flags, isAdmin })
 
   return (
     <div className="flex h-full bg-bg text-text">
@@ -285,32 +248,14 @@ export function Layout() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-[14px] py-2">
-          {navGroups.map((group) => {
-            const visible = group.items.filter((i) => !i.adminOnly || isAdmin)
-            if (!visible.length) return null
-            const isCollapsed = group.label ? collapsed.has(group.label) : false
-            return (
-              <div key={group.label ?? 'top'} className="mb-1.5 space-y-[3px]">
-                {group.label && (
-                  <button
-                    onClick={() => toggleGroup(group.label!)}
-                    className={`flex w-full items-center justify-between px-[13px] pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-faint transition hover:text-muted ${railHide}`}
-                    aria-expanded={!isCollapsed}
-                  >
-                    {group.label}
-                    <ChevronDownIcon
-                      className={`h-3.5 w-3.5 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
-                    />
-                  </button>
-                )}
-                {/* When railed, headers are hidden, so always show the items. */}
-                {(railed || !isCollapsed) && visible.map(renderItem)}
-              </div>
-            )
-          })}
+          {mainGroups.map(renderGroup)}
 
-          <div className="my-2 border-t border-border" />
-          {renderItem(settingsItem)}
+          {settingsVisible && (
+            <>
+              <div className="my-2 border-t border-border" />
+              {renderGroup(settingsVisible)}
+            </>
+          )}
         </nav>
 
         <div className="flex flex-col gap-3 border-t border-border p-[14px]">
@@ -400,7 +345,7 @@ export function Layout() {
         </main>
       </div>
 
-      <GlobalSearch isAdmin={isAdmin} />
+      <GlobalSearch isAdmin={isAdmin} flags={flags} />
     </div>
   )
 }

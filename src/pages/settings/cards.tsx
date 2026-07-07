@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Database } from '../lib/database.types'
-import { emailInboundUrl, mcpUrl, slackEventsUrl, supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
-import { formatDate } from '../lib/util'
-import { CopyIcon, PlusIcon, TrashIcon } from '../components/icons'
+import type { Database } from '../../lib/database.types'
+import { emailInboundUrl, mcpUrl, slackEventsUrl, supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+import { formatDate } from '../../lib/util'
+import { CopyIcon, PlusIcon, TrashIcon } from '../../components/icons'
+
+// The Settings cards live here so the per-area Settings pages
+// (src/pages/settings/*.tsx) can each render one. They were split out of the
+// old single SettingsPage when Settings became a sidebar section (issue #122).
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
 type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
 type ModelProfile = Database['public']['Tables']['model_profiles']['Row']
 
-export default function SettingsPage() {
+// Your profile — email (read-only) + display name.
+export function ProfileCard() {
   const { user } = useAuth()
   const [displayName, setDisplayName] = useState('')
-  const [isAdmin, setIsAdmin] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -20,13 +24,10 @@ export default function SettingsPage() {
     if (!user) return
     supabase
       .from('profiles')
-      .select('display_name, is_admin')
+      .select('display_name')
       .eq('id', user.id)
       .maybeSingle()
-      .then(({ data }) => {
-        setDisplayName(data?.display_name ?? '')
-        setIsAdmin(Boolean(data?.is_admin))
-      })
+      .then(({ data }) => setDisplayName(data?.display_name ?? ''))
   }, [user])
 
   async function save() {
@@ -41,70 +42,55 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-text">Settings</h1>
-        <p className="mt-1 text-sm text-muted">Manage your profile and account.</p>
-
-        <section className="mt-6 rounded-xl border border-border bg-surface p-5">
-          <h2 className="text-sm font-semibold text-text">Profile</h2>
-          <div className="mt-4 space-y-4">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted">Email</span>
-              <input
-                value={user?.email ?? ''}
-                readOnly
-                className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted">Display name</span>
-              <input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-                className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-              />
-            </label>
-            <button
-              onClick={save}
-              disabled={saving}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
-            >
-              {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
-            </button>
-          </div>
-        </section>
-
-        {isAdmin && <ModelsCard />}
-
-        {isAdmin && <EmailCard />}
-
-        {isAdmin && <McpCard />}
-
-        {isAdmin && <SlackCard />}
-
-        {isAdmin && <InvitePeople />}
-
-        <ConnectClaude />
-
-        <section className="mt-4 rounded-xl border border-border bg-surface p-5">
-          <h2 className="text-sm font-semibold text-text">About this workspace</h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
-            This intranet runs on Supabase — authentication, your data (protected by
-            row-level security), file storage, and realtime updates over websockets. The AI
-            assistant is powered by a Supabase Edge Function that keeps the model API key on
-            the server.
-          </p>
-        </section>
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Profile</h2>
+      <div className="mt-4 space-y-4">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">Email</span>
+          <input
+            value={user?.email ?? ''}
+            readOnly
+            className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">Display name</span>
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Your name"
+            className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+          />
+        </label>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
+        </button>
       </div>
-    </div>
+    </section>
+  )
+}
+
+export function AboutCard() {
+  return (
+    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">About this workspace</h2>
+      <p className="mt-2 text-sm leading-relaxed text-muted">
+        This intranet runs on Supabase — authentication, your data (protected by
+        row-level security), file storage, and realtime updates over websockets. The AI
+        assistant is powered by a Supabase Edge Function that keeps the model API key on
+        the server.
+      </p>
+    </section>
   )
 }
 
 // Model Profiles: which model powers each named job. Admins re-point a profile's
 // model id; features bind to the profile key, never a model id.
-function ModelsCard() {
+export function ModelsCard() {
   const [profiles, setProfiles] = useState<ModelProfile[]>([])
 
   const load = useCallback(async () => {
@@ -121,7 +107,7 @@ function ModelsCard() {
   }, [load])
 
   return (
-    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Models</h2>
       <p className="mt-1 text-sm text-muted">
         Which model powers each job. Edit the id to re-point a profile — applied on the next message,
@@ -204,7 +190,7 @@ type McpServer = {
   is_active: boolean
 }
 
-function McpCard() {
+export function McpCard() {
   const [servers, setServers] = useState<McpServer[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
@@ -272,7 +258,7 @@ function McpCard() {
   }
 
   return (
-    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">External MCP servers</h2>
       <p className="mt-1 text-sm text-muted">
         Connect MCP endpoints — e.g.{' '}
@@ -455,7 +441,7 @@ type EmailIntegration = {
   allowed_recipients: string[] | null
 }
 
-function EmailCard() {
+export function EmailCard() {
   const { user } = useAuth()
   const [existing, setExisting] = useState<EmailIntegration | null>(null)
   const [loading, setLoading] = useState(true)
@@ -558,7 +544,7 @@ function EmailCard() {
   }
 
   return (
-    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Email</h2>
       <p className="mt-1 text-sm text-muted">
         Configure email once and any user or agent can send and check mail —{' '}
@@ -697,7 +683,7 @@ function EmailCard() {
   )
 }
 
-function ConnectClaude() {
+export function ConnectClaude() {
   const { user } = useAuth()
   const [tokens, setTokens] = useState<McpToken[]>([])
   const [copied, setCopied] = useState<string | null>(null)
@@ -731,7 +717,7 @@ function ConnectClaude() {
   }
 
   return (
-    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Connect Claude (MCP)</h2>
       <p className="mt-1 text-sm text-muted">
         Connect <strong>Claude Code</strong> (the CLI) to this workspace, then say
@@ -819,7 +805,7 @@ function ConnectClaude() {
   )
 }
 
-function InvitePeople() {
+export function InvitePeople() {
   const { user } = useAuth()
   const [emails, setEmails] = useState<AllowedEmail[]>([])
   const [value, setValue] = useState('')
@@ -865,7 +851,7 @@ function InvitePeople() {
   }
 
   return (
-    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Invite people</h2>
       <p className="mt-1 text-sm text-muted">
         This workspace is invite-only. Add an email here, then the person can sign up with it
@@ -919,7 +905,7 @@ function InvitePeople() {
 // written through the set_slack_integration RPC, never read back here.
 type SlackBinding = Database['public']['Tables']['slack_channel_bindings']['Row']
 
-function SlackCard() {
+export function SlackCard() {
   const { user } = useAuth()
   const [configured, setConfigured] = useState(false)
   const [teamName, setTeamName] = useState('')
@@ -1083,7 +1069,7 @@ settings:
   const collectionName = (id: string) => collections.find((c) => c.id === id)?.name ?? '…'
 
   return (
-    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Slack</h2>
       <p className="mt-1 text-sm text-muted">
         Add the workspace bot to Slack rooms and bind each room to collections — @mention it and it
