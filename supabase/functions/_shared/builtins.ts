@@ -7,8 +7,8 @@
 // Builtins: search_documents (RAG over the workspace knowledge base), send_email,
 // check_email, the user-table tools (list_tables / query_table / add_table_row /
 // update_table_row / delete_table_row / create_table — the "Tables" feature), the team-vault tools (list_secrets /
-// get_secret), and the content-authoring tools (create_artifact / get_artifact /
-// update_artifact / list_collections /
+// get_secret), and the content-authoring tools (create_artifact / list_artifacts /
+// get_artifact / update_artifact / list_collections /
 // create_collection / add_to_collection / add_note) — the in-app mirror of the MCP
 // server's authoring actions, so the internal AI/agents can push articles, notes, and
 // docs into artifacts + collections + the knowledge base (the "ingest GitHub articles
@@ -18,6 +18,7 @@
 // authoring builtins run with the service role, so they re-enforce the
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from './artifacts.ts'
 import { ingestText } from './knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
@@ -74,6 +75,8 @@ export async function runBuiltin(
       return getSecret(db, input, userId)
     case 'create_artifact':
       return createArtifact(db, input, userId)
+    case 'list_artifacts':
+      return listArtifacts(db, input, userId)
     case 'get_artifact':
       return getArtifact(db, input, userId)
     case 'update_artifact':
@@ -746,6 +749,28 @@ async function resolveCollection(
   return created ? { id: created.id, name: created.name } : null
 }
 
+// File an artifact into each named collection (name or id; created if missing),
+// atomically per-collection. Returns the names actually filed into so the caller
+// can confirm the linkage — the whole point of the "put this in collection X" flow.
+async function fileArtifactIntoCollections(
+  db: DB,
+  userId: string,
+  artifactId: string,
+  refs: string[],
+): Promise<string[]> {
+  const filed: string[] = []
+  for (const ref of refs) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (!col) continue
+    const { error } = await db.from('collection_artifacts').upsert(
+      { collection_id: col.id, artifact_id: artifactId, added_by: userId },
+      { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
+    )
+    if (!error && !filed.includes(col.name)) filed.push(col.name)
+  }
+  return filed
+}
+
 async function createArtifact(
   db: DB | null,
   input: Record<string, unknown>,
@@ -756,30 +781,94 @@ async function createArtifact(
   const content = String(input?.content ?? '')
   if (!title) return 'An artifact title is required.'
   if (!content.trim()) return 'The artifact needs some content.'
-  const type = ['markdown', 'code', 'html', 'text'].includes(String(input?.type)) ? String(input?.type) : 'markdown'
+  const type = normalizeArtifactType(input?.type)
   const { data, error } = await db
     .from('artifacts')
     .insert({ owner_id: userId, title, type, content, visibility: 'private' })
     .select('id')
     .single()
   if (error) return `Could not create the artifact: ${error.message}`
-  let note = ''
-  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
-  if (ref) {
-    const col = await resolveCollection(db, userId, ref, true)
-    if (col) {
-      await db.from('collection_artifacts').upsert(
-        { collection_id: col.id, artifact_id: data.id, added_by: userId },
-        { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
-      )
-      note = ` Filed into collection "${col.name}".`
-    }
-  }
-  await logActivity(db, 'artifact.created', `Created artifact "${title}"`, { id: data.id, collection: ref || null }, userId)
-  return `Created artifact "${title}" at /artifacts/${data.id}.${note}`
+  // Reads run against the primary (this same connection), so the row — and its id —
+  // is queryable immediately by list_artifacts / get_artifact within the same turn.
+  const refs = collectionRefs(input)
+  const filed = refs.length ? await fileArtifactIntoCollections(db, userId, data.id, refs) : []
+  const note = filed.length ? ` Filed into collection${filed.length > 1 ? 's' : ''}: ${filed.join(', ')}.` : ''
+  await logActivity(db, 'artifact.created', `Created artifact "${title}"`, { id: data.id, collections: filed }, userId)
+  return `Created artifact "${title}" (id ${data.id}) at /artifacts/${data.id}.${note}`
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// list_artifacts: the retrieval gap-filler. After create_artifact (or a :::artifact
+// auto-save), the assistant can list its artifacts — newest first, with real ids —
+// so it can then add_to_collection / get_artifact them. Scoped to what the caller
+// can read (own + shared), optionally filtered by collection / title / type.
+async function listArtifacts(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Artifacts are unavailable.'
+  const limit = clampLimit(input?.limit, 20, 100)
+
+  // Optional collection filter → restrict to that collection's member ids.
+  let memberIds: string[] | null = null
+  const colRef = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (colRef) {
+    const col = await resolveCollection(db, userId, colRef, false)
+    if (!col) return `Collection "${colRef}" not found.`
+    const { data: members } = await db.from('collection_artifacts').select('artifact_id').eq('collection_id', col.id)
+    memberIds = (members ?? []).map((m: { artifact_id: string }) => m.artifact_id)
+    if (!memberIds.length) return `No artifacts in collection "${col.name}".`
+  }
+
+  let query = db
+    .from('artifacts')
+    .select('id, title, type, created_at')
+    .or(`owner_id.eq.${userId},visibility.neq.private`)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  const titleContains = typeof input?.title_contains === 'string' ? input.title_contains.trim() : ''
+  if (titleContains) query = query.ilike('title', `%${titleContains}%`)
+  // Artifacts have a `type` (markdown|code|html|text), not a MIME type; accept
+  // either arg name so callers reaching for `mime_type` still filter by type.
+  const typeFilter = String(input?.type ?? input?.mime_type ?? '').trim().toLowerCase()
+  if (['markdown', 'code', 'html', 'text'].includes(typeFilter)) query = query.eq('type', typeFilter)
+  if (memberIds) query = query.in('id', memberIds)
+
+  const { data, error } = await query
+  if (error) return `Could not list artifacts: ${error.message}`
+  const rows = (data ?? []) as Array<{ id: string; title: string; type: string; created_at: string }>
+  if (!rows.length) return 'No artifacts match. Use create_artifact to make one.'
+
+  const cols = await artifactCollectionsMap(db, rows.map((r) => r.id))
+  return rows
+    .map((r) => {
+      const inCols = cols.get(r.id) ?? []
+      const when = new Date(r.created_at).toISOString().slice(0, 10)
+      return `• ${r.title} (${r.type}) — id: ${r.id} — created ${when}${
+        inCols.length ? ` — collections: ${inCols.join(', ')}` : ''
+      } — /artifacts/${r.id}`
+    })
+    .join('\n')
+}
+
+// Map artifact id → collection names it belongs to (for the given ids only).
+async function artifactCollectionsMap(db: DB, ids: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>()
+  if (!ids.length) return map
+  const { data } = await db
+    .from('collection_artifacts')
+    .select('artifact_id, collections(name)')
+    .in('artifact_id', ids)
+  for (const row of (data ?? []) as Array<{ artifact_id: string; collections: { name: string } | null }>) {
+    const name = row.collections?.name
+    if (!name) continue
+    const list = map.get(row.artifact_id) ?? []
+    list.push(name)
+    map.set(row.artifact_id, list)
+  }
+  return map
+}
+
 const ARTIFACT_CONTENT_CAP = 16_000
 
 // Find one artifact by id or exact title (case-insensitive). `ownOnly` mirrors
@@ -795,7 +884,7 @@ async function resolveArtifact(
     .from('artifacts')
     .select('id, title, type, content, data, owner_id, visibility, updated_at')
   q = ownOnly ? q.eq('owner_id', userId) : q.or(`owner_id.eq.${userId},visibility.neq.private`)
-  q = UUID_RE.test(ref) ? q.eq('id', ref) : q.ilike('title', ref)
+  q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('title', ref)
   const { data } = await q.order('updated_at', { ascending: false }).limit(1)
   return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
 }
@@ -810,12 +899,15 @@ async function getArtifact(
   if (!ref) return 'Pass the artifact id or its exact title.'
   const art = await resolveArtifact(db, userId, ref, false)
   if (!art) return `No artifact matches "${ref}".`
+  const inCols = (await artifactCollectionsMap(db, [art.id])).get(art.id) ?? []
   const clipped = art.content.length > ARTIFACT_CONTENT_CAP
   const content = clipped ? art.content.slice(0, ARTIFACT_CONTENT_CAP) : art.content
   return [
     `id: ${art.id}`,
     `title: ${art.title}`,
     `type: ${art.type}`,
+    `url: /artifacts/${art.id}`,
+    `collections: ${inCols.length ? inCols.join(', ') : '(none)'}`,
     `saved interactive state (data): ${JSON.stringify(art.data ?? {})}`,
     `content${clipped ? ` (first ${ARTIFACT_CONTENT_CAP} chars — it is longer)` : ''}:`,
     content,
@@ -899,8 +991,17 @@ async function addToCollection(
 ): Promise<string> {
   if (!db || !userId) return 'Collections are unavailable.'
   const ref = String(input?.collection ?? '').trim()
-  const artifactId = String(input?.artifact_id ?? '').trim()
-  if (!ref || !artifactId) return 'Pass both a collection (name or id) and an artifact_id.'
+  if (!ref) return 'Pass a collection (name or id).'
+  // Accept an artifact_id OR an artifact_title — so the assistant can file a
+  // freshly-created artifact by title without ever having to see its id.
+  let artifactId = String(input?.artifact_id ?? '').trim()
+  const titleRef = String(input?.artifact_title ?? '').trim()
+  if (!artifactId && titleRef) {
+    const art = await resolveArtifact(db, userId, titleRef, false)
+    if (!art) return `No artifact matches the title "${titleRef}".`
+    artifactId = art.id
+  }
+  if (!artifactId) return 'Pass an artifact_id or an artifact_title.'
   const col = await resolveCollection(db, userId, ref, true)
   if (!col) return `Could not resolve collection "${ref}".`
   const { error } = await db.from('collection_artifacts').upsert(

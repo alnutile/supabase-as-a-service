@@ -6,6 +6,7 @@
 // shows up in the dashboard. Auth is a per-user token from `mcp_tokens`; every
 // action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from '../_shared/artifacts.ts'
 import { ingestText } from '../_shared/knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from '../_shared/files.ts'
 import { expandMcpTools, type McpRouter, runMcpTool } from '../_shared/mcp.ts'
@@ -121,7 +122,7 @@ const TOOLS = [
   {
     name: 'create_artifact',
     description:
-      'Create a shareable artifact (document). Optionally file it into a collection (by name; created if missing) to centralize content from other systems — e.g. push a blog post or a YouTube transcript into a "Blog" or "YouTube" collection the team can chat with. Returns its link.',
+      'Create a shareable artifact (document). Optionally file it into one or more collections (by name; created if missing) to centralize content from other systems — e.g. push a blog post or a YouTube transcript into a "Blog" or "YouTube" collection the team can chat with. Returns its id and link.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -130,10 +131,41 @@ const TOOLS = [
         type: { type: 'string', enum: ['markdown', 'code', 'html', 'text'] },
         collection: {
           type: 'string',
-          description: 'Optional collection name (or id) to file this artifact into; created if it does not exist.',
+          description: 'Optional single collection name (or id) to file this artifact into; created if it does not exist.',
+        },
+        collections: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional collection names (or ids) to file this artifact into; each created if missing.',
         },
       },
       required: ['title', 'content'],
+    },
+  },
+  {
+    name: 'list_artifacts',
+    description:
+      'List artifacts you can access, most recent first, with their ids — so after create_artifact (or a chat :::artifact) you can retrieve the id to file it into a collection. Optionally filter by collection (name/id), title_contains, or type.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+        title_contains: { type: 'string', description: 'Optional case-insensitive substring of the title.' },
+        type: { type: 'string', enum: ['markdown', 'code', 'html', 'text'], description: 'Optional artifact type filter.' },
+        limit: { type: 'number', description: 'Max rows (default 20, max 100).' },
+      },
+    },
+  },
+  {
+    name: 'get_artifact',
+    description:
+      'Read one artifact by its id OR its exact title: returns the id, title, type, url, collections it is in, and content. Title lookup finds artifacts created earlier in this session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact: { type: 'string', description: 'The artifact id or its exact title.' },
+      },
+      required: ['artifact'],
     },
   },
   {
@@ -158,14 +190,15 @@ const TOOLS = [
   {
     name: 'add_to_collection',
     description:
-      'Add an existing artifact to a collection (both identified by name or id). The collection is created if it does not exist.',
+      'Add an existing artifact to a collection. The artifact is identified by artifact_id OR artifact_title (exact, resolved server-side — so you can file without ever seeing the id); the collection by name or id, created if it does not exist.',
     inputSchema: {
       type: 'object',
       properties: {
         collection: { type: 'string', description: 'Collection name or id.' },
-        artifact_id: { type: 'string', description: 'The artifact id to add.' },
+        artifact_id: { type: 'string', description: 'The artifact id to add (or use artifact_title).' },
+        artifact_title: { type: 'string', description: 'The exact artifact title to add (alternative to artifact_id).' },
       },
-      required: ['collection', 'artifact_id'],
+      required: ['collection'],
     },
   },
   {
@@ -563,6 +596,59 @@ async function resolveCollection(
   return created ? { id: created.id, name: created.name } : null
 }
 
+// Resolve one artifact by id or exact title (case-insensitive) for this owner
+// (their own or any shared artifact). Newest match wins on a title collision.
+async function resolveArtifact(
+  db: DB,
+  owner: string,
+  ref: string,
+): Promise<{ id: string; title: string; type: string; content: string; data: unknown } | null> {
+  let q = db.from('artifacts').select('id, title, type, content, data, owner_id, visibility, updated_at')
+  q = q.or(`owner_id.eq.${owner},visibility.neq.private`)
+  q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('title', ref)
+  const { data } = await q.order('updated_at', { ascending: false }).limit(1)
+  return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
+}
+
+// Map artifact id → collection names it belongs to (for the given ids only).
+async function artifactCollectionsMap(db: DB, ids: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>()
+  if (!ids.length) return map
+  const { data } = await db
+    .from('collection_artifacts')
+    .select('artifact_id, collections(name)')
+    .in('artifact_id', ids)
+  for (const row of (data ?? []) as Array<{ artifact_id: string; collections: { name: string } | null }>) {
+    const name = row.collections?.name
+    if (!name) continue
+    const list = map.get(row.artifact_id) ?? []
+    list.push(name)
+    map.set(row.artifact_id, list)
+  }
+  return map
+}
+
+// File an artifact into each named collection (name or id; created if missing).
+// Returns the names actually filed into.
+async function fileArtifactIntoCollections(
+  db: DB,
+  owner: string,
+  artifactId: string,
+  refs: string[],
+): Promise<string[]> {
+  const filed: string[] = []
+  for (const ref of refs) {
+    const col = await resolveCollection(db, owner, ref, true)
+    if (!col) continue
+    const { error } = await db.from('collection_artifacts').upsert(
+      { collection_id: col.id, artifact_id: artifactId, added_by: owner },
+      { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
+    )
+    if (!error && !filed.includes(col.name)) filed.push(col.name)
+  }
+  return filed
+}
+
 function slugifyKey(label: string): string {
   const s = String(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
   if (!s) return 'col'
@@ -647,7 +733,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       return text(`Created webhook "${args.name}". POST payloads to:\n${SUPABASE_URL}/functions/v1/webhook/${data.token}`)
     }
     case 'create_artifact': {
-      const type = ['markdown', 'code', 'html', 'text'].includes(args.type) ? args.type : 'markdown'
+      const type = normalizeArtifactType(args.type)
       const { data, error } = await db.from('artifacts').insert({
         owner_id: owner,
         title: args.title,
@@ -656,18 +742,68 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         visibility: 'private',
       }).select('id').single()
       if (error) return text(`Error: ${error.message}`, true)
-      let note = ''
-      if (typeof args.collection === 'string' && args.collection.trim()) {
-        const col = await resolveCollection(db, owner, args.collection, true)
-        if (col) {
-          await db.from('collection_artifacts').upsert(
-            { collection_id: col.id, artifact_id: data.id, added_by: owner },
-            { onConflict: 'collection_id,artifact_id', ignoreDuplicates: true },
-          )
-          note = ` Filed into collection "${col.name}".`
-        }
+      const refs = collectionRefs(args)
+      const filed = refs.length ? await fileArtifactIntoCollections(db, owner, data.id, refs) : []
+      const note = filed.length ? ` Filed into collection${filed.length > 1 ? 's' : ''}: ${filed.join(', ')}.` : ''
+      return text(`Created artifact "${args.title}" (id ${data.id}) at /artifacts/${data.id}.${note}`)
+    }
+    case 'list_artifacts': {
+      const limit = clampLimit(args.limit, 20, 100)
+      let memberIds: string[] | null = null
+      const colRef = typeof args.collection === 'string' ? args.collection.trim() : ''
+      if (colRef) {
+        const col = await resolveCollection(db, owner, colRef, false)
+        if (!col) return text(`Collection "${colRef}" not found.`)
+        const { data: members } = await db.from('collection_artifacts').select('artifact_id').eq('collection_id', col.id)
+        memberIds = (members ?? []).map((m: { artifact_id: string }) => m.artifact_id)
+        if (!memberIds.length) return text(`No artifacts in collection "${col.name}".`)
       }
-      return text(`Created artifact "${args.title}" at /artifacts/${data.id}.${note}`)
+      let q = db
+        .from('artifacts')
+        .select('id, title, type, created_at')
+        .or(`owner_id.eq.${owner},visibility.neq.private`)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+      const titleContains = typeof args.title_contains === 'string' ? args.title_contains.trim() : ''
+      if (titleContains) q = q.ilike('title', `%${titleContains}%`)
+      const typeFilter = String(args.type ?? args.mime_type ?? '').trim().toLowerCase()
+      if (['markdown', 'code', 'html', 'text'].includes(typeFilter)) q = q.eq('type', typeFilter)
+      if (memberIds) q = q.in('id', memberIds)
+      const { data, error } = await q
+      if (error) return text(`Error: ${error.message}`, true)
+      const rows = (data ?? []) as Array<{ id: string; title: string; type: string; created_at: string }>
+      if (!rows.length) return text('No artifacts match. Use create_artifact to make one.')
+      const cols = await artifactCollectionsMap(db, rows.map((r) => r.id))
+      return text(
+        rows
+          .map((r) => {
+            const inCols = cols.get(r.id) ?? []
+            const when = new Date(r.created_at).toISOString().slice(0, 10)
+            return `• ${r.title} (${r.type}) — id: ${r.id} — created ${when}${
+              inCols.length ? ` — collections: ${inCols.join(', ')}` : ''
+            } — /artifacts/${r.id}`
+          })
+          .join('\n'),
+      )
+    }
+    case 'get_artifact': {
+      const ref = String(args.artifact ?? '').trim()
+      if (!ref) return text('get_artifact needs an artifact id or exact title.', true)
+      const art = await resolveArtifact(db, owner, ref)
+      if (!art) return text(`No artifact matches "${ref}".`, true)
+      const inCols = (await artifactCollectionsMap(db, [art.id])).get(art.id) ?? []
+      const cap = 16_000
+      const clipped = art.content.length > cap
+      const content = clipped ? art.content.slice(0, cap) : art.content
+      return text([
+        `id: ${art.id}`,
+        `title: ${art.title}`,
+        `type: ${art.type}`,
+        `url: /artifacts/${art.id}`,
+        `collections: ${inCols.length ? inCols.join(', ') : '(none)'}`,
+        `content${clipped ? ` (first ${cap} chars — it is longer)` : ''}:`,
+        content,
+      ].join('\n'))
     }
     case 'list_collections': {
       const { data } = await db
@@ -696,8 +832,15 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     }
     case 'add_to_collection': {
       const ref = String(args.collection ?? '').trim()
-      const artifactId = String(args.artifact_id ?? '').trim()
-      if (!ref || !artifactId) return text('add_to_collection needs collection and artifact_id.', true)
+      if (!ref) return text('add_to_collection needs a collection.', true)
+      let artifactId = String(args.artifact_id ?? '').trim()
+      const titleRef = String(args.artifact_title ?? '').trim()
+      if (!artifactId && titleRef) {
+        const art = await resolveArtifact(db, owner, titleRef)
+        if (!art) return text(`No artifact matches the title "${titleRef}".`, true)
+        artifactId = art.id
+      }
+      if (!artifactId) return text('add_to_collection needs artifact_id or artifact_title.', true)
       const col = await resolveCollection(db, owner, ref, true)
       if (!col) return text(`Could not resolve collection "${ref}".`, true)
       const { error } = await db.from('collection_artifacts').upsert(
