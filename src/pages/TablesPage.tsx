@@ -6,6 +6,7 @@ import { streamChat } from '../lib/chat'
 import {
   ArrowRightIcon,
   CalendarIcon,
+  ChevronDownIcon,
   GlobeIcon,
   LockIcon,
   PlusIcon,
@@ -14,6 +15,14 @@ import {
   TableIcon,
   TrashIcon,
 } from '../components/icons'
+import {
+  DEFAULT_COL_WIDTH,
+  clampColWidth,
+  nextSort,
+  parseColWidths,
+  sortRows,
+  type SortState,
+} from '../lib/tableView'
 
 type UserTable = Database['public']['Tables']['user_tables']['Row']
 type Row = Record<string, unknown>
@@ -314,6 +323,43 @@ function TableGrid({
   const [showAddField, setShowAddField] = useState(false)
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
+
+  // Column widths (drag-to-resize), persisted per-table in localStorage.
+  const widthsKey = `table-cols:${table.id}`
+  const [widths, setWidths] = useState<Record<string, number>>(() =>
+    parseColWidths(localStorage.getItem(widthsKey)),
+  )
+  const colWidth = useCallback(
+    (key: string) => widths[key] ?? DEFAULT_COL_WIDTH,
+    [widths],
+  )
+
+  const startResize = useCallback(
+    (key: string) => (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const target = e.currentTarget
+      const startX = e.clientX
+      const startW = widths[key] ?? DEFAULT_COL_WIDTH
+      target.setPointerCapture(e.pointerId)
+      const onMove = (ev: PointerEvent) => {
+        const w = clampColWidth(startW + (ev.clientX - startX))
+        setWidths((cur) => ({ ...cur, [key]: w }))
+      }
+      const onUp = () => {
+        target.removeEventListener('pointermove', onMove)
+        target.removeEventListener('pointerup', onUp)
+        setWidths((cur) => {
+          localStorage.setItem(widthsKey, JSON.stringify(cur))
+          return cur
+        })
+      }
+      target.addEventListener('pointermove', onMove)
+      target.addEventListener('pointerup', onUp)
+    },
+    [widths, widthsKey],
+  )
 
   const loadRows = useCallback(async () => {
     setLoading(true)
@@ -331,14 +377,21 @@ function TableGrid({
 
   const visibleRows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) =>
-      cols.some((c) => {
-        const v = r[c.key]
-        return v !== null && v !== undefined && String(typeof v === 'object' ? JSON.stringify(v) : v).toLowerCase().includes(q)
-      }),
-    )
-  }, [rows, cols, query])
+    const filtered = !q
+      ? rows
+      : rows.filter((r) =>
+          cols.some((c) => {
+            const v = r[c.key]
+            return (
+              v !== null &&
+              v !== undefined &&
+              String(typeof v === 'object' ? JSON.stringify(v) : v).toLowerCase().includes(q)
+            )
+          }),
+        )
+    const sortType = sort ? cols.find((c) => c.key === sort.key)?.type ?? 'text' : 'text'
+    return sortRows(filtered, sort, sortType)
+  }, [rows, cols, query, sort])
 
   async function addRow() {
     setBusy(true)
@@ -446,25 +499,53 @@ function TableGrid({
             </div>
           </div>
         ) : (
-          <table className="w-full border-collapse text-sm">
+          <table className="min-w-full table-fixed border-collapse text-sm">
+            <colgroup>
+              <col style={{ width: 48 }} />
+              {cols.map((c) => (
+                <col key={c.key} style={{ width: colWidth(c.key) }} />
+              ))}
+              <col style={{ width: 48 }} />
+            </colgroup>
             <thead className="sticky top-0 z-10 bg-surface">
               <tr>
-                <th className="w-12 border-b-2 border-border bg-surface px-2 py-2.5 text-center text-[11px] font-medium text-faint">
+                <th className="border-b-2 border-border bg-surface px-2 py-2.5 text-center text-[11px] font-medium text-faint">
                   #
                 </th>
-                {cols.map((c) => (
-                  <th
-                    key={c.key}
-                    title={typeLabel(c.type)}
-                    className="border-b-2 border-r border-border px-3 py-2.5 text-left font-medium text-muted"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <TypeGlyph type={c.type} />
-                      <span className="truncate">{c.label}</span>
-                    </span>
-                  </th>
-                ))}
-                <th className="w-12 border-b-2 border-border p-0 text-center">
+                {cols.map((c) => {
+                  const active = sort?.key === c.key
+                  return (
+                    <th
+                      key={c.key}
+                      title={typeLabel(c.type)}
+                      className="group/th relative border-b-2 border-r border-border p-0 text-left font-medium text-muted"
+                    >
+                      <button
+                        onClick={() => setSort((cur) => nextSort(cur, c.key))}
+                        title={`Sort by ${c.label}`}
+                        className="flex w-full items-center gap-1.5 px-3 py-2.5 text-left hover:text-text"
+                      >
+                        <TypeGlyph type={c.type} />
+                        <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                        <ChevronDownIcon
+                          className={`h-3.5 w-3.5 shrink-0 transition ${
+                            active
+                              ? `text-primary ${sort?.dir === 'asc' ? 'rotate-180' : ''}`
+                              : 'text-faint opacity-0 group-hover/th:opacity-60'
+                          }`}
+                        />
+                      </button>
+                      {/* Drag the right edge to widen/narrow this column. */}
+                      <div
+                        onPointerDown={startResize(c.key)}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Drag to resize"
+                        className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none select-none hover:bg-primary/30 active:bg-primary/50"
+                      />
+                    </th>
+                  )
+                })}
+                <th className="border-b-2 border-border p-0 text-center">
                   <button
                     onClick={() => setShowAddField(true)}
                     title="Add a field"
