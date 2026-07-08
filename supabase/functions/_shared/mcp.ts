@@ -159,9 +159,17 @@ async function readToken(db: DB, serverId: string): Promise<string | null> {
 }
 
 // A short, function-name-safe namespace prefix from the tool row name.
-function prefixOf(name: string): string {
+export function mcpPrefix(name: string): string {
   const p = (name || 'mcp').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
   return p || 'mcp'
+}
+
+// The namespaced function name for a remote tool: `‹label›__‹remote›`, capped at
+// 64 chars (OpenAI/OpenRouter function-name limit). Pure + exported so both the
+// agent-loop expansion and the MCP server that re-exposes these tools to an
+// external Claude agree on the exact same name.
+export function namespacedToolName(label: string, remote: string): string {
+  return `${mcpPrefix(label)}${NS_SEP}${remote}`.slice(0, 64)
 }
 
 // Discover a server's toolset and cache it on its mcp_servers row. Used by the
@@ -213,9 +221,8 @@ export async function expandMcpTools(
       }
     }
 
-    const prefix = prefixOf(row.name)
     for (const t of cached) {
-      const ns = `${prefix}${NS_SEP}${t.name}`.slice(0, 64)
+      const ns = namespacedToolName(row.name, t.name)
       tools.push(toORTool(ns, t.description, t.input_schema))
       router.set(ns, { url, serverId, remote: t.name })
       capabilities.push(`\`${ns}\` — ${t.description}`)
