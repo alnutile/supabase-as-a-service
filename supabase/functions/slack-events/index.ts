@@ -22,9 +22,13 @@ import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
+  buildParticipationSystem,
   fetchSlackTranscript,
   fetchSlackUserNames,
   formatTranscript,
+  mentionsBot,
+  parseParticipationVerdict,
+  passesAmbientPrefilter,
   postSlackMessage,
   shouldSkipEvent,
   slackTextToPlain,
@@ -39,6 +43,7 @@ import {
   orComplete,
   parseToolArgs,
   reasoningParam,
+  systemMsg,
   toolResultMsg,
   toORTool,
   WEB_SEARCH_TOOL,
@@ -110,13 +115,19 @@ interface Binding {
   owner_id: string
   allow_tools: boolean
   is_active: boolean
+  mode: string
+  participation_prompt: string
+  gate_model: string | null
+  capture_messages: boolean
 }
 
-// The model run + Slack reply, executed AFTER the 200 ack (EdgeRuntime.waitUntil).
+// Entry after the 200 ack (EdgeRuntime.waitUntil). Dispatches on event type:
+// an @mention always replies (with a "not linked" nudge if the channel has no
+// binding); a plain channel message only does anything in an AMBIENT channel,
+// where it's captured to the inbox and a cheap model decides whether to chime in.
 // deno-lint-ignore no-explicit-any
 async function processEvent(db: any, secrets: SlackSecrets, event: SlackEvent, eventRowId: string | null) {
   const channel = event.channel!
-  const threadTs = event.thread_ts ?? event.ts ?? null
   const setStatus = async (patch: Record<string, unknown>) => {
     if (eventRowId) await db.from('slack_events').update(patch).eq('id', eventRowId)
   }
@@ -128,20 +139,139 @@ async function processEvent(db: any, secrets: SlackSecrets, event: SlackEvent, e
       .eq('channel_id', channel)
       .eq('is_active', true)
       .maybeSingle() as { data: Binding | null }
-    if (!binding) {
-      await postSlackMessage(
-        secrets.bot_token,
-        channel,
-        'This channel isn’t linked to the workspace yet — an admin can bind it to a collection in Settings → Slack.',
-        threadTs,
-      )
-      await setStatus({ status: 'skipped', error: 'no binding for channel' })
+
+    if (event.type === 'app_mention') {
+      if (!binding) {
+        await postSlackMessage(
+          secrets.bot_token,
+          channel,
+          'This channel isn’t linked to the workspace yet — an admin can bind it to a collection in Settings → Slack.',
+          event.thread_ts ?? event.ts ?? null,
+        )
+        await setStatus({ status: 'skipped', error: 'no binding for channel' })
+        return
+      }
+      const text = slackTextToPlain(stripBotMention(event.text ?? '', secrets.bot_user_id))
+      await setStatus({ text })
+      await respondToMessage(db, secrets, binding, event, eventRowId, text)
       return
     }
 
-    const text = slackTextToPlain(stripBotMention(event.text ?? '', secrets.bot_user_id))
+    // Plain channel message. Only ambient channels react to these.
+    if (!binding || binding.mode !== 'ambient') {
+      await setStatus({ status: 'skipped', error: 'not an ambient channel' })
+      return
+    }
+    const text = slackTextToPlain(event.text ?? '')
     await setStatus({ text })
 
+    // Absorb every message into the unified inbox first (even if the bot stays
+    // silent) so channel traffic is searchable/filable and drives listeners.
+    if (binding.capture_messages) await captureToInbox(db, binding, event, text)
+
+    // A message that @mentions the bot is also delivered as its own app_mention
+    // event — let that path reply, so we don't answer twice.
+    if (mentionsBot(event.text ?? '', secrets.bot_user_id)) {
+      await setStatus({ status: 'skipped', error: 'mention handled by app_mention' })
+      return
+    }
+    // Cheap heuristic gate before spending a model call.
+    if (!passesAmbientPrefilter(text)) {
+      await setStatus({ status: 'skipped', error: 'prefiltered' })
+      return
+    }
+    // Cheap model decides whether to chime in, guided by the channel prompt.
+    const verdict = await decideParticipation(db, secrets, binding, event, text)
+    if (!verdict.respond) {
+      await setStatus({ status: 'skipped', error: `stayed silent: ${verdict.reason}`.slice(0, 300) })
+      return
+    }
+    await respondToMessage(db, secrets, binding, event, eventRowId, text)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'processing failed'
+    await setStatus({ status: 'error', error: message })
+  }
+}
+
+// Capture a Slack channel message into the unified inbox (source='slack'),
+// deduped per (channel, ts). Best-effort — never blocks the reply path.
+// deno-lint-ignore no-explicit-any
+async function captureToInbox(db: any, binding: Binding, event: SlackEvent, text: string) {
+  try {
+    await db.from('inbox_messages').insert({
+      owner_id: binding.owner_id,
+      source: 'slack',
+      external_id: `${event.channel}:${event.ts}`,
+      from_name: '',
+      from_address: event.user ?? '',
+      subject: '',
+      body_text: text.slice(0, 50_000),
+      visibility: 'workspace',
+      raw: {
+        channel: event.channel,
+        channel_name: binding.channel_name,
+        ts: event.ts,
+        thread_ts: event.thread_ts ?? null,
+        slack_user: event.user,
+      },
+    })
+  } catch {
+    // Duplicate re-delivery (unique on source+external_id) or transient error.
+  }
+}
+
+// The "should the bot chime in?" gate: one cheap model call (the binding's
+// gate_model override, else the utility profile) that returns a JSON verdict.
+// Fails SILENT — for ambient replies a false positive (spam) is worse than a miss.
+// deno-lint-ignore no-explicit-any
+async function decideParticipation(
+  db: any,
+  secrets: SlackSecrets,
+  binding: Binding,
+  event: SlackEvent,
+  text: string,
+): Promise<{ respond: boolean; reason: string }> {
+  try {
+    const transcriptMsgs = await fetchSlackTranscript(secrets.bot_token, event.channel!, event.thread_ts ?? null, 8)
+    const names = await fetchSlackUserNames(
+      secrets.bot_token,
+      [...(event.user ? [event.user] : []), ...transcriptMsgs.map((m) => m.user).filter((u): u is string => Boolean(u))],
+    )
+    const asker = names.get(event.user ?? '') ?? event.user ?? 'someone'
+    const transcript = formatTranscript(transcriptMsgs, names, event.ts)
+    const gateModel = binding.gate_model?.trim() || (await resolveModel(db, 'utility'))
+    const userContent =
+      (transcript ? `Recent messages in this channel:\n${transcript}\n\n` : '') + `New message from ${asker}:\n${text}`
+    const out = await orComplete({
+      model: gateModel,
+      maxTokens: 200,
+      messages: [systemMsg(buildParticipationSystem(binding.participation_prompt)), { role: 'user', content: userContent }],
+    })
+    await recordUsage(db, { context: 'slack', model: gateModel, actorId: binding.owner_id, usage: out.usage })
+    return parseParticipationVerdict(out.content)
+  } catch {
+    return { respond: false, reason: 'gate error' }
+  }
+}
+
+// The model run + Slack reply for a message we've decided to answer (an @mention,
+// or an ambient message the gate approved). Executed after the 200 ack.
+// deno-lint-ignore no-explicit-any
+async function respondToMessage(
+  db: any,
+  secrets: SlackSecrets,
+  binding: Binding,
+  event: SlackEvent,
+  eventRowId: string | null,
+  text: string,
+) {
+  const channel = event.channel!
+  const threadTs = event.thread_ts ?? event.ts ?? null
+  const setStatus = async (patch: Record<string, unknown>) => {
+    if (eventRowId) await db.from('slack_events').update(patch).eq('id', eventRowId)
+  }
+
+  try {
     // Guardrails: Slack messages are multi-user, semi-trusted input evaluated
     // like webhook payloads — and like webhooks this unattended path fails
     // CLOSED (an evaluator error blocks the run).
@@ -270,8 +400,8 @@ async function processEvent(db: any, secrets: SlackSecrets, event: SlackEvent, e
     await setStatus({ status: 'ok', result })
     await db.from('activity_log').insert({
       type: 'slack.reply',
-      summary: `Answered @mention in #${binding.channel_name || channel}`,
-      detail: { slack_event_id: eventRowId, asked_by: asker, agent_id: binding.agent_id },
+      summary: `Replied in #${binding.channel_name || channel}${event.type === 'app_mention' ? '' : ' (ambient)'}`,
+      detail: { slack_event_id: eventRowId, asked_by: asker, agent_id: binding.agent_id, ambient: event.type !== 'app_mention' },
       actor_id: binding.owner_id,
     })
   } catch (err) {
@@ -318,7 +448,10 @@ Deno.serve(async (req: Request) => {
   if (body?.type !== 'event_callback') return json({ ok: true, ignored: true })
 
   const event = (body.event ?? {}) as SlackEvent
-  if (event.type !== 'app_mention') return json({ ok: true, ignored: true })
+  // @mentions always; plain channel messages too (the ambient path decides what
+  // to do with them). Threaded broadcasts and other message subtypes are dropped
+  // by shouldSkipEvent below.
+  if (event.type !== 'app_mention' && event.type !== 'message') return json({ ok: true, ignored: true })
   const skip = shouldSkipEvent(event)
   if (skip) return json({ ok: true, ignored: true, reason: skip })
 

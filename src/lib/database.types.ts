@@ -1362,6 +1362,10 @@ export interface Database {
           owner_id: string
           allow_tools: boolean
           is_active: boolean
+          mode: string
+          participation_prompt: string
+          gate_model: string | null
+          capture_messages: boolean
           created_at: string
           updated_at: string
         }
@@ -1374,6 +1378,10 @@ export interface Database {
           owner_id: string
           allow_tools?: boolean
           is_active?: boolean
+          mode?: string
+          participation_prompt?: string
+          gate_model?: string | null
+          capture_messages?: boolean
           created_at?: string
           updated_at?: string
         }
