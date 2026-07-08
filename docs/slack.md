@@ -75,10 +75,48 @@ settings:
     request_url: https://<project-ref>.supabase.co/functions/v1/slack-events
     bot_events:
       - app_mention
+      - message.channels   # ambient mode: all messages in public channels
+      - message.groups     # ambient mode: all messages in private channels
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
 ```
+
+The `message.channels`/`message.groups` subscriptions are only needed for
+**ambient mode** (below). If you only ever want mention-only behavior you can
+drop them — the bot ignores non-mention messages in non-ambient channels anyway.
+
+## Ambient mode (Claude-Tag style)
+
+By default the bot is mention-only. A binding can instead be set to **ambient**
+(Settings → Slack → *Bind a channel* → "Ambient mode"), where the bot reads
+every message in the channel and a cheap model decides whether to chime in
+without being mentioned.
+
+How a channel message is handled when the binding is ambient:
+
+1. **Absorb** — the message is saved into the unified Inbox (`inbox_messages`,
+   `source='slack'`) when *Save messages to the inbox* is on, so channel traffic
+   is searchable, filable into collections, and can drive event listeners — even
+   if the bot stays silent.
+2. **Skip mentions** — if the message @mentions the bot, the separate
+   `app_mention` event handles the reply (no double answer).
+3. **Pre-filter** — trivial/reaction messages (emoji, "lol", bare links) are
+   dropped before any model call, so busy channels stay cheap.
+4. **Decide** — one call to the binding's **decision model** (any OpenRouter
+   slug, e.g. `anthropic/claude-haiku-4.5`; blank = the workspace `utility`
+   profile) using the channel's **participation prompt** ("chime in on billing
+   questions; stay quiet for banter") returns a strict-JSON `{respond, reason}`.
+   It **fails silent** — if the check errors or is unparseable, the bot stays
+   quiet (spamming a channel is worse than missing one).
+5. **Reply** — on `respond: true` it runs the exact same guardrails + agent loop
+   + in-thread reply as an @mention.
+
+Cost/noise notes: ambient is **opt-in per channel** — existing mention-only
+bindings are untouched. The pre-filter + the "default to silent" prompt + the
+cheap decision model keep it affordable, but a very busy ambient channel will
+make one cheap model call per non-trivial message. Point the decision model at
+Haiku (or any cheaper OpenRouter model) to tune the bill.
 
 ## Security notes
 
@@ -99,6 +137,7 @@ settings:
 
 - DMs to the bot (`message.im`) answering with the DM-er's own context.
 - A `send_slack_message` builtin so scheduled agents can post proactive
-  updates ("ambient" behavior) into bound rooms.
+  updates into bound rooms.
 - In-channel binding management (`@bot use collection "Acme"`).
-- Filing notable channel messages back into the bound collection (memory).
+- A per-thread cooldown / rate cap for ambient channels, and resolving Slack
+  display names on captured inbox messages (they store the raw user id today).

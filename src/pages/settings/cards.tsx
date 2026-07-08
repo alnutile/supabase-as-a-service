@@ -927,6 +927,10 @@ export function SlackCard() {
   const [picked, setPicked] = useState<string[]>([])
   const [agentId, setAgentId] = useState('')
   const [allowTools, setAllowTools] = useState(false)
+  const [ambient, setAmbient] = useState(false)
+  const [participationPrompt, setParticipationPrompt] = useState('')
+  const [gateModel, setGateModel] = useState('')
+  const [captureMessages, setCaptureMessages] = useState(true)
   const [adding, setAdding] = useState(false)
 
   const load = useCallback(async () => {
@@ -1007,6 +1011,8 @@ settings:
     request_url: ${slackEventsUrl}
     bot_events:
       - app_mention
+      - message.channels
+      - message.groups
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
@@ -1040,6 +1046,10 @@ settings:
       agent_id: agentId || null,
       owner_id: user.id,
       allow_tools: allowTools,
+      mode: ambient ? 'ambient' : 'mention',
+      participation_prompt: ambient ? participationPrompt.trim() : '',
+      gate_model: ambient && gateModel.trim() ? gateModel.trim() : null,
+      capture_messages: captureMessages,
     })
     setAdding(false)
     if (insErr) {
@@ -1051,6 +1061,10 @@ settings:
     setPicked([])
     setAgentId('')
     setAllowTools(false)
+    setAmbient(false)
+    setParticipationPrompt('')
+    setGateModel('')
+    setCaptureMessages(true)
     setShowAdd(false)
     load()
   }
@@ -1073,8 +1087,9 @@ settings:
       <h2 className="text-sm font-semibold text-text">Slack</h2>
       <p className="mt-1 text-sm text-muted">
         Add the workspace bot to Slack rooms and bind each room to collections — @mention it and it
-        answers with that room's docs, files, to-dos and links. Credentials are stored in Supabase
-        Vault, never in the browser.
+        answers with that room's docs, files, to-dos and links. Turn on <strong>ambient mode</strong> for a
+        channel to have it read every message and decide when to chime in on its own. Credentials are stored
+        in Supabase Vault, never in the browser.
       </p>
 
       {loading ? (
@@ -1300,6 +1315,65 @@ settings:
                       Allow the agent's tools
                     </label>
                   </div>
+
+                  {/* Ambient participation (Claude-Tag style) */}
+                  <div className="rounded-lg border border-border bg-surface-2 p-3">
+                    <label className="flex items-center gap-2 text-sm font-medium text-text">
+                      <input
+                        type="checkbox"
+                        checked={ambient}
+                        onChange={(e) => setAmbient(e.target.checked)}
+                        className="h-4 w-4 rounded border-border-strong"
+                      />
+                      Ambient mode — listen to every message and decide when to chime in
+                    </label>
+                    <p className="mt-1 text-[11px] text-faint">
+                      Off (default): the bot only replies when @mentioned. On: it reads all channel messages and a
+                      cheap model decides whether to jump in, guided by your prompt below.
+                    </p>
+                    {ambient && (
+                      <div className="mt-3 space-y-3">
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-muted">
+                            When should it chime in? <span className="text-faint">— channel guidance</span>
+                          </span>
+                          <textarea
+                            value={participationPrompt}
+                            onChange={(e) => setParticipationPrompt(e.target.value)}
+                            rows={3}
+                            placeholder="e.g. Jump in when someone asks a product or billing question, or seems stuck. Stay quiet for banter, greetings, and side chatter."
+                            className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                          />
+                        </label>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="block">
+                            <span className="mb-1 block text-xs font-medium text-muted">
+                              Decision model <span className="text-faint">— optional OpenRouter slug</span>
+                            </span>
+                            <input
+                              value={gateModel}
+                              onChange={(e) => setGateModel(e.target.value)}
+                              placeholder="anthropic/claude-haiku-4.5"
+                              className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                            />
+                            <span className="mt-1 block text-[11px] text-faint">
+                              Runs the "should I reply?" check. Blank uses the workspace utility model (cheap).
+                            </span>
+                          </label>
+                          <label className="mt-5 flex items-center gap-2 text-sm text-muted">
+                            <input
+                              type="checkbox"
+                              checked={captureMessages}
+                              onChange={(e) => setCaptureMessages(e.target.checked)}
+                              className="h-4 w-4 rounded border-border-strong"
+                            />
+                            Save messages to the Inbox
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <button
                     onClick={addBinding}
                     disabled={adding}
@@ -1324,6 +1398,9 @@ settings:
                         )}
                         {b.allow_tools && (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">tools on</span>
+                        )}
+                        {b.mode === 'ambient' && (
+                          <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary">ambient</span>
                         )}
                         <span className="ml-auto flex items-center gap-2">
                           <button

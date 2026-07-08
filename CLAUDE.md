@@ -407,9 +407,22 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   Pure logic (signature verify, mention stripping, Slack-text decode, markdown→mrkdwn,
   skip rules, transcript formatting) lives in `_shared/slack.ts` and is unit-tested
   (`tests/slack_test.ts`). Usage logs with `context='slack'`; replies log `slack.reply` to
-  the activity feed. Setup guide + app manifest: `docs/slack.md`. *(Planned: DMs, a
-  `send_slack_message` builtin for scheduled/ambient posts, in-channel binding commands,
-  filing channel messages back into the collection as memory.)*
+  the activity feed. Setup guide + app manifest: `docs/slack.md`.
+  **Ambient participation (Claude-Tag style, migration 0066):** a binding can set
+  `mode='ambient'` to have the bot **listen to every message** (not just @mentions) and a
+  cheap model decide whether to chime in. The manifest then subscribes to `message.channels`/
+  `message.groups`; the function handles `message` events for ambient channels only (plain
+  channels stay mention-only — zero regression). Flow per message: capture it into the unified
+  inbox (`inbox_messages`, `source='slack'`, when `capture_messages`) → skip if it @mentions
+  the bot (the `app_mention` event handles those, no double reply) → a pure `passesAmbientPrefilter`
+  heuristic drops trivial/reaction messages before any model call → `decideParticipation` runs
+  ONE `orComplete` on the binding's `gate_model` (any OpenRouter slug, else the `utility`
+  profile) with `buildParticipationSystem(participation_prompt)` and returns a strict-JSON
+  verdict via `parseParticipationVerdict` (fails **silent** — a false positive/spam is worse
+  than a miss). On `respond:true` it runs the same reply path as an @mention. The new pure
+  helpers live in `_shared/slack.ts` and are unit-tested. *(Planned: DMs, a
+  `send_slack_message` builtin for scheduled/ambient posts, in-channel binding commands, a
+  per-thread cooldown, name-resolving captured messages.)*
 - **Prompts & skills:** one `skills` table, two modes.
   - `auto_apply = true` → **always-on** prompts (admin-managed, workspace-wide). The
     seeded `is_builtin` "How this workspace works" prompt teaches the assistant the

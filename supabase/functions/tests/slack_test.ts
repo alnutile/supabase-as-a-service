@@ -4,8 +4,12 @@
 // what Slack renders.
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
+  buildParticipationSystem,
   computeSlackSignature,
   formatTranscript,
+  mentionsBot,
+  parseParticipationVerdict,
+  passesAmbientPrefilter,
   shouldSkipEvent,
   slackTextToPlain,
   stripBotMention,
@@ -119,4 +123,42 @@ Deno.test('formatTranscript names speakers and excludes the trigger message', ()
   )
   // Unknown users fall back to their id; empty messages are dropped.
   assertEquals(formatTranscript([{ user: 'U9', text: 'hi', ts: '4' }, { user: 'U9', text: ' ', ts: '5' }], names), 'U9: hi')
+})
+
+Deno.test('mentionsBot detects the bot user id in raw text', () => {
+  assertEquals(mentionsBot('<@U0BOT> help', 'U0BOT'), true)
+  assertEquals(mentionsBot('<@U0BOT|assistant> help', 'U0BOT'), true)
+  assertEquals(mentionsBot('hey <@U999> look', 'U0BOT'), false)
+  assertEquals(mentionsBot('no mention here', 'U0BOT'), false)
+  assertEquals(mentionsBot('<@U0BOT> hi', null), false)
+})
+
+Deno.test('passesAmbientPrefilter skips trivial / reaction messages', () => {
+  assertEquals(passesAmbientPrefilter('👍'), false)
+  assertEquals(passesAmbientPrefilter('lol'), false)
+  assertEquals(passesAmbientPrefilter('thanks!'), false)
+  assertEquals(passesAmbientPrefilter(':tada: :fire:'), false)
+  assertEquals(passesAmbientPrefilter('<https://example.com>'), false)
+  assertEquals(passesAmbientPrefilter('how do I reset my password?'), true)
+  assertEquals(passesAmbientPrefilter('can someone help with the deploy pipeline'), true)
+})
+
+Deno.test('buildParticipationSystem embeds guidance and demands JSON', () => {
+  const sys = buildParticipationSystem('Chime in on billing questions.')
+  assertEquals(sys.includes('Chime in on billing questions.'), true)
+  assertEquals(sys.includes('STRICT JSON'), true)
+  // Blank guidance still yields a usable default posture.
+  assertEquals(buildParticipationSystem('').includes('No specific guidance'), true)
+})
+
+Deno.test('parseParticipationVerdict parses and fails silent', () => {
+  assertEquals(parseParticipationVerdict('{"respond": true, "reason": "asked a question"}'), {
+    respond: true,
+    reason: 'asked a question',
+  })
+  // Tolerates surrounding prose / fences by isolating the JSON object.
+  assertEquals(parseParticipationVerdict('Sure!\n```json\n{"respond": false, "reason": "banter"}\n```').respond, false)
+  // Malformed → silent (do NOT respond).
+  assertEquals(parseParticipationVerdict('not json at all'), { respond: false, reason: 'unparseable' })
+  assertEquals(parseParticipationVerdict('{"respond": "yes"}').respond, false)
 })
