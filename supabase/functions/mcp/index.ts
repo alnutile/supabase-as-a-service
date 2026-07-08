@@ -8,6 +8,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { ingestText } from '../_shared/knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from '../_shared/files.ts'
+import { expandMcpTools, type McpRouter, runMcpTool } from '../_shared/mcp.ts'
 import {
   createLoop,
   findOrCreateLoopAgent,
@@ -1104,6 +1105,40 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
   }
 }
 
+// Names of the tools this server implements directly (the build/authoring tools).
+const STATIC_TOOL_NAMES = new Set(TOOLS.map((t) => t.name))
+
+type McpTool = { name: string; description: string; inputSchema: Record<string, unknown> }
+
+// External MCP servers (Settings → External MCP) connect the workspace OUT to any
+// MCP endpoint — e.g. a Playwright MCP for browser automation. Those remote tools
+// already reach the internal agent loops; here we ALSO re-expose them through this
+// server so an external Claude (Desktop / Code) that connects to the workspace gets
+// Playwright & friends in the SAME tool list, alongside the build/authoring tools.
+// Each active `kind='mcp'` tools row is a connected server; expandMcpTools discovers
+// its (cached) toolset and returns namespaced specs + a router to execute them.
+async function loadExternalTools(db: DB): Promise<{ tools: McpTool[]; router: McpRouter }> {
+  const { data } = await db.from('tools').select('id, name, config').eq('kind', 'mcp').eq('is_active', true)
+  const rows = (data ?? []).map((r) => ({
+    id: r.id as string,
+    name: r.name as string,
+    config: (r.config ?? {}) as { url?: string; server_id?: string },
+  }))
+  if (!rows.length) return { tools: [], router: new Map() }
+  try {
+    const { tools, router } = await expandMcpTools(db, rows)
+    const mcpTools: McpTool[] = tools
+      .filter((t) => t.type === 'function')
+      .map((t) => {
+        const fn = (t as { function: { name: string; description: string; parameters: Record<string, unknown> } }).function
+        return { name: fn.name, description: fn.description, inputSchema: fn.parameters }
+      })
+    return { tools: mcpTools, router }
+  } catch {
+    return { tools: [], router: new Map() }
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method === 'GET') {
@@ -1161,12 +1196,20 @@ Deno.serve(async (req: Request) => {
       })
     case 'ping':
       return reply({})
-    case 'tools/list':
-      return reply({ tools: TOOLS })
+    case 'tools/list': {
+      const ext = await loadExternalTools(db)
+      return reply({ tools: [...TOOLS, ...ext.tools] })
+    }
     case 'tools/call': {
       const name = params?.name as string
       const args = (params?.arguments as Record<string, unknown>) ?? {}
       try {
+        // A namespaced name (‹server›__‹tool›) that isn't one of ours routes to the
+        // connected external MCP server (e.g. Playwright) that provides it.
+        if (!STATIC_TOOL_NAMES.has(name)) {
+          const ext = await loadExternalTools(db)
+          if (ext.router.has(name)) return reply(text(await runMcpTool(db, ext.router, name, args)))
+        }
         return reply(await callTool(db, owner, name, args))
       } catch (err) {
         return reply(text(`Tool failed: ${err instanceof Error ? err.message : 'error'}`, true))

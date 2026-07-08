@@ -557,8 +557,19 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   validates one server (`server_id`) server-side and refreshes its cache. The remote tools are
   exfiltration-capable (they can send mail), so they carry the same workspace-wide trust as
   `send_email`. The `mcp_servers.owner_id`/`scope` columns exist for **per-user servers
-  (Phase 2, not built)** — every row is workspace-wide for now. *(Planned: per-user tokens +
-  a member-facing UI, auto-refresh, and wiring the eval `orchestrator`/`loop` loops.)*
+  (Phase 2, not built)** — every row is workspace-wide for now.
+  **Re-exposed through the MCP *server* (Playwright & other browser tools):** the same
+  connected external MCP servers are also surfaced back OUT through our own `mcp` server —
+  the `mcp` function's `tools/list` appends each active `kind='mcp'` handle's discovered
+  toolset (via the shared `expandMcpTools`, so the tool names match exactly) and `tools/call`
+  routes any namespaced `‹label›__‹remote›` name it doesn't implement itself to `runMcpTool`.
+  So an admin connects a **Playwright MCP** endpoint once in Settings → External MCP and its
+  browser-automation tools appear to **Claude Desktop / Claude Code / any external AI** that
+  connects to the workspace MCP endpoint, alongside the build/authoring tools — a single
+  unified endpoint. The namespacing (`mcpPrefix` / `namespacedToolName` in `_shared/mcp.ts`)
+  is pure + unit-tested (`tests/mcp_test.ts`); setup guide: `docs/playwright-mcp.md`.
+  *(Planned: per-user tokens + a member-facing UI, auto-refresh, and wiring the eval
+  `orchestrator`/`loop` loops.)*
 - **Email:** two seeded `is_builtin` tools — `send_email` and `check_email` — let any
   user or agent use email once an admin configures a provider in **Settings → Email**.
   Sending goes through an HTTP provider (Postmark / Resend, not raw SMTP); receiving is
