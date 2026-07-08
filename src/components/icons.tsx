@@ -91,6 +91,12 @@ export const SendIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const StopIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />
+  </svg>
+)
+
 export const LockIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="3" y="11" width="18" height="11" rx="2" />

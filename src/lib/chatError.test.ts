@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { friendlyChatError } from './chatError'
+import { friendlyChatError, isAbortError } from './chatError'
+
+describe('isAbortError', () => {
+  it('recognizes a DOMException-style AbortError', () => {
+    expect(isAbortError({ name: 'AbortError', message: 'aborted' })).toBe(true)
+  })
+
+  it('recognizes an Error whose name is AbortError', () => {
+    const err = new Error('The user aborted a request.')
+    err.name = 'AbortError'
+    expect(isAbortError(err)).toBe(true)
+  })
+
+  it('is false for ordinary errors and non-objects', () => {
+    expect(isAbortError(new Error('boom'))).toBe(false)
+    expect(isAbortError('AbortError')).toBe(false)
+    expect(isAbortError(null)).toBe(false)
+    expect(isAbortError(undefined)).toBe(false)
+  })
+})
 
 describe('friendlyChatError', () => {
   it('passes an already-parsed message through unchanged', () => {
