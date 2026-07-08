@@ -50,6 +50,18 @@ function pickMessage(obj: unknown, depth = 0): string | null {
   return null
 }
 
+// A stream the user deliberately stopped (via the composer's Stop button) rejects
+// with an AbortError — we treat that as a normal outcome, not an error to surface.
+// DOMException isn't an `Error` in every runtime, so match on `.name` structurally.
+export function isAbortError(err: unknown): boolean {
+  return (
+    !!err &&
+    typeof err === 'object' &&
+    'name' in err &&
+    (err as { name?: unknown }).name === 'AbortError'
+  )
+}
+
 export function friendlyChatError(raw: unknown, fallback = 'Something went wrong. Please try again.'): string {
   const text = (raw instanceof Error ? raw.message : String(raw ?? '')).trim()
   if (!text) return fallback

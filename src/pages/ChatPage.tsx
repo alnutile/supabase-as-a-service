@@ -9,7 +9,7 @@ import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { uploadPickedFile } from '../lib/upload'
 import { estimateTokensFromChars } from '../lib/tokens'
 import { normalizeChatTitle, skillInvocationSentence } from '../lib/util'
-import { friendlyChatError } from '../lib/chatError'
+import { friendlyChatError, isAbortError } from '../lib/chatError'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextUsage } from '../components/ContextMeter'
 import { useAuth } from '../contexts/AuthContext'
@@ -31,6 +31,7 @@ import {
   PlusIcon,
   SendIcon,
   SkillIcon,
+  StopIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   TrashIcon,
@@ -111,6 +112,16 @@ export default function ChatPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const seen = useRef<Set<string>>(new Set())
+  // Aborts the in-flight streamed response so the user can stop a run they
+  // started (e.g. sent by accident). Cleared when the run settles.
+  const abortRef = useRef<AbortController | null>(null)
+
+  // Stop the current model run. The stream rejects with an AbortError, which
+  // submit()/runSkill() treat as a normal stop (no error banner, partial text
+  // dropped) — the user asked to cancel, not to see a failure.
+  const stop = useCallback(() => {
+    abortRef.current?.abort()
+  }, [])
 
   // --- Load conversation list (pinned first, then most-recent) ---
   const loadConversations = useCallback(async () => {
@@ -621,6 +632,8 @@ export default function ChatPage() {
         },
       ]
 
+      const controller = new AbortController()
+      abortRef.current = controller
       setStreaming('')
       const full = await streamChat(
         history,
@@ -643,6 +656,7 @@ export default function ChatPage() {
             ...(system ? { system } : {}),
             ...(agent ? { toolIds: agent.tool_ids } : {}),
             ...(merged.length ? { collectionIds: merged } : {}),
+            signal: controller.signal,
           }
         })(),
       )
@@ -657,8 +671,11 @@ export default function ChatPage() {
       loadConversations()
     } catch (err) {
       setStreaming(null)
-      setError(friendlyChatError(err, 'Failed to send'))
+      // The user hit Stop — cancel quietly (no error banner). The user message
+      // stays; the partial reply is dropped.
+      if (!isAbortError(err)) setError(friendlyChatError(err, 'Failed to send'))
     } finally {
+      abortRef.current = null
       setSending(false)
     }
   }
@@ -760,13 +777,19 @@ export default function ChatPage() {
         { role: 'user', content: 'Run the skill on the context above and produce the final output now.' },
       ]
 
+      const controller = new AbortController()
+      abortRef.current = controller
       setStreaming('')
       const full = await streamChat(
         modelHistory,
         (delta) => setStreaming((s) => (s ?? '') + delta),
         // Artifact skills fully control output (clean, no workspace chatter);
         // reply skills layer on top of the always-on context.
-        { system: skill.instructions, replaceSystem: skill.output_mode === 'artifact' },
+        {
+          system: skill.instructions,
+          replaceSystem: skill.output_mode === 'artifact',
+          signal: controller.signal,
+        },
       )
       setStreaming(null)
 
@@ -799,8 +822,9 @@ export default function ChatPage() {
       loadConversations()
     } catch (err) {
       setStreaming(null)
-      setError(friendlyChatError(err, 'Skill failed'))
+      if (!isAbortError(err)) setError(friendlyChatError(err, 'Skill failed'))
     } finally {
+      abortRef.current = null
       setSending(false)
     }
   }
@@ -1427,18 +1451,31 @@ export default function ChatPage() {
                 }
                 className="max-h-64 min-h-[120px] flex-1 resize-none rounded-xl border border-border-strong px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
               />
-              <button
-                type="submit"
-                disabled={
-                  sending ||
-                  uploading ||
-                  (!input.trim() && attachments.length === 0 && !armedSkill) ||
-                  input.startsWith('/')
-                }
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-strong disabled:opacity-50"
-              >
-                <SendIcon className="h-5 w-5" />
-              </button>
+              {sending ? (
+                // While a run is in flight, the send button becomes Stop so the
+                // user can cancel a response (e.g. one they triggered by accident).
+                <button
+                  type="button"
+                  onClick={stop}
+                  title="Stop generating"
+                  aria-label="Stop generating"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-strong"
+                >
+                  <StopIcon className="h-5 w-5" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={
+                    uploading ||
+                    (!input.trim() && attachments.length === 0 && !armedSkill) ||
+                    input.startsWith('/')
+                  }
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary-strong disabled:opacity-50"
+                >
+                  <SendIcon className="h-5 w-5" />
+                </button>
+              )}
             </div>
           </div>
         </form>
