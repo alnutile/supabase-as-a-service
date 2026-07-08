@@ -4,6 +4,7 @@ import { emailInboundUrl, mcpUrl, slackEventsUrl, supabase } from '../../lib/sup
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate } from '../../lib/util'
 import { CopyIcon, PlusIcon, TrashIcon } from '../../components/icons'
+import { bindingToForm, buildSlackBindingPayload } from '../../lib/slackBinding'
 
 // The Settings cards live here so the per-area Settings pages
 // (src/pages/settings/*.tsx) can each render one. They were split out of the
@@ -932,6 +933,7 @@ export function SlackCard() {
   const [gateModel, setGateModel] = useState('')
   const [captureMessages, setCaptureMessages] = useState(true)
   const [adding, setAdding] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const [integ, binds, colls, ags] = await Promise.all([
@@ -1031,31 +1033,7 @@ settings:
     ? `https://${workspaceHost.includes('.') ? workspaceHost : `${workspaceHost}.slack.com`}`
     : null
 
-  async function addBinding() {
-    setError(null)
-    if (!user) return
-    if (!channelId.trim()) {
-      setError('The Slack channel ID (C…) is required — channel details → About → Channel ID.')
-      return
-    }
-    setAdding(true)
-    const { error: insErr } = await supabase.from('slack_channel_bindings').insert({
-      channel_id: channelId.trim(),
-      channel_name: channelName.trim().replace(/^#/, ''),
-      collection_ids: picked,
-      agent_id: agentId || null,
-      owner_id: user.id,
-      allow_tools: allowTools,
-      mode: ambient ? 'ambient' : 'mention',
-      participation_prompt: ambient ? participationPrompt.trim() : '',
-      gate_model: ambient && gateModel.trim() ? gateModel.trim() : null,
-      capture_messages: captureMessages,
-    })
-    setAdding(false)
-    if (insErr) {
-      setError(insErr.message)
-      return
-    }
+  function resetForm() {
     setChannelId('')
     setChannelName('')
     setPicked([])
@@ -1065,6 +1043,68 @@ settings:
     setParticipationPrompt('')
     setGateModel('')
     setCaptureMessages(true)
+    setEditingId(null)
+    setError(null)
+  }
+
+  function startEdit(b: SlackBinding) {
+    const f = bindingToForm(b)
+    setChannelId(f.channelId)
+    setChannelName(f.channelName)
+    setPicked(f.collectionIds)
+    setAgentId(f.agentId)
+    setAllowTools(f.allowTools)
+    setAmbient(f.ambient)
+    setParticipationPrompt(f.participationPrompt)
+    setGateModel(f.gateModel)
+    setCaptureMessages(f.captureMessages)
+    setEditingId(b.id)
+    setError(null)
+    setShowAdd(true)
+  }
+
+  // Toggle the form open/closed; clears any in-progress edit so "Bind a channel"
+  // always starts fresh.
+  function toggleForm() {
+    if (showAdd) {
+      resetForm()
+      setShowAdd(false)
+    } else {
+      resetForm()
+      setShowAdd(true)
+    }
+  }
+
+  // Create a new binding or, when editingId is set, update the existing one —
+  // both share buildSlackBindingPayload so create/edit stay in lockstep.
+  async function saveBinding() {
+    setError(null)
+    if (!user) return
+    const built = buildSlackBindingPayload({
+      channelId,
+      channelName,
+      collectionIds: picked,
+      agentId,
+      allowTools,
+      ambient,
+      participationPrompt,
+      gateModel,
+      captureMessages,
+    })
+    if (!built.ok) {
+      setError(built.error)
+      return
+    }
+    setAdding(true)
+    const { error: saveErr } = editingId
+      ? await supabase.from('slack_channel_bindings').update(built.payload).eq('id', editingId)
+      : await supabase.from('slack_channel_bindings').insert({ ...built.payload, owner_id: user.id })
+    setAdding(false)
+    if (saveErr) {
+      setError(saveErr.message)
+      return
+    }
+    resetForm()
     setShowAdd(false)
     load()
   }
@@ -1225,7 +1265,7 @@ settings:
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-muted">Channel bindings</p>
                 <button
-                  onClick={() => setShowAdd((v) => !v)}
+                  onClick={toggleForm}
                   className="flex items-center gap-1 rounded-lg border border-border-strong bg-surface px-2 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
                 >
                   <PlusIcon className="h-3.5 w-3.5" /> {showAdd ? 'Cancel' : 'Bind a channel'}
@@ -1238,6 +1278,12 @@ settings:
 
               {showAdd && (
                 <div className="mt-3 space-y-3 rounded-lg border border-border bg-surface p-3">
+                  {editingId && (
+                    <p className="text-xs font-medium text-muted">
+                      Editing #{channelName || channelId} — update its collections, agent, mode or
+                      settings.
+                    </p>
+                  )}
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block">
                       <span className="mb-1 block text-xs font-medium text-muted">Channel ID</span>
@@ -1374,13 +1420,27 @@ settings:
                     )}
                   </div>
 
-                  <button
-                    onClick={addBinding}
-                    disabled={adding}
-                    className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
-                  >
-                    {adding ? 'Binding…' : 'Bind channel'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={saveBinding}
+                      disabled={adding}
+                      className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
+                    >
+                      {adding
+                        ? editingId
+                          ? 'Saving…'
+                          : 'Binding…'
+                        : editingId
+                          ? 'Save changes'
+                          : 'Bind channel'}
+                    </button>
+                    <button
+                      onClick={toggleForm}
+                      className="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-muted hover:bg-surface-hover"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1403,6 +1463,12 @@ settings:
                           <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary">ambient</span>
                         )}
                         <span className="ml-auto flex items-center gap-2">
+                          <button
+                            onClick={() => startEdit(b)}
+                            className="text-xs font-medium text-muted hover:underline"
+                          >
+                            Edit
+                          </button>
                           <button
                             onClick={() => toggleBinding(b)}
                             className="text-xs font-medium text-muted hover:underline"
