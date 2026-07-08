@@ -254,6 +254,26 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['todos']['Insert']>
         Relationships: []
       }
+      user_memories: {
+        Row: {
+          id: string
+          owner_id: string
+          content: string
+          key: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          content: string
+          key?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['user_memories']['Insert']>
+        Relationships: []
+      }
       collection_todos: {
         Row: {
           collection_id: string

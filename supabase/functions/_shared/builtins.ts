@@ -22,6 +22,7 @@ import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from 
 import { ingestText } from './knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
+import { clampMemoryLimit, normalizeMemoryKey, sanitizeMemoryContent } from './memory.ts'
 import { runSecurityScan } from './security_scan.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
@@ -105,6 +106,14 @@ export async function runBuiltin(
       return updateTodo(db, input, userId)
     case 'add_todo_to_collection':
       return addTodoToCollection(db, input, userId)
+    case 'remember':
+      return remember(db, input, userId)
+    case 'list_memories':
+      return listMemories(db, input, userId)
+    case 'update_memory':
+      return updateMemory(db, input, userId)
+    case 'forget':
+      return forget(db, input, userId)
     case 'save_link':
       return saveLink(db, input, userId)
     case 'list_links':
@@ -1181,6 +1190,94 @@ async function addTodoToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added to-do ${todoId} to collection "${col.name}".`
+}
+
+// --- Memory (durable per-user facts; injected into the chat system prompt) ---
+
+async function remember(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Memory is unavailable.'
+  const content = sanitizeMemoryContent(input?.content)
+  if (!content) return 'A non-empty memory (under ~2000 chars) is required.'
+  const key = normalizeMemoryKey(input?.key)
+  // With a key, overwrite the existing fact of that kind (unique (owner, key));
+  // without one, always insert a new memory (NULL keys never conflict).
+  const q = db.from('user_memories')
+  const { data, error } = await (key
+    ? q.upsert({ owner_id: userId, content, key }, { onConflict: 'owner_id,key' })
+    : q.insert({ owner_id: userId, content, key: null }))
+    .select('id')
+    .single()
+  if (error) return `Could not save the memory: ${error.message}`
+  await logActivity(db, 'memory.saved', 'Saved a memory', { id: data.id, key }, userId)
+  return `Remembered${key ? ` (${key})` : ''}: "${content}" (id ${data.id}).`
+}
+
+async function listMemories(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Memory is unavailable.'
+  const limit = clampMemoryLimit(input?.limit)
+  const { data, error } = await db
+    .from('user_memories')
+    .select('id, content, key')
+    .eq('owner_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) return `Could not list memories: ${error.message}`
+  if (!data || !data.length) return 'No memories saved yet.'
+  return (data as Array<{ id: string; content: string; key: string | null }>)
+    .map((m) => `• ${m.content}${m.key ? ` [${m.key}]` : ''} — ${m.id}`)
+    .join('\n')
+}
+
+async function updateMemory(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Memory is unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A memory id is required.'
+  const content = sanitizeMemoryContent(input?.content)
+  if (!content) return 'A non-empty memory (under ~2000 chars) is required.'
+  const { data, error } = await db
+    .from('user_memories')
+    .update({ content })
+    .eq('id', id)
+    .eq('owner_id', userId)
+    .select('id')
+    .maybeSingle()
+  if (error) return `Could not update the memory: ${error.message}`
+  if (!data) return `Memory ${id} not found (or not yours).`
+  await logActivity(db, 'memory.updated', 'Updated a memory', { id }, userId)
+  return `Updated memory ${id}.`
+}
+
+async function forget(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Memory is unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A memory id is required.'
+  const { data, error } = await db
+    .from('user_memories')
+    .delete()
+    .eq('id', id)
+    .eq('owner_id', userId)
+    .select('id')
+    .maybeSingle()
+  if (error) return `Could not forget the memory: ${error.message}`
+  if (!data) return `Memory ${id} not found (or not yours).`
+  await logActivity(db, 'memory.forgotten', 'Forgot a memory', { id }, userId)
+  return `Forgot memory ${id}.`
 }
 
 // --- Links (shared bookmarks; metadata auto-fetched from the URL) -----------

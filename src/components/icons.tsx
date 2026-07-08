@@ -303,6 +303,14 @@ export const SparkleIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+// A brain-ish glyph for the per-user Memory area.
+export const MemoryIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M9.5 3A3.5 3.5 0 0 0 6 6.5 3 3 0 0 0 4.5 12 3 3 0 0 0 6 17.5 3.5 3.5 0 0 0 9.5 21 2.5 2.5 0 0 0 12 18.5v-13A2.5 2.5 0 0 0 9.5 3z" />
+    <path d="M14.5 3A3.5 3.5 0 0 1 18 6.5 3 3 0 0 1 19.5 12 3 3 0 0 1 18 17.5 3.5 3.5 0 0 1 14.5 21 2.5 2.5 0 0 1 12 18.5v-13A2.5 2.5 0 0 1 14.5 3z" />
+  </svg>
+)
+
 export const ForgeIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M13 2 4 14h7l-1 8 9-12h-7z" />

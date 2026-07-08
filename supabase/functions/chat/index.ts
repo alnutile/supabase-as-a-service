@@ -15,6 +15,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { formatMemoriesForPrompt, type MemoryRow } from '../_shared/memory.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
@@ -169,6 +170,28 @@ async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): P
   }
 }
 
+// Load the caller's durable memories (per-user facts saved via the `remember`
+// tool) so we can inject them into the system prompt — this is what lets the
+// assistant serve a user better across separate conversations. Owner-only rows;
+// best-effort (memory never blocks a chat).
+async function loadUserMemories(
+  db: ReturnType<typeof createClient> | null,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return ''
+  try {
+    const { data } = await db
+      .from('user_memories')
+      .select('id, content, key')
+      .eq('owner_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    return formatMemoriesForPrompt((data ?? []) as MemoryRow[])
+  } catch {
+    return ''
+  }
+}
+
 // Build the OpenAI/OpenRouter `tools` array from active rows, and a lookup of the
 // custom (http) tools so we can execute them when the model calls them.
 // `restrictIds` (when an agent is driving the chat) limits the exposed tools to
@@ -277,6 +300,10 @@ Deno.serve(async (req: Request) => {
       .map((c) => `- ${c}`)
       .join('\n')}\nUse them whenever they help. You also create shareable artifacts with the :::artifact protocol.`
   }
+
+  // Per-user memory: durable facts the assistant has saved about this user.
+  const memories = await loadUserMemories(db, userId)
+  if (memories) system += `\n\n---\n\n${memories}`
 
   // Collection scope: inject the chosen collection's artifacts as primary context.
   if (collectionIds.length) {
