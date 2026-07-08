@@ -1407,13 +1407,16 @@ export default function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  // Enter inserts a newline (send is the ✈ button only), except
+                  // when the skill menu is open, where Enter picks the top skill.
+                  if (
+                    e.key === 'Enter' &&
+                    !e.shiftKey &&
+                    skillMenuOpen &&
+                    filteredSkills.length > 0
+                  ) {
                     e.preventDefault()
-                    if (skillMenuOpen && filteredSkills.length > 0) {
-                      chooseSkill(filteredSkills[0])
-                    } else {
-                      handleSend(e)
-                    }
+                    chooseSkill(filteredSkills[0])
                   }
                 }}
                 rows={1}
