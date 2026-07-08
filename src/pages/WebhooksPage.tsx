@@ -3,7 +3,7 @@ import type { Database, WebhookEventStatus } from '../lib/database.types'
 import { supabase, webhookUrl } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { CopyIcon, PlusIcon, TrashIcon, WebhookIcon } from '../components/icons'
+import { ArrowRightIcon, CopyIcon, PlusIcon, TrashIcon, WebhookIcon } from '../components/icons'
 
 type Webhook = Database['public']['Tables']['webhooks']['Row']
 type WebhookEvent = Database['public']['Tables']['webhook_events']['Row']
@@ -15,6 +15,7 @@ export default function WebhooksPage() {
   const [webhooks, setWebhooks] = useState<Webhook[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [collapsed, setCollapsed] = useState(false)
 
   const loadWebhooks = useCallback(async () => {
     const { data } = await supabase.from('webhooks').select('*').order('updated_at', { ascending: false })
@@ -43,16 +44,54 @@ export default function WebhooksPage() {
 
   return (
     <div className="flex h-full flex-col md:flex-row">
+      {/* Collapsed rail (desktop only): reclaim the width for the detail pane. */}
+      <div
+        className={`hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3 ${
+          collapsed ? 'md:flex' : 'md:hidden'
+        }`}
+      >
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Show webhooks"
+          aria-label="Show webhooks"
+          className="rounded-lg p-2 text-muted hover:bg-surface-hover hover:text-text"
+        >
+          <ArrowRightIcon className="h-5 w-5" />
+        </button>
+        <button
+          onClick={create}
+          title="New webhook"
+          aria-label="New webhook"
+          className="rounded-lg bg-primary p-2 text-white hover:bg-primary-strong"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </button>
+      </div>
+
       {/* List */}
-      <div className="flex max-h-56 shrink-0 flex-col border-b border-border bg-surface md:max-h-none md:w-72 md:border-b-0 md:border-r">
+      <div
+        className={`flex max-h-56 shrink-0 flex-col border-b border-border bg-surface md:max-h-none md:w-72 md:border-b-0 md:border-r ${
+          collapsed ? 'md:hidden' : ''
+        }`}
+      >
         <div className="flex items-center justify-between px-4 py-3">
           <h1 className="text-sm font-semibold text-text">Webhooks</h1>
-          <button
-            onClick={create}
-            className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong"
-          >
-            <PlusIcon className="h-3.5 w-3.5" /> New
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={create}
+              className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong"
+            >
+              <PlusIcon className="h-3.5 w-3.5" /> New
+            </button>
+            <button
+              onClick={() => setCollapsed(true)}
+              title="Collapse list"
+              aria-label="Collapse list"
+              className="hidden rounded-lg p-1.5 text-muted hover:bg-surface-hover hover:text-text md:block"
+            >
+              <ArrowRightIcon className="h-5 w-5 rotate-180" />
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-2">
           {loading ? (

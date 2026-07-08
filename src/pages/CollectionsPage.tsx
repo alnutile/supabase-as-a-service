@@ -72,6 +72,7 @@ export default function CollectionsPage() {
   const [tokens, setTokens] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
   const load = useCallback(async () => {
     const [cRes, caRes, cfRes, ctRes, cuRes, clRes, cgRes, stats] = await Promise.all([
@@ -122,8 +123,36 @@ export default function CollectionsPage() {
 
   return (
     <div className="flex h-full min-h-0">
+      {/* Collapsed rail (desktop only): reclaim the width for the dashboard. */}
+      <div
+        className={`hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3 ${
+          collapsed ? 'md:flex' : 'md:hidden'
+        }`}
+      >
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Show collections"
+          aria-label="Show collections"
+          className="rounded-lg p-2 text-muted hover:bg-surface-hover hover:text-text"
+        >
+          <ArrowRightIcon className="h-5 w-5" />
+        </button>
+        <button
+          onClick={createCollection}
+          title="New collection"
+          aria-label="New collection"
+          className="rounded-lg bg-primary p-2 text-white hover:bg-primary-strong"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </button>
+      </div>
+
       {/* List pane */}
-      <div className={`w-full shrink-0 flex-col border-r border-border bg-surface ${selected ? 'hidden md:flex md:w-72' : 'flex md:w-72'}`}>
+      <div
+        className={`w-full shrink-0 flex-col border-r border-border bg-surface ${
+          selected ? 'hidden' : 'flex'
+        } ${collapsed ? 'md:hidden' : 'md:flex md:w-72'}`}
+      >
         <div className="flex items-center gap-2 border-b border-border px-5 py-4">
           <h1 className="flex-1 text-lg font-semibold tracking-tight text-text">Collections</h1>
           <button
@@ -131,6 +160,14 @@ export default function CollectionsPage() {
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
           >
             <PlusIcon className="h-4 w-4" /> New
+          </button>
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Collapse list"
+            aria-label="Collapse list"
+            className="hidden rounded-lg p-1.5 text-muted hover:bg-surface-hover hover:text-text md:block"
+          >
+            <ArrowRightIcon className="h-5 w-5 rotate-180" />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
