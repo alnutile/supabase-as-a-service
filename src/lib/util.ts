@@ -27,6 +27,20 @@ export function skillInvocationSentence(name: string): string {
   return `use the skill "${name.trim()}"`
 }
 
+/** Longest chat title we persist — keeps the sidebar/header from overflowing. */
+export const MAX_CHAT_TITLE = 120
+
+/**
+ * Normalize a user-typed chat title: collapse surrounding whitespace and cap
+ * the length. Returns `null` when the result is empty (so callers can reject a
+ * blank rename and keep the existing title).
+ */
+export function normalizeChatTitle(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  return trimmed.slice(0, MAX_CHAT_TITLE)
+}
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: 'short',

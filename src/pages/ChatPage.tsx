@@ -8,7 +8,7 @@ import { parseArtifactBlocks } from '../lib/artifacts'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { uploadPickedFile } from '../lib/upload'
 import { estimateTokensFromChars } from '../lib/tokens'
-import { skillInvocationSentence } from '../lib/util'
+import { normalizeChatTitle, skillInvocationSentence } from '../lib/util'
 import { friendlyChatError } from '../lib/chatError'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextUsage } from '../components/ContextMeter'
@@ -26,6 +26,7 @@ import {
   CollectionIcon,
   FileIcon,
   PaperclipIcon,
+  PencilIcon,
   PinIcon,
   PlusIcon,
   SendIcon,
@@ -72,6 +73,9 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showConvos, setShowConvos] = useState(false)
+  // Inline rename: the conversation currently being renamed + the draft text.
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   // Collapse the conversation column (md+) to reclaim space. Persisted so the
   // choice sticks across sessions/reloads.
   const [convosCollapsed, setConvosCollapsed] = useState(
@@ -136,6 +140,36 @@ export default function ChatPage() {
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned } : c)))
     await supabase.from('conversations').update({ pinned }).eq('id', id)
     loadConversations()
+  }
+
+  // Rename a conversation (owner only, enforced by RLS). Start editing prefills
+  // the draft with the current title; save normalizes it and no-ops on a blank
+  // or unchanged title so we don't clobber a good title with an empty one.
+  function startRename(id: string, current: string) {
+    setRenamingId(id)
+    setRenameDraft(current)
+  }
+
+  function cancelRename() {
+    setRenamingId(null)
+    setRenameDraft('')
+  }
+
+  async function saveRename(id: string) {
+    const title = normalizeChatTitle(renameDraft)
+    cancelRename()
+    if (!title) return
+    const current = conversations.find((c) => c.id === id)?.title
+    if (title === current) return
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)))
+    const { error: updErr } = await supabase
+      .from('conversations')
+      .update({ title })
+      .eq('id', id)
+    if (updErr) {
+      setError(updErr.message)
+      loadConversations()
+    }
   }
 
   // --- Workspace member directory (for the "add people" picker + name labels) ---
@@ -862,28 +896,63 @@ export default function ChatPage() {
               >
                 <PinIcon className="h-4 w-4" fill={c.pinned ? 'currentColor' : 'none'} />
               </button>
-              <button
-                onClick={() => {
-                  // The panel belongs to the thread you were in — close it.
-                  if (c.id !== conversationId) setPanelArtifact(null)
-                  navigate(`/chat/${c.id}`)
-                  setShowConvos(false)
-                }}
-                className={`min-w-0 flex-1 truncate px-2 py-2 text-left text-sm transition ${
-                  c.id === conversationId ? 'text-primary' : 'text-muted'
-                }`}
-              >
-                {c.title}
-              </button>
-              {c.owner_id === user?.id ? (
+              {renamingId === c.id ? (
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={() => saveRename(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      saveRename(c.id)
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      cancelRename()
+                    }
+                  }}
+                  aria-label="Chat title"
+                  className="min-w-0 flex-1 rounded-md border border-primary bg-surface px-2 py-1.5 text-sm text-text outline-none"
+                />
+              ) : (
                 <button
-                  onClick={() => deleteConversation(c.id, c.title)}
-                  title="Delete chat"
-                  aria-label={`Delete chat ${c.title}`}
-                  className="mr-1 shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                  onClick={() => {
+                    // The panel belongs to the thread you were in — close it.
+                    if (c.id !== conversationId) setPanelArtifact(null)
+                    navigate(`/chat/${c.id}`)
+                    setShowConvos(false)
+                  }}
+                  onDoubleClick={() => {
+                    if (c.owner_id === user?.id) startRename(c.id, c.title)
+                  }}
+                  className={`min-w-0 flex-1 truncate px-2 py-2 text-left text-sm transition ${
+                    c.id === conversationId ? 'text-primary' : 'text-muted'
+                  }`}
                 >
-                  <TrashIcon className="h-4 w-4" />
+                  {c.title}
                 </button>
+              )}
+              {c.owner_id === user?.id ? (
+                renamingId !== c.id && (
+                  <>
+                    <button
+                      onClick={() => startRename(c.id, c.title)}
+                      title="Rename chat"
+                      aria-label={`Rename chat ${c.title}`}
+                      className="shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:bg-surface-hover hover:text-primary focus:opacity-100 group-hover:opacity-100"
+                    >
+                      <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteConversation(c.id, c.title)}
+                      title="Delete chat"
+                      aria-label={`Delete chat ${c.title}`}
+                      className="mr-1 shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </>
+                )
               ) : (
                 <span className="mr-2 shrink-0 text-faint" title="Shared with you">
                   <UsersIcon className="h-3.5 w-3.5" />
@@ -932,7 +1001,36 @@ export default function ChatPage() {
         {/* Thread header: who's in this conversation + add people. */}
         {conversationId && (
           <div className="relative flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{convo?.title ?? 'Chat'}</span>
+            {convo && renamingId === convo.id ? (
+              <input
+                autoFocus
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onBlur={() => saveRename(convo.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    saveRename(convo.id)
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    cancelRename()
+                  }
+                }}
+                aria-label="Chat title"
+                className="min-w-0 flex-1 rounded-md border border-primary bg-surface px-2 py-1 text-sm font-medium text-text outline-none"
+              />
+            ) : convo?.owner_id === user?.id ? (
+              <button
+                onClick={() => convo && startRename(convo.id, convo.title)}
+                title="Rename chat"
+                className="group/title flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-medium text-text"
+              >
+                <span className="min-w-0 truncate">{convo?.title ?? 'Chat'}</span>
+                <PencilIcon className="h-3.5 w-3.5 shrink-0 text-faint opacity-0 transition group-hover/title:opacity-100" />
+              </button>
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{convo?.title ?? 'Chat'}</span>
+            )}
             {isGroup && (
               <span className="hidden shrink-0 rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary sm:inline">
                 Team thread · @ai to ask the assistant
