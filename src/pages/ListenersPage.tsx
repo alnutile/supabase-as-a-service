@@ -3,7 +3,7 @@ import type { Database, Json } from '../lib/database.types'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../lib/util'
-import { BoltIcon, PlusIcon, TrashIcon } from '../components/icons'
+import { ArrowRightIcon, BoltIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type Listener = Database['public']['Tables']['event_listeners']['Row']
 type ListenerRun = Database['public']['Tables']['event_listener_runs']['Row']
@@ -83,6 +83,7 @@ export default function ListenersPage() {
   const [tools, setTools] = useState<NamedRow[]>([])
   const [collections, setCollections] = useState<NamedRow[]>([])
   const [saving, setSaving] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -161,19 +162,57 @@ export default function ListenersPage() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* List */}
-      <div className="flex w-full max-w-xs shrink-0 flex-col border-r border-border bg-surface">
+    <div className="flex h-full min-h-0 overflow-hidden">
+      {/* Collapsed rail (desktop only): reclaim the width for the editor. */}
+      <div
+        className={`hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3 ${
+          collapsed ? 'md:flex' : 'md:hidden'
+        }`}
+      >
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Show listeners"
+          aria-label="Show listeners"
+          className="rounded-lg p-2 text-muted hover:bg-surface-hover hover:text-text"
+        >
+          <ArrowRightIcon className="h-5 w-5" />
+        </button>
+        <button
+          onClick={startNew}
+          title="New listener"
+          aria-label="New listener"
+          className="rounded-lg bg-primary p-2 text-white hover:bg-primary-strong"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* List — full width on mobile until a listener is open; a fixed pane on desktop. */}
+      <div
+        className={`w-full shrink-0 flex-col border-r border-border bg-surface ${
+          draft ? 'hidden' : 'flex'
+        } ${collapsed ? 'md:hidden' : 'md:flex md:w-80'}`}
+      >
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
           <h1 className="flex items-center gap-2 text-lg font-semibold text-text">
             <BoltIcon className="h-5 w-5 text-primary" /> Listeners
           </h1>
-          <button
-            onClick={startNew}
-            className="flex items-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong"
-          >
-            <PlusIcon className="h-3.5 w-3.5" /> New
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={startNew}
+              className="flex items-center gap-1 rounded-lg bg-primary px-2 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong"
+            >
+              <PlusIcon className="h-3.5 w-3.5" /> New
+            </button>
+            <button
+              onClick={() => setCollapsed(true)}
+              title="Collapse list"
+              aria-label="Collapse list"
+              className="hidden rounded-lg p-1.5 text-muted hover:bg-surface-hover hover:text-text md:block"
+            >
+              <ArrowRightIcon className="h-5 w-5 rotate-180" />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading ? (
@@ -205,8 +244,8 @@ export default function ListenersPage() {
         </div>
       </div>
 
-      {/* Editor */}
-      <div className="min-w-0 flex-1 overflow-y-auto">
+      {/* Editor — hidden on mobile until a listener is open; always shown on desktop. */}
+      <div className={`min-w-0 flex-1 overflow-y-auto ${draft ? 'block' : 'hidden md:block'}`}>
         {!draft ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <BoltIcon className="mb-3 h-10 w-10 text-faint" />
@@ -217,6 +256,12 @@ export default function ListenersPage() {
           </div>
         ) : (
           <div className="mx-auto max-w-2xl px-6 py-6">
+            <button
+              onClick={() => setDraft(null)}
+              className="mb-3 rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-hover md:hidden"
+            >
+              ‹ Back
+            </button>
             <div className="flex items-center justify-between gap-3">
               <input
                 value={draft.name}
