@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, makeSlug, skillInvocationSentence } from './util'
+import { MAX_CHAT_TITLE, formatBytes, makeSlug, normalizeChatTitle, skillInvocationSentence } from './util'
 import { estimateTokens, estimateTokensFromChars, formatCount } from './tokens'
 
 describe('makeSlug', () => {
@@ -35,6 +35,22 @@ describe('skillInvocationSentence', () => {
 
   it('trims surrounding whitespace from the name', () => {
     expect(skillInvocationSentence('  Weekly report  ')).toBe('use the skill "Weekly report"')
+  })
+})
+
+describe('normalizeChatTitle', () => {
+  it('trims surrounding whitespace', () => {
+    expect(normalizeChatTitle('  My chat  ')).toBe('My chat')
+  })
+
+  it('returns null for blank / whitespace-only input', () => {
+    expect(normalizeChatTitle('')).toBeNull()
+    expect(normalizeChatTitle('   ')).toBeNull()
+  })
+
+  it('caps the length at MAX_CHAT_TITLE', () => {
+    const long = 'a'.repeat(MAX_CHAT_TITLE + 50)
+    expect(normalizeChatTitle(long)).toHaveLength(MAX_CHAT_TITLE)
   })
 })
 
