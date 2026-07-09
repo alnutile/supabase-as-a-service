@@ -110,14 +110,16 @@ jobs:
       - name: Update docs with Claude
         uses: anthropics/claude-code-base-action@beta
         # Route Claude Code through OpenRouter's Anthropic-compatible endpoint so
-        # it runs on OpenRouter billing. ANTHROPIC_API_KEY MUST be an explicit
-        # empty string — if it's unset (or a real key) the CLI ignores
-        # ANTHROPIC_BASE_URL and calls Anthropic directly.
+        # it runs on OpenRouter billing. The action's pre-flight rejects an empty
+        # anthropic_api_key, but Claude Code's auth precedence prefers
+        # ANTHROPIC_AUTH_TOKEN (Authorization: Bearer) over the api key
+        # (X-Api-Key), and OpenRouter's endpoint wants Bearer — so we pass the
+        # OpenRouter key as BOTH; the Bearer token is what actually authenticates.
         env:
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPEN_ROUTER_KEY }}
-          ANTHROPIC_API_KEY: ""
         with:
+          anthropic_api_key: ${{ secrets.OPEN_ROUTER_KEY }}
           # OpenRouter model slug — Haiku is the cheap model, plenty for
           # diff-driven doc edits.
           model: anthropic/claude-haiku-4.5

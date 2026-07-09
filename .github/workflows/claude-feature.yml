@@ -45,15 +45,17 @@ jobs:
         # The action wires up GIT auth itself (push works), but the `gh` CLI
         # reads GH_TOKEN from the environment — without this, `gh pr create`
         # fails silently and the branch never gets a PR (issue #66 taught us).
-        # Claude Code is routed through OpenRouter's Anthropic-compatible endpoint;
-        # ANTHROPIC_API_KEY MUST be an explicit empty string, else the CLI ignores
-        # ANTHROPIC_BASE_URL and calls Anthropic directly.
+        # Claude Code is routed through OpenRouter's Anthropic-compatible endpoint.
+        # The action's pre-flight rejects an empty anthropic_api_key, but Claude
+        # Code's auth precedence prefers ANTHROPIC_AUTH_TOKEN (Authorization:
+        # Bearer) over the api key (X-Api-Key), and OpenRouter wants Bearer — so we
+        # pass the OpenRouter key as BOTH; the Bearer token is what authenticates.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPEN_ROUTER_KEY }}
-          ANTHROPIC_API_KEY: ""
         with:
+          anthropic_api_key: ${{ secrets.OPEN_ROUTER_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             Implement the feature described in issue #${{ github.event.issue.number }}:
