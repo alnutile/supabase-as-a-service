@@ -1379,6 +1379,29 @@ settings:
                     </p>
                     {ambient && (
                       <div className="mt-3 space-y-3">
+                        <div className="rounded-lg border border-amber-300/60 bg-amber-50/80 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+                          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                            One-time Slack app change required
+                          </p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-amber-800/90 dark:text-amber-200/90">
+                            Ambient mode only works if Slack sends the bot <em>every</em> channel message — by
+                            default it only sends @mentions. In{' '}
+                            <a
+                              href="https://api.slack.com/apps"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-medium underline"
+                            >
+                              api.slack.com/apps
+                            </a>{' '}
+                            → your app → <em>Event Subscriptions</em> → <em>Subscribe to bot events</em> →{' '}
+                            <em>Add Bot User Event</em>: add <code>message.channels</code> (public channels; add{' '}
+                            <code>message.groups</code> too for private ones) and hit <em>Save Changes</em>. No
+                            reinstall needed — these events use the history scopes the bot already has, and they
+                            start flowing as soon as you save. Apps created from the current manifest (
+                            <em>Copy app manifest</em> above) already include them.
+                          </p>
+                        </div>
                         <label className="block">
                           <span className="mb-1 block text-xs font-medium text-muted">
                             When should it chime in? <span className="text-faint">— channel guidance</span>
