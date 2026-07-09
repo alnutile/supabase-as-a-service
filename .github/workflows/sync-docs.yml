@@ -10,7 +10,9 @@ name: Sync docs on merge to main
 # no edits and the workflow is a no-op (nothing to commit).
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   ANTHROPIC_API_KEY  - an Anthropic API key for the Claude Code action.
+#   OPEN_ROUTER_KEY    - an OpenRouter API key (sk-or-...). Claude Code is routed
+#                        through OpenRouter's Anthropic-compatible endpoint, so it
+#                        runs on OpenRouter billing instead of an Anthropic key.
 #   DOCS_REPO_TOKEN    - a token with `contents: write` on alnutile/supanet-docs
 #                        (a fine-grained PAT scoped to that repo, or a GitHub
 #                        App installation token). The default GITHUB_TOKEN only
@@ -42,7 +44,7 @@ jobs:
   sync-docs:
     runs-on: ubuntu-latest
     permissions:
-      # The base action authenticates with the Anthropic API key directly (no
+      # The base action authenticates with the OpenRouter key directly (no
       # OIDC), so only read access to this repo is needed here; the cross-repo
       # push uses DOCS_REPO_TOKEN in the commit step.
       contents: read
@@ -51,11 +53,11 @@ jobs:
     steps:
       - name: Check required secrets
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPEN_ROUTER_KEY: ${{ secrets.OPEN_ROUTER_KEY }}
           DOCS_REPO_TOKEN: ${{ secrets.DOCS_REPO_TOKEN }}
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$DOCS_REPO_TOKEN" ]; then
-            echo "::error::Set the ANTHROPIC_API_KEY and DOCS_REPO_TOKEN repository secrets."
+          if [ -z "$OPEN_ROUTER_KEY" ] || [ -z "$DOCS_REPO_TOKEN" ]; then
+            echo "::error::Set the OPEN_ROUTER_KEY and DOCS_REPO_TOKEN repository secrets."
             exit 1
           fi
 
@@ -107,12 +109,18 @@ jobs:
       # triggering event — exactly what a push-to-main docs sync needs.
       - name: Update docs with Claude
         uses: anthropics/claude-code-base-action@beta
+        # Route Claude Code through OpenRouter's Anthropic-compatible endpoint so
+        # it runs on OpenRouter billing. ANTHROPIC_API_KEY MUST be an explicit
+        # empty string — if it's unset (or a real key) the CLI ignores
+        # ANTHROPIC_BASE_URL and calls Anthropic directly.
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPEN_ROUTER_KEY }}
+          ANTHROPIC_API_KEY: ""
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Pin a current, low-cost model. The action's default is an older
-          # Sonnet snapshot this key 404s on; Haiku 4.5 is the cheapest current
-          # model and is plenty for diff-driven doc edits.
-          model: claude-haiku-4-5-20251001
+          # OpenRouter model slug — Haiku is the cheap model, plenty for
+          # diff-driven doc edits.
+          model: anthropic/claude-haiku-4.5
           allowed_tools: "Read,Edit,Write,Glob,Grep,Bash(git -C docs-site diff:*)"
           max_turns: "40"
           prompt: |

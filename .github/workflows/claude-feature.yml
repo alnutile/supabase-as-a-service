@@ -8,7 +8,9 @@
 # triggers the Railway rebuild plus deploy-migrations.yml / deploy-functions.yml.
 #
 # Setup — ONE secret (Settings → Secrets and variables → Actions):
-#   ANTHROPIC_API_KEY – used by the Claude Code action.
+#   OPEN_ROUTER_KEY – an OpenRouter API key (sk-or-...). Claude Code is routed
+#     through OpenRouter's Anthropic-compatible endpoint, so the feature build
+#     runs on OpenRouter billing instead of an Anthropic key.
 #
 # Guardrails: the agent works on a branch and opens a PR — it cannot push to
 # main (the token below has no direct-push step, and branch protection on main
@@ -43,10 +45,15 @@ jobs:
         # The action wires up GIT auth itself (push works), but the `gh` CLI
         # reads GH_TOKEN from the environment — without this, `gh pr create`
         # fails silently and the branch never gets a PR (issue #66 taught us).
+        # Claude Code is routed through OpenRouter's Anthropic-compatible endpoint;
+        # ANTHROPIC_API_KEY MUST be an explicit empty string, else the CLI ignores
+        # ANTHROPIC_BASE_URL and calls Anthropic directly.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPEN_ROUTER_KEY }}
+          ANTHROPIC_API_KEY: ""
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             Implement the feature described in issue #${{ github.event.issue.number }}:
@@ -70,7 +77,7 @@ jobs:
               explains the change and contains "Closes #${{ github.event.issue.number }}".
             - Do NOT push to main. Do NOT merge the PR.
           claude_args: |
-            --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"
+            --model anthropic/claude-sonnet-4.5 --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"
 
       # PRs opened with the workflow's GITHUB_TOKEN don't trigger pull_request
       # workflows (GitHub anti-recursion), so the Tests workflow will NOT run
