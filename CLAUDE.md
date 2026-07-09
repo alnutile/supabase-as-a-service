@@ -215,6 +215,30 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   MCP: seeded `is_builtin` tools `create_todo` / `list_todos` / `complete_todo` /
   `update_todo` / `add_todo_to_collection` (in `_shared/builtins.ts`; same names on the MCP
   server) so chat/scheduler/webhook agents and an external Claude can manage tasks.
+- **User memory (per-user, so new chats start warm):** a durable personal profile the
+  assistant carries across conversations — the user's name, defaults, tone, stack, ongoing
+  projects, standing preferences — so a fresh chat isn't a blank slate. A `user_memories`
+  row (migration 0069) is `content` + optional stable `key` (for upsert-in-place, so a
+  refined fact overwrites instead of duplicating) + `category` + `pinned` + `source`
+  provenance. Access is **owner-only** (like `conversations`/`files`, deliberately NOT the
+  private/workspace model — one user's memories never leak into another's context), enforced
+  by RLS. `MemoryPage` (route `/memory`, Assets) lists/edits/pins/forgets them and is
+  realtime-subscribed (the AI writes here too). The assistant reads/writes memory through
+  seeded `is_builtin` tools **`remember` / `list_memories` / `update_memory` / `forget`**
+  (handlers in `_shared/memory.ts`, run by all three agent loops via `runBuiltin`; the MCP
+  server exposes the same names, so an external Claude uses one code path). The **chat and
+  scheduler loops inject** the caller's memories into the system prompt via
+  `loadUserMemories` — that's what makes a new chat / scheduled run pre-warmed. The **webhook
+  and Slack loops deliberately do NOT auto-inject** (they face external callers; personal
+  memory must not bleed into a reply to an untrusted source — those agents can still read it
+  via `list_memories` if scoped in). Every write emits a `memory.created`/`memory.updated`
+  **event** (0063, private visibility), so the automation layer works in both directions: a
+  listener can react to a saved memory, and a listener's `run_tool → remember` can write
+  memory in response to any event. A seeded always-on "User memory" prompt teaches the
+  save/skip discipline (durable facts yes; secrets and one-offs no). The pure block formatter
+  (`formatMemoriesBlock`, budget + truncation) is unit-tested (`tests/memory_test.ts`).
+  *(Planned: a REST API + collection filing like todos/links; semantic recall instead of
+  full-profile injection when a user accrues many memories.)*
 - **Links (shared bookmarks):** `LinksPage` (route `/links`, sidebar under **Assets**,
   any member) is a bookmarks area that plugs into the collections concept. Paste a URL and
   the metadata fills in automatically: the page inserts the row immediately (hostname as
@@ -709,7 +733,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection); 0065 feature_flags (admin-writable workspace-wide sidebar hide/show; realtime); 0067 artifact_filing_builtins (seeds list_artifacts; create_artifact gains a `collections` array; add_to_collection accepts `artifact_title`); 0068 collection_agents (agent↔collection join; **renumbered from a colliding second 0065 that broke `db push` on main** — prod had recorded 0065=feature_flags, so the duplicate-prefix collection_agents could never apply and blocked every later migration)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection); 0065 feature_flags (admin-writable workspace-wide sidebar hide/show; realtime); 0067 artifact_filing_builtins (seeds list_artifacts; create_artifact gains a `collections` array; add_to_collection accepts `artifact_title`); 0068 collection_agents (agent↔collection join; **renumbered from a colliding second 0065 that broke `db push` on main** — prod had recorded 0065=feature_flags, so the duplicate-prefix collection_agents could never apply and blocked every later migration); 0069 user_memory (per-user `user_memories` table + owner-only RLS + realtime + memory.created/updated events; seeds the remember/list_memories/update_memory/forget builtins + an always-on "User memory" prompt)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page

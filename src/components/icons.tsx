@@ -28,6 +28,14 @@ export const TodoIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const MemoryIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 5a3 3 0 0 0-3 3 2.5 2.5 0 0 0-1 4.8V15a2 2 0 0 0 4 0V5z" />
+    <path d="M12 5a3 3 0 0 1 3 3 2.5 2.5 0 0 1 1 4.8V15a2 2 0 0 1-4 0" />
+    <path d="M9 8h.01M15 8h.01" />
+  </svg>
+)
+
 export const DragHandleIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <circle cx="9" cy="6" r="1" />

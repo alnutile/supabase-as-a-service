@@ -21,6 +21,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from './artifacts.ts'
 import { ingestText } from './knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
+import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { runSecurityScan } from './security_scan.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
@@ -131,6 +132,14 @@ export async function runBuiltin(
       return deleteFile(db, userId, input)
     case 'add_file_to_collection':
       return addFileToCollection(db, userId, input)
+    case 'remember':
+      return remember(db, userId, input)
+    case 'list_memories':
+      return listMemories(db, userId, input)
+    case 'update_memory':
+      return updateMemory(db, userId, input)
+    case 'forget':
+      return forget(db, userId, input)
     case 'http_request':
       return httpRequest(db, input, userId)
     case 'run_security_scan':

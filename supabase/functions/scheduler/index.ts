@@ -7,6 +7,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { loadUserMemories } from '../_shared/memory.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
@@ -81,9 +82,13 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
   const { tools, httpTools, builtins, mcpRouter, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   // Inject the agent's bound collections (artifacts/files/to-dos) as context.
   const collCtx = await loadCollectionsContext(db, agent.collection_ids ?? [], ownerId, model)
+  // Inject the owner's memory — a scheduled run is their unattended agent, so it
+  // should know their defaults/preferences just like their chat does.
+  const memCtx = await loadUserMemories(db, ownerId)
   const system = [
     agent.instructions || 'You are a scheduled agent. Do the task described.',
     collCtx,
+    memCtx,
     scheduledRunGuidance(ownerEmail),
   ]
     .filter(Boolean)

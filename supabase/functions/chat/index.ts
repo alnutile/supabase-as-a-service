@@ -15,6 +15,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { loadUserMemories } from '../_shared/memory.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
@@ -283,6 +284,11 @@ Deno.serve(async (req: Request) => {
     const collectionContext = await loadCollectionsContext(db, collectionIds, userId, MODEL)
     if (collectionContext) system += `\n\n---\n\n${collectionContext}`
   }
+
+  // User memory: inject what the assistant remembers about this user, so a new
+  // chat starts from their known defaults/preferences instead of a blank slate.
+  const memoryContext = await loadUserMemories(db, userId)
+  if (memoryContext) system += `\n\n---\n\n${memoryContext}`
 
   // Guardrails (chat context): cheap utility-model pre-flight on the latest user
   // message. Makes NO model call when there are no active chat guardrails. Chat

@@ -9,6 +9,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from '../_shared/artifacts.ts'
 import { ingestText } from '../_shared/knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from '../_shared/files.ts'
+import { forget, listMemories, remember, updateMemory } from '../_shared/memory.ts'
 import { expandMcpTools, type McpRouter, runMcpTool } from '../_shared/mcp.ts'
 import {
   createLoop,
@@ -403,6 +404,58 @@ const TOOLS = [
         },
       },
       required: ['title', 'content'],
+    },
+  },
+  {
+    name: 'remember',
+    description:
+      'Save a durable fact or preference about the user so future chats start already knowing it — their name, defaults, tone, stack, ongoing projects, standing preferences. Memories are private to the user and injected at the start of every new chat. Pass a stable `key` to update that memory in place instead of duplicating. Do NOT store secrets or one-off details.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'The fact/preference to remember, as a durable statement.' },
+        key: { type: 'string', description: 'Optional stable slug (e.g. "preferred_name"); reusing it overwrites that memory.' },
+        category: { type: 'string', description: 'Optional bucket: preference | fact | context | project | general.' },
+        pinned: { type: 'boolean', description: 'Optional — pin so it is always injected first.' },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'list_memories',
+    description: 'List what you remember about the user (most important/recent first) with ids. Optionally filter by category or a text query.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', description: 'Optional category filter.' },
+        query: { type: 'string', description: 'Optional case-insensitive substring to match.' },
+        limit: { type: 'number', description: 'Max rows (default 50, max 200).' },
+      },
+    },
+  },
+  {
+    name: 'update_memory',
+    description: 'Update an existing memory (by id or key): change its content, category, or pinned state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The memory id (or use key).' },
+        key: { type: 'string', description: 'The memory key (alternative to id).' },
+        content: { type: 'string' },
+        category: { type: 'string' },
+        pinned: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'forget',
+    description: 'Delete a memory the user no longer wants remembered (by id or key).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The memory id (or use key).' },
+        key: { type: 'string', description: 'The memory key (alternative to id).' },
+      },
     },
   },
   {
@@ -982,6 +1035,14 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       return text(await deleteFile(db, owner, args))
     case 'add_file_to_collection':
       return text(await addFileToCollection(db, owner, args))
+    case 'remember':
+      return text(await remember(db, owner, args))
+    case 'list_memories':
+      return text(await listMemories(db, owner, args))
+    case 'update_memory':
+      return text(await updateMemory(db, owner, args))
+    case 'forget':
+      return text(await forget(db, owner, args))
     case 'upload_file': {
       if (!args.name || !args.mime_type || !args.content_base64) {
         return text('upload_file needs name, mime_type, and content_base64.', true)
