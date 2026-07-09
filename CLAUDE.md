@@ -569,16 +569,32 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   both snippets; the `Authorization:${AUTH_HEADER}` env split avoids mcp-remote's
   space-in-header bug). It exposes build tools (`create_agent`, `create_http_tool`,
   `create_skill`, `create_webhook`, `create_artifact`, `list_*`) so an outside Claude can
-  push agents/tools into the workspace, where they appear in the dashboard. It also drives
+  push agents/tools into the workspace, where they appear in the dashboard. Skills and
+  always-on prompts (the same `skills` table) get full CRUD — `create_skill` / `list_skills`
+  / `get_skill` / `update_skill` / `delete_skill` — with the DB's access rule re-enforced in
+  code (personal on-demand skills owner-managed; always-on prompts admin-only; built-in
+  prompts editable but not deletable). It also drives
   the **looping system** (`create_loop` / `run_loop` / `get_loop_run` / `list_loops`): an
   external Claude hands a loop a goal (prompt) + rubric + budget + iteration cap, kicks off a
   run, then polls `get_loop_run` to "check in" until it's done — same machinery as the Loops
   dashboard. The shared `_shared/loops.ts` helpers (create the loop, trigger the `loop` edge
   function, format a run) back both this and the in-app builtins so they never drift; an
   internal trigger passes `triggered_by` (honored only for the service-role caller, which has
-  no JWT `sub`) so the run is attributed to the right user. *(Planned — see `docs/tasks/`:
-  `upload_file` + a signed-URL pair to push files/PDFs into Files and the knowledge base, and
-  a tabbed Code/Desktop connect UI.)*
+  no JWT `sub`) so the run is attributed to the right user. **Collection as a two-way hub:**
+  `get_collection` pulls a whole named collection in ONE call — meta + artifacts (full content),
+  files (signed urls), links, to-dos (full notes), tables (schema + row count), and inbox
+  messages — with an optional `since` (ISO 8601) for a cheap daily diff and an `include` subset;
+  it assembles the bundle inline (mirroring `_shared/collections.ts`'s owner/visibility rules,
+  since this server runs as the service role), while `since`/`include` parsing is the pure,
+  unit-tested `_shared/collection_hub.ts`. The push side has parity: `create_artifact` /
+  `update_artifact` (edit a running-memory doc in place) / `add_note` (also files a text artifact
+  into the collection so it shows up in `get_collection`) / `save_link` / `save_message` /
+  `create_todo` / `upload_file` all take a `collection`, and the read gaps are closed too
+  (`get_artifact`, `list_links`, `list_messages`, `search_documents`, `get_activity`, plus a
+  `since` filter on `list_artifacts` / `query_table`). The write/read helpers that already exist
+  as `is_builtin` tools are **delegated to `runBuiltin`** (like the files/memory tools) rather
+  than reimplemented, so they never drift. *(Planned — see `docs/tasks/`: a tabbed
+  Code/Desktop connect UI.)*
 - **External MCP client (outbound):** the inverse of the MCP *server* above — the
   workspace connects out to **any number of external MCP endpoints** (e.g. **Zapier MCP** in
   front of Gmail/Calendar, plus others) so agents can call their tools. An admin adds servers

@@ -7,9 +7,11 @@
 // action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from '../_shared/artifacts.ts'
+import { HUB_INCLUDES, parseIncludes, parseSince } from '../_shared/collection_hub.ts'
 import { ingestText } from '../_shared/knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from '../_shared/files.ts'
 import { forget, listMemories, remember, updateMemory } from '../_shared/memory.ts'
+import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, type McpRouter, runMcpTool } from '../_shared/mcp.ts'
 import {
   createLoop,
@@ -96,7 +98,7 @@ const TOOLS = [
   {
     name: 'create_skill',
     description:
-      'Create a saved prompt/skill. Set always_on to apply it to every chat (admin only); otherwise it is an on-demand skill.',
+      'Create a saved prompt/skill. Set always_on to apply it to every chat (an always-on system prompt — admin only); otherwise it is a personal on-demand skill invoked with "/".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -104,8 +106,63 @@ const TOOLS = [
         instructions: { type: 'string' },
         description: { type: 'string' },
         always_on: { type: 'boolean' },
+        output_mode: { type: 'string', enum: ['artifact', 'reply'], description: 'artifact = emit an artifact; reply = answer inline (default artifact).' },
       },
       required: ['name', 'instructions'],
+    },
+  },
+  {
+    name: 'list_skills',
+    description:
+      'List skills and always-on prompts you can see (your own on-demand skills + every always-on prompt). Each row shows its id, name, mode (always-on prompt vs on-demand skill), and whether it is built-in. Filter with always_on and/or a text query.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        always_on: { type: 'boolean', description: 'true = only always-on prompts; false = only on-demand skills; omit = both.' },
+        query: { type: 'string', description: 'Optional case-insensitive substring of the name/description.' },
+        limit: { type: 'number', description: 'Max rows (default 50, max 200).' },
+      },
+    },
+  },
+  {
+    name: 'get_skill',
+    description:
+      'Read one skill or always-on prompt by id or exact name: returns its id, name, mode, output_mode, description, and full instructions (the prompt body). Use before update_skill to see the current text.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill: { type: 'string', description: 'The skill/prompt id or its exact name.' },
+      },
+      required: ['skill'],
+    },
+  },
+  {
+    name: 'update_skill',
+    description:
+      'Edit an existing skill or always-on prompt in place (by id or exact name) — change its name, description, instructions (the prompt body), output_mode, or always_on flag. Personal on-demand skills are editable by their owner; always-on prompts (and toggling a skill to always-on) require admin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill: { type: 'string', description: 'The skill/prompt id or its exact name.' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        instructions: { type: 'string', description: 'The new prompt body.' },
+        output_mode: { type: 'string', enum: ['artifact', 'reply'] },
+        always_on: { type: 'boolean', description: 'Turn always-on on/off (admin only).' },
+      },
+      required: ['skill'],
+    },
+  },
+  {
+    name: 'delete_skill',
+    description:
+      'Delete a skill or always-on prompt (by id or exact name). Personal skills are deletable by their owner; always-on prompts require admin. Built-in prompts cannot be deleted.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill: { type: 'string', description: 'The skill/prompt id or its exact name.' },
+      },
+      required: ['skill'],
     },
   },
   {
@@ -153,6 +210,7 @@ const TOOLS = [
         collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
         title_contains: { type: 'string', description: 'Optional case-insensitive substring of the title.' },
         type: { type: 'string', enum: ['markdown', 'code', 'html', 'text'], description: 'Optional artifact type filter.' },
+        since: { type: 'string', description: 'Optional ISO 8601 timestamp — only artifacts updated at/after it (for cheap daily diffs).' },
         limit: { type: 'number', description: 'Max rows (default 20, max 100).' },
       },
     },
@@ -167,6 +225,38 @@ const TOOLS = [
         artifact: { type: 'string', description: 'The artifact id or its exact title.' },
       },
       required: ['artifact'],
+    },
+  },
+  {
+    name: 'update_artifact',
+    description:
+      'Edit an existing artifact in place (by id or exact title) — change its title and/or content. Owner-only. Use this to keep a single "running memory" / status artifact in a collection up to date instead of creating a new one each day.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact: { type: 'string', description: 'The artifact id or its exact title.' },
+        title: { type: 'string', description: 'New title (optional).' },
+        content: { type: 'string', description: 'New full content (optional).' },
+      },
+      required: ['artifact'],
+    },
+  },
+  {
+    name: 'get_collection',
+    description:
+      'Pull EVERYTHING in one collection in a single call — the collection meta plus its artifacts (full content), files (with download urls), links, to-dos (with full notes), tables (schema + row count), and inbox messages. This is the one-call sync for a collection-as-hub: read it, act, then push updates back with create_artifact / update_artifact / add_note / save_link / create_todo (all take a `collection`). Pass `since` (ISO 8601) to get only what changed — a cheap daily diff. Returns a JSON bundle.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'The collection name or id (required).' },
+        since: { type: 'string', description: 'Optional ISO 8601 timestamp — only items created/updated at/after it.' },
+        include: {
+          type: 'array',
+          items: { type: 'string', enum: [...HUB_INCLUDES] },
+          description: 'Optional subset of sections to return; defaults to all.',
+        },
+      },
+      required: ['collection'],
     },
   },
   {
@@ -356,6 +446,7 @@ const TOOLS = [
         name: { type: 'string', description: 'File name including extension, e.g. report.pdf' },
         mime_type: { type: 'string', description: 'MIME type, e.g. application/pdf or image/png' },
         content_base64: { type: 'string', description: 'The file bytes, base64-encoded.' },
+        collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
       },
       required: ['name', 'mime_type', 'content_base64'],
     },
@@ -402,8 +493,121 @@ const TOOLS = [
           enum: ['workspace', 'private'],
           description: 'workspace (default) = searchable by the whole team; private = only you.',
         },
+        collection: {
+          type: 'string',
+          description:
+            'Optional collection name (or id; created if missing). When set, the note is ALSO saved as a text artifact filed into that collection, so it shows up in get_collection and the collection\'s chat context (the knowledge-base index alone is workspace-global, not collection-scoped).',
+        },
       },
       required: ['title', 'content'],
+    },
+  },
+  {
+    name: 'search_documents',
+    description:
+      'Semantic search over the shared knowledge base (everything added via add_note / indexed PDFs). Returns the most relevant passages with their source document name. Use it to answer questions from ingested notes/transcripts/docs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What to search for.' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'save_link',
+    description:
+      'Save a bookmark (URL) — the title/description/preview are auto-fetched from the page. Optionally file it into a collection (by name; created if missing). Use this to capture articles/videos/resources the team can chat with.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'The full http(s) URL to save.' },
+        title: { type: 'string', description: 'Optional title override (else the page title is used).' },
+        notes: { type: 'string', description: 'Optional notes about the link.' },
+        collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'list_links',
+    description: 'List saved bookmarks. Optionally filter by collection (name/id). Shows title, url, description, and id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+      },
+    },
+  },
+  {
+    name: 'add_link_to_collection',
+    description: 'Add an existing saved link to a collection (both by name or id). The collection is created if it does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id.' },
+        link_id: { type: 'string', description: 'The link id to add.' },
+      },
+      required: ['collection', 'link_id'],
+    },
+  },
+  {
+    name: 'save_message',
+    description:
+      'Save a message into the unified inbox — a captured note, a forwarded email, a Slack/WhatsApp message, etc. Optionally file it into a collection (by name; created if missing).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        body: { type: 'string', description: 'The message body/content.' },
+        subject: { type: 'string', description: 'Optional subject/title.' },
+        from: { type: 'string', description: 'Who it is from (name, email, handle, or phone).' },
+        source: {
+          type: 'string',
+          enum: ['email', 'slack', 'whatsapp', 'sms', 'webhook', 'manual', 'other'],
+          description: 'Where it came from (default manual).',
+        },
+        url: { type: 'string', description: 'Optional link back to the original.' },
+        collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
+      },
+      required: ['body'],
+    },
+  },
+  {
+    name: 'list_messages',
+    description: 'List messages from the unified inbox. Optionally filter by source (email/slack/whatsapp/...), by collection (name/id), or only unread.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', description: 'Optional source filter.' },
+        collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+        unread_only: { type: 'boolean', description: 'Only unread messages (default false).' },
+        limit: { type: 'number', description: 'Max messages to return (default 20, max 50).' },
+      },
+    },
+  },
+  {
+    name: 'add_message_to_collection',
+    description: 'Add an existing inbox message to a collection (both by name or id). The collection is created if it does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id.' },
+        message_id: { type: 'string', description: 'The inbox message id to add.' },
+      },
+      required: ['collection', 'message_id'],
+    },
+  },
+  {
+    name: 'get_activity',
+    description:
+      'Recent workspace activity (events, tool calls, creations) as structured JSON. Pass `since` (ISO 8601) for a time-scoped diff, `type` to filter to one event type, and `limit`. Upgrade of list_activity for daily syncs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', description: 'Optional ISO 8601 timestamp — only activity at/after it.' },
+        type: { type: 'string', description: 'Optional exact activity type to filter by (e.g. "artifact.updated").' },
+        limit: { type: 'number', description: 'Max rows (default 20, max 100).' },
+      },
     },
   },
   {
@@ -508,6 +712,7 @@ const TOOLS = [
       properties: {
         table: { type: 'string', description: 'The table name (or id).' },
         filters: { type: 'object', description: 'Optional column=value equality filters.' },
+        since: { type: 'string', description: 'Optional ISO 8601 timestamp — only rows created at/after it.' },
         limit: { type: 'number', description: 'Max rows to return (default 50, max 200).' },
       },
       required: ['table'],
@@ -663,6 +868,28 @@ async function resolveArtifact(
   return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
 }
 
+// Resolve one skill/prompt by id or exact name (case-insensitive) within this
+// owner's READ scope — their own on-demand skills OR any always-on prompt. The
+// write rule (own personal skill, or admin for always-on) is re-checked by the
+// caller; a resolved non-always-on row is therefore guaranteed to be owner-owned.
+async function resolveSkill(
+  db: DB,
+  owner: string,
+  ref: string,
+): Promise<
+  | { id: string; name: string; description: string | null; instructions: string; auto_apply: boolean; is_builtin: boolean; output_mode: string; owner_id: string | null }
+  | null
+> {
+  let q = db
+    .from('skills')
+    .select('id, name, description, instructions, auto_apply, is_builtin, output_mode, owner_id')
+    .or(`owner_id.eq.${owner},auto_apply.eq.true`)
+  q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('name', ref)
+  const { data } = await q.order('updated_at', { ascending: false }).limit(1)
+  // deno-lint-ignore no-explicit-any
+  return (data?.[0] as any) ?? null
+}
+
 // Map artifact id → collection names it belongs to (for the given ids only).
 async function artifactCollectionsMap(db: DB, ids: string[]): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>()
@@ -706,6 +933,178 @@ function slugifyKey(label: string): string {
   const s = String(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
   if (!s) return 'col'
   return /^[a-z]/.test(s) ? s : `c_${s}`
+}
+
+const WEEK_SECONDS = 60 * 60 * 24 * 7
+
+async function signedFileUrl(db: DB, bucket: string | null, path: string): Promise<string | null> {
+  try {
+    const { data } = await db.storage.from(bucket ?? 'files').createSignedUrl(path, WEEK_SECONDS)
+    return data?.signedUrl ?? null
+  } catch {
+    return null
+  }
+}
+
+// Assemble the `get_collection` bundle: for each requested section, read the
+// collection's members via its join table, RE-ENFORCE access in code (this server
+// runs as the service role, so the same owner/visibility rule the collections UI
+// applies is applied here), honor `since`, and shape each row. Full content is
+// returned for artifacts and to-do notes — this is the one-call collection sync.
+async function buildCollectionBundle(
+  db: DB,
+  owner: string,
+  col: { id: string; name: string },
+  includes: string[],
+  since: string | null,
+): Promise<Record<string, unknown>> {
+  const inc = new Set(includes)
+  const bundle: Record<string, unknown> = {}
+
+  const { data: meta } = await db
+    .from('collections')
+    .select('id, name, description, visibility, updated_at')
+    .eq('id', col.id)
+    .maybeSingle()
+  bundle.collection = meta
+    ? { id: meta.id, name: meta.name, description: meta.description ?? '', visibility: meta.visibility, updated_at: meta.updated_at }
+    : { id: col.id, name: col.name }
+
+  // Member ids from a join table (e.g. collection_artifacts.artifact_id).
+  const memberIds = async (table: string, fk: string): Promise<string[]> => {
+    const { data } = await db.from(table).select(fk).eq('collection_id', col.id)
+    return [...new Set((data ?? []).map((r: Record<string, string>) => r[fk]))]
+  }
+
+  if (inc.has('artifacts')) {
+    const ids = await memberIds('collection_artifacts', 'artifact_id')
+    const out: unknown[] = []
+    if (ids.length) {
+      let q = db
+        .from('artifacts')
+        .select('id, title, type, content, updated_at, owner_id, visibility')
+        .in('id', ids)
+        .order('updated_at', { ascending: false })
+      if (since) q = q.gte('updated_at', since)
+      const { data } = await q
+      for (const a of (data ?? []) as Array<Record<string, unknown>>) {
+        if (a.owner_id !== owner && a.visibility === 'private') continue
+        out.push({ id: a.id, title: a.title, type: a.type, content: a.content ?? '', updated_at: a.updated_at, url: `/artifacts/${a.id}` })
+      }
+    }
+    bundle.artifacts = out
+  }
+
+  if (inc.has('files')) {
+    const ids = await memberIds('collection_files', 'file_id')
+    const out: unknown[] = []
+    if (ids.length) {
+      let q = db
+        .from('files')
+        .select('id, name, mime_type, size_bytes, bucket, path, created_at, owner_id, visibility')
+        .in('id', ids)
+        .order('created_at', { ascending: false })
+      if (since) q = q.gte('created_at', since)
+      const { data } = await q
+      for (const f of (data ?? []) as Array<Record<string, unknown>>) {
+        if (f.owner_id !== owner && f.visibility === 'private') continue
+        const url = await signedFileUrl(db, f.bucket as string | null, f.path as string)
+        out.push({ id: f.id, name: f.name, mime: f.mime_type, size: f.size_bytes, updated_at: f.created_at, url })
+      }
+    }
+    bundle.files = out
+  }
+
+  if (inc.has('links')) {
+    const ids = await memberIds('collection_links', 'link_id')
+    const out: unknown[] = []
+    if (ids.length) {
+      let q = db
+        .from('links')
+        .select('id, title, url, description, notes, created_at, owner_id, visibility')
+        .in('id', ids)
+        .order('created_at', { ascending: false })
+      if (since) q = q.gte('created_at', since)
+      const { data } = await q
+      for (const l of (data ?? []) as Array<Record<string, unknown>>) {
+        if (l.owner_id !== owner && l.visibility !== 'workspace') continue
+        const note = [l.notes, l.description].filter(Boolean).join(' — ')
+        out.push({ id: l.id, title: l.title, url: l.url, note, updated_at: l.created_at })
+      }
+    }
+    bundle.links = out
+  }
+
+  if (inc.has('todos')) {
+    const ids = await memberIds('collection_todos', 'todo_id')
+    const out: unknown[] = []
+    if (ids.length) {
+      let q = db
+        .from('todos')
+        .select('id, title, notes, done, due_date, updated_at, owner_id, visibility')
+        .in('id', ids)
+        .order('updated_at', { ascending: false })
+      if (since) q = q.gte('updated_at', since)
+      const { data } = await q
+      for (const t of (data ?? []) as Array<Record<string, unknown>>) {
+        if (t.owner_id !== owner && t.visibility !== 'workspace') continue
+        out.push({ id: t.id, title: t.title, notes: t.notes ?? '', status: t.done ? 'done' : 'open', due_date: t.due_date, updated_at: t.updated_at })
+      }
+    }
+    bundle.todos = out
+  }
+
+  if (inc.has('tables')) {
+    const ids = await memberIds('collection_tables', 'table_id')
+    const out: unknown[] = []
+    if (ids.length) {
+      const { data: uts } = await db
+        .from('user_tables')
+        .select('id, name, physical_name, columns, owner_id, visibility')
+        .in('id', ids)
+      for (const t of (uts ?? []) as Array<Record<string, unknown>>) {
+        if (t.owner_id !== owner && t.visibility !== 'workspace') continue
+        let rowCount: number | null = null
+        try {
+          const { count } = await db.from(t.physical_name as string).select('id', { count: 'exact', head: true })
+          rowCount = count ?? null
+        } catch {
+          // unreadable physical table — leave row_count null
+        }
+        out.push({ id: t.id, name: t.name, columns: t.columns, row_count: rowCount })
+      }
+    }
+    bundle.tables = out
+  }
+
+  if (inc.has('messages')) {
+    const ids = await memberIds('collection_inbox_messages', 'inbox_message_id')
+    const out: unknown[] = []
+    if (ids.length) {
+      let q = db
+        .from('inbox_messages')
+        .select('id, source, from_address, from_name, subject, body_text, url, received_at, owner_id, visibility')
+        .in('id', ids)
+        .order('received_at', { ascending: false })
+      if (since) q = q.gte('received_at', since)
+      const { data } = await q
+      for (const m of (data ?? []) as Array<Record<string, unknown>>) {
+        if (m.owner_id !== owner && m.visibility !== 'workspace') continue
+        out.push({
+          id: m.id,
+          source: m.source,
+          from: (m.from_name as string) || (m.from_address as string) || '',
+          subject: m.subject ?? '',
+          content: m.body_text ?? '',
+          url: m.url ?? null,
+          created_at: m.received_at,
+        })
+      }
+    }
+    bundle.messages = out
+  }
+
+  return bundle
 }
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 // 10 MB decoded
@@ -766,15 +1165,92 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'create_skill': {
       const wantAlwaysOn = args.always_on === true
       if (wantAlwaysOn && !(await isAdmin(db, owner))) return text('Only admins can create always-on skills.', true)
+      const outputMode = args.output_mode === 'reply' ? 'reply' : 'artifact'
       const { data, error } = await db.from('skills').insert({
         owner_id: owner,
         name: args.name,
         description: args.description ?? null,
         instructions: args.instructions,
         auto_apply: wantAlwaysOn,
+        output_mode: outputMode,
       }).select('id').single()
       if (error) return text(`Error: ${error.message}`, true)
-      return text(`Created ${wantAlwaysOn ? 'always-on' : 'on-demand'} skill "${args.name}" (id ${data.id}).`)
+      return text(`Created ${wantAlwaysOn ? 'always-on prompt' : 'on-demand skill'} "${args.name}" (id ${data.id}).`)
+    }
+    case 'list_skills': {
+      const limit = clampLimit(args.limit, 50, 200)
+      let q = db
+        .from('skills')
+        .select('id, name, description, auto_apply, is_builtin, output_mode, owner_id')
+        .or(`owner_id.eq.${owner},auto_apply.eq.true`)
+        .order('auto_apply', { ascending: false })
+        .order('updated_at', { ascending: false })
+        .limit(limit)
+      if (args.always_on === true) q = q.eq('auto_apply', true)
+      else if (args.always_on === false) q = q.eq('auto_apply', false)
+      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      if (query) q = q.or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+      const { data, error } = await q
+      if (error) return text(`Error: ${error.message}`, true)
+      const rows = (data ?? []) as Array<{ id: string; name: string; description: string | null; auto_apply: boolean; is_builtin: boolean }>
+      if (!rows.length) return text('No skills or prompts match. Use create_skill to make one.')
+      return text(
+        rows
+          .map((s) =>
+            `• ${s.name} (${s.id}) [${s.auto_apply ? 'always-on prompt' : 'on-demand skill'}${s.is_builtin ? ', built-in' : ''}]${
+              s.description ? ` — ${s.description}` : ''
+            }`,
+          )
+          .join('\n'),
+      )
+    }
+    case 'get_skill': {
+      const ref = String(args.skill ?? '').trim()
+      if (!ref) return text('get_skill needs a skill id or exact name.', true)
+      const skill = await resolveSkill(db, owner, ref)
+      if (!skill) return text(`No skill or prompt matches "${ref}".`, true)
+      return text([
+        `id: ${skill.id}`,
+        `name: ${skill.name}`,
+        `mode: ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'}${skill.is_builtin ? ' (built-in)' : ''}`,
+        `output_mode: ${skill.output_mode}`,
+        `description: ${skill.description ?? '(none)'}`,
+        `instructions:`,
+        skill.instructions ?? '',
+      ].join('\n'))
+    }
+    case 'update_skill': {
+      const ref = String(args.skill ?? '').trim()
+      if (!ref) return text('update_skill needs a skill id or exact name.', true)
+      const skill = await resolveSkill(db, owner, ref)
+      if (!skill) return text(`No skill or prompt matches "${ref}".`, true)
+      const wantAlwaysOn = typeof args.always_on === 'boolean' ? args.always_on : skill.auto_apply
+      // Always-on prompts (and toggling a skill onto/off always-on) are admin-only;
+      // a resolved non-always-on skill is guaranteed owner-owned by resolveSkill.
+      if ((skill.auto_apply || wantAlwaysOn) && !(await isAdmin(db, owner))) {
+        return text('Only admins can edit or create always-on prompts.', true)
+      }
+      const patch: Record<string, unknown> = {}
+      if (typeof args.name === 'string' && args.name.trim()) patch.name = args.name.trim()
+      if (typeof args.description === 'string') patch.description = args.description
+      if (typeof args.instructions === 'string') patch.instructions = args.instructions
+      if (args.output_mode === 'artifact' || args.output_mode === 'reply') patch.output_mode = args.output_mode
+      if (typeof args.always_on === 'boolean') patch.auto_apply = args.always_on
+      if (!Object.keys(patch).length) return text('Nothing to update — pass name, description, instructions, output_mode, and/or always_on.')
+      const { error } = await db.from('skills').update(patch).eq('id', skill.id)
+      if (error) return text(`Error: ${error.message}`, true)
+      return text(`Updated ${wantAlwaysOn ? 'always-on prompt' : 'on-demand skill'} "${(patch.name as string) ?? skill.name}" (id ${skill.id}).`)
+    }
+    case 'delete_skill': {
+      const ref = String(args.skill ?? '').trim()
+      if (!ref) return text('delete_skill needs a skill id or exact name.', true)
+      const skill = await resolveSkill(db, owner, ref)
+      if (!skill) return text(`No skill or prompt matches "${ref}".`, true)
+      if (skill.is_builtin) return text(`"${skill.name}" is a built-in prompt and can't be deleted (edit it with update_skill instead).`, true)
+      if (skill.auto_apply && !(await isAdmin(db, owner))) return text('Only admins can delete always-on prompts.', true)
+      const { error } = await db.from('skills').delete().eq('id', skill.id)
+      if (error) return text(`Error: ${error.message}`, true)
+      return text(`Deleted ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'} "${skill.name}".`)
     }
     case 'create_webhook': {
       const { data, error } = await db.from('webhooks').insert({
@@ -821,6 +1297,9 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (titleContains) q = q.ilike('title', `%${titleContains}%`)
       const typeFilter = String(args.type ?? args.mime_type ?? '').trim().toLowerCase()
       if (['markdown', 'code', 'html', 'text'].includes(typeFilter)) q = q.eq('type', typeFilter)
+      const sinceArt = parseSince(args.since)
+      if (sinceArt === 'invalid') return text('`since` must be an ISO 8601 timestamp.', true)
+      if (sinceArt) q = q.gte('updated_at', sinceArt)
       if (memberIds) q = q.in('id', memberIds)
       const { data, error } = await q
       if (error) return text(`Error: ${error.message}`, true)
@@ -857,6 +1336,21 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         `content${clipped ? ` (first ${cap} chars — it is longer)` : ''}:`,
         content,
       ].join('\n'))
+    }
+    case 'update_artifact':
+      return text(await runBuiltin(db, 'update_artifact', args, owner))
+    case 'get_collection': {
+      const ref = String(args.collection ?? '').trim()
+      if (!ref) return text('get_collection needs a collection (name or id).', true)
+      const col = await resolveCollection(db, owner, ref, false)
+      if (!col) return text(`No collection named "${ref}" that you can access.`, true)
+      const since = parseSince(args.since)
+      if (since === 'invalid') {
+        return text('`since` must be an ISO 8601 timestamp (e.g. 2026-07-01 or 2026-07-01T00:00:00Z).', true)
+      }
+      const includes = parseIncludes(args.include)
+      const bundle = await buildCollectionBundle(db, owner, col, includes, since)
+      return text(JSON.stringify(bundle, null, 2))
     }
     case 'list_collections': {
       const { data } = await db
@@ -1065,7 +1559,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         .from('files')
         .upload(path, bytes, { contentType: String(args.mime_type), upsert: false })
       if (upErr) return text(`Upload failed: ${upErr.message}`, true)
-      const { error: rowErr } = await db.from('files').insert({
+      const { data: fileRow, error: rowErr } = await db.from('files').insert({
         owner_id: owner,
         bucket: 'files',
         path,
@@ -1073,15 +1567,28 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         mime_type: args.mime_type,
         size_bytes: bytes.length,
         visibility: 'private',
-      })
+      }).select('id').single()
       if (rowErr) {
         await db.storage.from('files').remove([path])
         return text(`Saved the blob but couldn't register it: ${rowErr.message}`, true)
       }
+      let colNote = ''
+      const colRef = typeof args.collection === 'string' ? args.collection.trim() : ''
+      if (colRef && fileRow) {
+        const col = await resolveCollection(db, owner, colRef, true)
+        if (col) {
+          await db.from('collection_files').upsert(
+            { collection_id: col.id, file_id: fileRow.id, added_by: owner },
+            { onConflict: 'collection_id,file_id', ignoreDuplicates: true },
+          )
+          colNote = ` Filed into collection "${col.name}".`
+        }
+      }
       const isPdf = String(args.mime_type).includes('pdf') || /\.pdf$/i.test(String(args.name))
       return text(
         `Uploaded "${args.name}" (${(bytes.length / 1024).toFixed(0)} KB) to Files.` +
-          (isPdf ? ' It will be indexed into the knowledge base shortly.' : ''),
+          (isPdf ? ' It will be indexed into the knowledge base shortly.' : '') +
+          colNote,
       )
     }
     case 'create_file_upload': {
@@ -1125,14 +1632,55 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       const scope = args.scope === 'private' ? 'private' : 'workspace'
       try {
         const { chunkCount } = await ingestText(db, { ownerId: owner, name: title, text: content, scope })
+        // When a collection is named, ALSO persist the note as a text artifact filed
+        // into it — the KB index is workspace-global, so this is what makes the note
+        // appear in get_collection and the collection's chat context.
+        let extra = ''
+        const ref = typeof args.collection === 'string' ? args.collection.trim() : ''
+        if (ref) {
+          const { data: art } = await db
+            .from('artifacts')
+            .insert({ owner_id: owner, title, type: 'markdown', content, visibility: 'private' })
+            .select('id')
+            .single()
+          if (art) {
+            const filed = await fileArtifactIntoCollections(db, owner, art.id, [ref])
+            if (filed.length) extra = ` Also filed as an artifact (id ${art.id}) into collection "${filed[0]}".`
+          }
+        }
         return text(
           `Added "${title}" to the knowledge base (${chunkCount} chunk${chunkCount === 1 ? '' : 's'}, ${
             scope === 'workspace' ? 'searchable by the whole team' : 'visible only to you'
-          }). The assistant can now find it via search_documents.`,
+          }). The assistant can now find it via search_documents.${extra}`,
         )
       } catch (err) {
         return text(`Could not add the note: ${err instanceof Error ? err.message : 'error'}`, true)
       }
+    }
+    case 'search_documents':
+    case 'save_link':
+    case 'list_links':
+    case 'add_link_to_collection':
+    case 'save_message':
+    case 'list_messages':
+    case 'add_message_to_collection':
+      return text(await runBuiltin(db, name, args, owner))
+    case 'get_activity': {
+      const since = parseSince(args.since)
+      if (since === 'invalid') return text('`since` must be an ISO 8601 timestamp.', true)
+      const limit = clampLimit(args.limit, 20, 100)
+      let q = db
+        .from('activity_log')
+        .select('type, summary, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit)
+      if (since) q = q.gte('created_at', since)
+      const typeFilter = String(args.type ?? '').trim()
+      if (typeFilter) q = q.eq('type', typeFilter)
+      const { data } = await q
+      const rows = (data ?? []) as Array<{ type: string; summary: string; created_at: string }>
+      if (!rows.length) return text(since ? `No activity since ${since}.` : 'No activity.')
+      return text(JSON.stringify(rows.map((e) => ({ ts: e.created_at, event: e.type, summary: e.summary })), null, 2))
     }
     case 'list_activity': {
       const { data } = await db.from('activity_log').select('type, summary, created_at').order('created_at', { ascending: false }).limit(20)
@@ -1178,12 +1726,15 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (!Number.isFinite(limit) || limit <= 0) limit = 50
       limit = Math.min(Math.trunc(limit), 200)
       // deno-lint-ignore no-explicit-any
-      let q: any = db.from(t.physical_name).select('*').limit(limit)
+      let q: any = db.from(t.physical_name).select('*').order('created_at', { ascending: false }).limit(limit)
       const filters = (args.filters ?? null) as Record<string, unknown> | null
       if (filters && typeof filters === 'object') {
         const allowed = new Set((t.columns ?? []).map((c) => c.key).concat(['id', 'owner_id']))
         for (const [k, v] of Object.entries(filters)) if (allowed.has(k)) q = q.eq(k, v)
       }
+      const sinceRow = parseSince(args.since)
+      if (sinceRow === 'invalid') return text('`since` must be an ISO 8601 timestamp.', true)
+      if (sinceRow) q = q.gte('created_at', sinceRow) // ut_* tables always have created_at
       const { data, error } = await q
       if (error) return text(`Error: ${error.message}`, true)
       if (!data || !data.length) return text(`"${t.name}" has no matching rows.`)
