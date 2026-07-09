@@ -160,6 +160,9 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   const [agentId, setAgentId] = useState(suite.agent_id ?? '')
   const [rubric, setRubric] = useState(suite.rubric)
   const [judgeModel, setJudgeModel] = useState(suite.judge_model ?? '')
+  const [systemPrompt, setSystemPrompt] = useState(suite.system_prompt ?? '')
+  const [collectionIds, setCollectionIds] = useState<string[]>(suite.collection_ids ?? [])
+  const [collections, setCollections] = useState<AgentLite[]>([])
   const [agents, setAgents] = useState<AgentLite[]>([])
   const [cases, setCases] = useState<Case[]>([])
   const [runs, setRuns] = useState<Run[]>([])
@@ -187,6 +190,7 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
     loadCases()
     loadRuns()
     supabase.from('agents').select('id, name').order('name').then(({ data }) => setAgents(data ?? []))
+    supabase.from('collections').select('id, name').order('name').then(({ data }) => setCollections(data ?? []))
   }, [loadCases, loadRuns])
 
   useEffect(() => {
@@ -271,6 +275,46 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
                   <input value={judgeModel} onChange={(e) => setJudgeModel(e.target.value)} onBlur={() => saveMeta({ judge_model: judgeModel.trim() || null })}
                     placeholder="e.g. anthropic/claude-sonnet-4.5" className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary" />
                 </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-muted">
+                    System prompt <span className="text-faint">— optional; paste the exact prompt under test (e.g. your Slack reply prompt). Blank uses the {targetKind === 'agent' ? "agent's instructions" : 'always-on prompts'}.</span>
+                  </span>
+                  <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} onBlur={() => saveMeta({ system_prompt: systemPrompt })} rows={4}
+                    placeholder="You are the team's assistant replying in Slack. Answer from the collection context below, be concise, format for Slack…"
+                    className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary" />
+                </label>
+
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-muted">
+                    Collections <span className="text-faint">— injected as context on every case, exactly like a live reply</span>
+                  </span>
+                  {collections.length === 0 ? (
+                    <p className="text-[11px] text-faint">No collections yet — create one on the Artifacts page.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {collections.map((c) => {
+                        const on = collectionIds.includes(c.id)
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              const next = on ? collectionIds.filter((x) => x !== c.id) : [...collectionIds, c.id]
+                              setCollectionIds(next)
+                              saveMeta({ collection_ids: next })
+                            }}
+                            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                              on ? 'border-primary bg-primary-soft text-primary' : 'border-border-strong bg-surface text-muted hover:bg-surface-hover'
+                            }`}
+                          >
+                            {c.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>

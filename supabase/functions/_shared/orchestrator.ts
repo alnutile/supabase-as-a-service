@@ -11,6 +11,7 @@
 import { resolveModel } from './models.ts'
 import { runBuiltin } from './builtins.ts'
 import { runHttpTool } from './http_tool.ts'
+import { loadCollectionsContext } from './collections.ts'
 import {
   assistantToolCallMsg,
   orComplete,
@@ -89,15 +90,29 @@ export interface OrchestratorResult {
 
 // Answer one question through the full pipeline. `system` (an agent's
 // instructions) replaces the always-on prompts when provided; `toolIds` scopes
-// the toolset (an agent's tools). `model` overrides the orchestrator profile —
-// that's what powers the model-swap comparison.
+// the toolset (an agent's tools). `collectionIds` injects those collections'
+// context after the system prompt — exactly like the chat/webhook/slack path's
+// loadCollectionsContext — so an eval can reproduce a collection-scoped reply.
+// `model` overrides the orchestrator profile — that's what powers the model-swap
+// comparison.
 export async function runOrchestrator(
   db: DB,
-  opts: { question: string; system?: string | null; toolIds?: string[] | null; model?: string | null; userId?: string | null },
+  opts: {
+    question: string
+    system?: string | null
+    toolIds?: string[] | null
+    collectionIds?: string[] | null
+    model?: string | null
+    userId?: string | null
+  },
 ): Promise<OrchestratorResult> {
   const model = opts.model || (await resolveModel(db, 'orchestrator'))
   const { tools, httpTools, builtins, webEnabled } = await loadTools(db, opts.toolIds)
-  const system = (opts.system && opts.system.trim()) ? opts.system : await loadAlwaysOnSystem(db)
+  let system = (opts.system && opts.system.trim()) ? opts.system : await loadAlwaysOnSystem(db)
+  if (opts.collectionIds && opts.collectionIds.length) {
+    const collCtx = await loadCollectionsContext(db, opts.collectionIds, opts.userId ?? null, model)
+    if (collCtx) system += `\n\n---\n\n${collCtx}`
+  }
 
   const messages: ORMessage[] = [systemMsg(system), { role: 'user', content: opts.question }]
   if (webEnabled) tools.push(WEB_SEARCH_TOOL)

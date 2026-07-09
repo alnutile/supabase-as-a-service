@@ -104,7 +104,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: suite } = await db
     .from('eval_suites')
-    .select('id, name, target_kind, agent_id, rubric, judge_model')
+    .select('id, name, target_kind, agent_id, rubric, judge_model, collection_ids, system_prompt')
     .eq('id', suiteId)
     .maybeSingle()
   if (!suite) return json({ error: 'Suite not found' }, 404)
@@ -117,15 +117,23 @@ Deno.serve(async (req: Request) => {
   if (!cases || cases.length === 0) return json({ error: 'This suite has no cases yet.' }, 400)
 
   // An agent suite runs each question through that agent's prompt + tools.
-  let agentSystem: string | null = null
+  // Collections to inject: the suite's, plus (for an agent suite) the agent's own
+  // bound collections — so the eval mirrors what that agent sees when it runs.
+  // A pasted `system_prompt` overrides the default (paste the Slack reply prompt
+  // here); blank keeps today's behavior (always-on for chat, agent instructions).
+  const collectionIds = new Set<string>(Array.isArray(suite.collection_ids) ? suite.collection_ids : [])
+  const suiteSystem = typeof suite.system_prompt === 'string' && suite.system_prompt.trim() ? suite.system_prompt : null
+  let agentSystem: string | null = suiteSystem
   let agentToolIds: string[] | null = null
   if (suite.target_kind === 'agent') {
     if (!suite.agent_id) return json({ error: 'This agent suite has no agent selected.' }, 400)
-    const { data: agent } = await db.from('agents').select('instructions, tool_ids').eq('id', suite.agent_id).maybeSingle()
+    const { data: agent } = await db.from('agents').select('instructions, tool_ids, collection_ids').eq('id', suite.agent_id).maybeSingle()
     if (!agent) return json({ error: 'The suite\'s agent no longer exists.' }, 400)
-    agentSystem = agent.instructions ?? null
+    agentSystem = suiteSystem ?? agent.instructions ?? null
     agentToolIds = Array.isArray(agent.tool_ids) ? agent.tool_ids : null
+    for (const id of (Array.isArray(agent.collection_ids) ? agent.collection_ids : [])) collectionIds.add(id)
   }
+  const collectionList = [...collectionIds]
 
   const { data: run, error: runErr } = await db
     .from('eval_runs')
@@ -203,6 +211,7 @@ Deno.serve(async (req: Request) => {
             question: String(c.input ?? ''),
             system: agentSystem,
             toolIds: agentToolIds,
+            collectionIds: collectionList,
             model: modelOverride,
             userId,
           })

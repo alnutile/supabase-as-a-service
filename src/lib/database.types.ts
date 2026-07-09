@@ -1183,6 +1183,8 @@ export interface Database {
           agent_id: string | null
           rubric: string
           judge_model: string | null
+          collection_ids: string[]
+          system_prompt: string
           created_by: string | null
           created_at: string
           updated_at: string
@@ -1195,6 +1197,8 @@ export interface Database {
           agent_id?: string | null
           rubric?: string
           judge_model?: string | null
+          collection_ids?: string[]
+          system_prompt?: string
           created_by?: string | null
           created_at?: string
           updated_at?: string
