@@ -11,6 +11,7 @@ import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
 import MemoryPage from './pages/MemoryPage'
+import TerminologyPage from './pages/TerminologyPage'
 import InboxPage from './pages/InboxPage'
 import EventsPage from './pages/EventsPage'
 import ListenersPage from './pages/ListenersPage'
@@ -82,6 +83,8 @@ export default function App() {
         <Route path="todos/:todoId" element={<TodosPage />} />
         <Route path="links" element={<LinksPage />} />
         <Route path="memory" element={<MemoryPage />} />
+        <Route path="terminology" element={<TerminologyPage />} />
+        <Route path="terminology/:termId" element={<TerminologyPage />} />
         <Route path="skills" element={<SkillsPage />} />
         <Route path="webhooks" element={<WebhooksPage />} />
         <Route path="tools" element={<ToolsPage />} />

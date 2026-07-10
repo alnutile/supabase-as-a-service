@@ -280,6 +280,48 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['user_memories']['Insert']>
         Relationships: []
       }
+      terminology: {
+        Row: {
+          id: string
+          owner_id: string
+          term: string
+          definition: string
+          notes: string
+          source: Json
+          visibility: CollectionVisibility
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          term: string
+          definition: string
+          notes?: string
+          source?: Json
+          visibility?: CollectionVisibility
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['terminology']['Insert']>
+        Relationships: []
+      }
+      collection_terminology: {
+        Row: {
+          collection_id: string
+          term_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          term_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_terminology']['Insert']>
+        Relationships: []
+      }
       collection_todos: {
         Row: {
           collection_id: string
