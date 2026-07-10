@@ -166,5 +166,5 @@ Discipline:
 - Save quietly in the background — a brief "I'll remember that" is fine, but don't turn every message into a memory prompt.$prompt$,
   true,
   true,
-  'markdown'
+  'reply'
 where not exists (select 1 from public.skills where name = 'User memory' and is_builtin = true);
