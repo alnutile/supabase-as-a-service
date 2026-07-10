@@ -193,6 +193,18 @@ export default function ArtifactEditorPage() {
     navigate('/artifacts')
   }
 
+  // Cmd+S / Ctrl+S to save
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        void save()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [save])
+
   if (notFound) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted">
