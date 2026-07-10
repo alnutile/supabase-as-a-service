@@ -79,7 +79,26 @@ jobs:
               explains the change and contains "Closes #${{ github.event.issue.number }}".
             - Do NOT push to main. Do NOT merge the PR.
           claude_args: |
-            --model anthropic/claude-sonnet-4.5 --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"
+            --model anthropic/claude-sonnet-4.5 --max-turns 150 --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"
+
+      # Green must mean "a PR exists", not "the agent didn't crash". Check this
+      # FIRST: if the agent finished without pushing the branch + opening a PR
+      # (e.g. it ran out of turns before committing), flag it on the issue and
+      # fail with a clear message — rather than letting the test steps below fail
+      # confusingly on a `git fetch` of a ref that was never pushed (exit 128).
+      - name: Verify a PR was opened
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="feature/issue-${{ github.event.issue.number }}"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            gh issue comment "${{ github.event.issue.number }}" --repo "$GITHUB_REPOSITORY" \
+              --body "⚠️ The build run finished without opening a PR for \`$branch\` (the agent may have run out of turns before committing) — see the [run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            echo "::error::No open PR for $branch — the agent finished without gh pr create succeeding."
+            exit 1
+          fi
+          echo "PR #$pr is open for $branch."
 
       # PRs opened with the workflow's GITHUB_TOKEN don't trigger pull_request
       # workflows (GitHub anti-recursion), so the Tests workflow will NOT run
@@ -100,20 +119,3 @@ jobs:
           deno-version: v2.x
       - name: Test edge functions on the built branch
         run: deno test supabase/functions/tests/
-
-      # Green must mean "a PR exists", not "the agent didn't crash". If the
-      # agent finished without opening a PR, flag it on the issue (so the board
-      # card shows the comment) and fail the run.
-      - name: Verify a PR was opened
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          branch="feature/issue-${{ github.event.issue.number }}"
-          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')
-          if [ -z "$pr" ]; then
-            gh issue comment "${{ github.event.issue.number }}" --repo "$GITHUB_REPOSITORY" \
-              --body "⚠️ The build run pushed \`$branch\` (if it got that far) but opened no PR — see the [failed run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
-            echo "::error::No open PR for $branch — the agent finished without gh pr create succeeding."
-            exit 1
-          fi
-          echo "PR #$pr is open for $branch."
