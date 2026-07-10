@@ -106,6 +106,16 @@ export async function runBuiltin(
       return updateTodo(db, input, userId)
     case 'add_todo_to_collection':
       return addTodoToCollection(db, input, userId)
+    case 'create_term':
+      return createTerm(db, input, userId)
+    case 'list_terms':
+      return listTerms(db, input, userId)
+    case 'update_term':
+      return updateTerm(db, input, userId)
+    case 'delete_term':
+      return deleteTerm(db, input, userId)
+    case 'add_term_to_collection':
+      return addTermToCollection(db, input, userId)
     case 'save_link':
       return saveLink(db, input, userId)
     case 'list_links':
@@ -1190,6 +1200,141 @@ async function addTodoToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added to-do ${todoId} to collection "${col.name}".`
+}
+
+// --- Terminology (glossary of terms and definitions) ------------------------
+
+async function createTerm(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Terminology is unavailable.'
+  const term = String(input?.term ?? '').trim()
+  const definition = String(input?.definition ?? '').trim()
+  if (!term) return 'A term is required.'
+  if (!definition) return 'A definition is required.'
+  const { data, error } = await db
+    .from('terminology')
+    .insert({
+      owner_id: userId,
+      term,
+      definition,
+      notes: String(input?.notes ?? ''),
+      visibility: 'private',
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not create the term: ${error.message}`
+  let note = ''
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (col) {
+      await db.from('collection_terminology').upsert(
+        { collection_id: col.id, term_id: data.id, added_by: userId },
+        { onConflict: 'collection_id,term_id', ignoreDuplicates: true },
+      )
+      note = ` Filed into collection "${col.name}".`
+    }
+  }
+  await logActivity(db, 'term.created', `Created term "${term}"`, { id: data.id, collection: ref || null }, userId)
+  return `Created term "${term}" (id ${data.id}): ${definition.slice(0, 100)}${definition.length > 100 ? '...' : ''}.${note}`
+}
+
+async function listTerms(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Terminology is unavailable.'
+  let query = db
+    .from('terminology')
+    .select('id, term, definition, notes')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .order('term', { ascending: true })
+    .limit(100)
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, false)
+    if (!col) return `Collection "${ref}" not found.`
+    const { data: members } = await db.from('collection_terminology').select('term_id').eq('collection_id', col.id)
+    const ids = (members ?? []).map((m: { term_id: string }) => m.term_id)
+    if (!ids.length) return `No terms in collection "${col.name}".`
+    query = query.in('id', ids)
+  }
+  const search = typeof input?.search === 'string' ? input.search.trim().toLowerCase() : ''
+  const { data } = await query
+  if (!data || !data.length) return 'No terminology entries. Use create_term to add one.'
+  let filtered = data as Array<{ id: string; term: string; definition: string; notes: string }>
+  if (search) {
+    filtered = filtered.filter((t) => t.term.toLowerCase().includes(search) || t.definition.toLowerCase().includes(search))
+  }
+  if (!filtered.length) return `No terms match "${search}".`
+  return filtered
+    .map((t) => `• ${t.term}: ${t.definition}${t.notes ? `\n  Notes: ${t.notes.slice(0, 150)}` : ''}\n  id: ${t.id}`)
+    .join('\n')
+}
+
+async function updateTerm(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Terminology is unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A term id is required.'
+  const patch: Record<string, unknown> = {}
+  if (typeof input?.term === 'string') patch.term = input.term.trim()
+  if (typeof input?.definition === 'string') patch.definition = input.definition.trim()
+  if (typeof input?.notes === 'string') patch.notes = input.notes.trim()
+  if (!Object.keys(patch).length) return 'Nothing to update (pass term, definition, or notes).'
+  const { data, error } = await db
+    .from('terminology')
+    .update(patch)
+    .eq('id', id)
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .select('id')
+    .maybeSingle()
+  if (error) return `Could not update the term: ${error.message}`
+  if (!data) return `Term ${id} not found (or not yours).`
+  return `Updated term ${id}.`
+}
+
+async function deleteTerm(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Terminology is unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A term id is required.'
+  const { error } = await db
+    .from('terminology')
+    .delete()
+    .eq('id', id)
+    .eq('owner_id', userId)
+  if (error) return `Could not delete the term: ${error.message}`
+  return `Deleted term ${id}.`
+}
+
+async function addTermToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Terminology is unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const termId = String(input?.term_id ?? '').trim()
+  if (!ref || !termId) return 'Pass both a collection (name or id) and a term_id.'
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_terminology').upsert(
+    { collection_id: col.id, term_id: termId, added_by: userId },
+    { onConflict: 'collection_id,term_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added term ${termId} to collection "${col.name}".`
 }
 
 // --- Links (shared bookmarks; metadata auto-fetched from the URL) -----------

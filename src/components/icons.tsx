@@ -425,3 +425,12 @@ export const SlackIcon = (p: SVGProps<SVGSVGElement>) => (
     <rect x="14" y="13" width="8" height="3" rx="1.5" />
   </svg>
 )
+
+export const TerminologyIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    <path d="M9 7h6" />
+    <path d="M9 11h6" />
+  </svg>
+)
