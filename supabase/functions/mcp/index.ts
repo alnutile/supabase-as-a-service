@@ -25,6 +25,16 @@ import {
   resolveLoop,
   triggerLoopRun,
 } from '../_shared/loops.ts'
+import {
+  formatEvalRun,
+  formatMatrix,
+  getEvalRun,
+  latestRunsForSuite,
+  listSuitesText,
+  parseModels,
+  resolveSuite,
+  triggerEvalRun,
+} from '../_shared/evals.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -806,6 +816,89 @@ const TOOLS = [
       properties: {
         run_id: { type: 'string', description: 'The run id returned by run_loop.' },
         loop: { type: 'string', description: 'Or a loop name/id to check its latest run.' },
+      },
+    },
+  },
+  {
+    name: 'list_evals',
+    description:
+      'List the eval suites (Promptfoo-style regression tests for the AI pipeline): each suite\'s id, target (rag / chat / agent), and latest pass-rate. Admin only.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_eval_suite',
+    description:
+      'Create an eval suite: a named set of cases run through the real pipeline to measure answer quality and catch regressions when you swap models or edit prompts. Pick a target: "rag" (deterministic — scores whether search_documents retrieves the right passages), "chat" (answers each question through the live assistant, then a judge model grades it vs. your reference answer), or "agent" (same, through a specific agent\'s prompt + tools). For chat/agent you can ground answers in one or more collections, so you test "does the assistant answer correctly out of THIS knowledge set". Returns the suite id; add cases with add_eval_cases, then run_eval. Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Suite name.' },
+        description: { type: 'string', description: 'Optional description.' },
+        target: { type: 'string', enum: ['rag', 'chat', 'agent'], description: 'What to test (default "chat").' },
+        agent: { type: 'string', description: 'For target "agent": the agent name/id to run each case through.' },
+        rubric: { type: 'string', description: 'For chat/agent: how the judge should grade the answer (blank = a sensible default).' },
+        judge_model: { type: 'string', description: 'Optional OpenRouter slug for the judge (blank = the cheap utility profile).' },
+        collections: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'For chat/agent: collection names/ids to inject as grounding context, so answers are graded FROM that knowledge set.',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'add_eval_cases',
+    description:
+      'Add one or more cases to a suite in a single call — the fast way to build a dataset (generate the cases from a source doc/collection yourself, then bulk-insert them here). A case is a question (input) plus, for chat/agent suites, a reference answer (expected) the judge grades against; for rag suites, assertions about what should be retrieved. Assertions are objects like {"type":"contains","text":"…"}, {"type":"not_contains","text":"…"}, {"type":"regex","pattern":"…"}, {"type":"retrieves","doc":"…"}, or {"type":"recall_at_k","doc":"…","k":5}. Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        suite: { type: 'string', description: 'The suite name or id to add cases to.' },
+        cases: {
+          type: 'array',
+          description: 'The cases to add.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Optional label.' },
+              input: { type: 'string', description: 'The question / query (required).' },
+              expected: { type: 'string', description: 'Reference answer to grade against (chat/agent suites).' },
+              assertions: { type: 'array', description: 'Typed assertions about the result (see the tool description).', items: { type: 'object' } },
+            },
+            required: ['input'],
+          },
+        },
+      },
+      required: ['suite', 'cases'],
+    },
+  },
+  {
+    name: 'run_eval',
+    description:
+      'Run an eval suite (by name or id) in the background and return the run id(s) to poll with get_eval_run. Pass "models" (a list of OpenRouter slugs) to compare several models on the same suite in one call — one run per model, then get_eval_run shows a side-by-side scorecard. Omit "models" to run once at the profile default. Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        suite: { type: 'string', description: 'The suite name or id to run.' },
+        models: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional OpenRouter slugs to compare (e.g. ["anthropic/claude-sonnet-4.5","anthropic/claude-haiku-4.5"]). Omit for one run at the default model.',
+        },
+      },
+      required: ['suite'],
+    },
+  },
+  {
+    name: 'get_eval_run',
+    description:
+      'Check in on an eval run: status, pass-rate, and cost. Pass a run_id from run_eval, or a suite name/id to see the latest run(s) — for a model comparison, pass the suite to get the side-by-side scorecard across models. Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'A run id from run_eval.' },
+        suite: { type: 'string', description: 'Or a suite name/id to see its latest run(s) / model comparison.' },
       },
     },
   },
@@ -1854,6 +1947,98 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       }
       if (!run) return text('No run found yet.', true)
       return text(formatRun(run))
+    }
+    case 'list_evals': {
+      if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
+      return text(await listSuitesText(db))
+    }
+    case 'create_eval_suite': {
+      if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
+      const name = String(args.name ?? '').trim()
+      if (!name) return text('create_eval_suite needs a name.', true)
+      const target = ['rag', 'chat', 'agent'].includes(String(args.target)) ? String(args.target) : 'chat'
+      let agentId: string | null = null
+      if (target === 'agent') {
+        agentId = await resolveAgent(db, args.agent)
+        if (!agentId) return text(`Target "agent" needs a valid agent — no agent named "${args.agent ?? ''}". Create one first with create_agent.`, true)
+      }
+      // Grounding collections must already exist (don't silently mint one for a test set).
+      const collectionIds: string[] = []
+      for (const ref of Array.isArray(args.collections) ? args.collections : []) {
+        const col = await resolveCollection(db, owner, String(ref), false)
+        if (!col) return text(`No collection named "${ref}" that you can use for grounding.`, true)
+        collectionIds.push(col.id)
+      }
+      const { data, error } = await db
+        .from('eval_suites')
+        .insert({
+          name,
+          description: String(args.description ?? ''),
+          target_kind: target,
+          agent_id: agentId,
+          rubric: String(args.rubric ?? ''),
+          judge_model: args.judge_model ? String(args.judge_model) : null,
+          collection_ids: collectionIds,
+          created_by: owner,
+        })
+        .select('id, name')
+        .single()
+      if (error || !data) return text(`Error: ${error?.message ?? 'could not create the suite'}`, true)
+      return text(
+        `Created eval suite "${data.name}" (id ${data.id}), target ${target}. Add cases with add_eval_cases "${data.id}", then run it with run_eval.`,
+      )
+    }
+    case 'add_eval_cases': {
+      if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
+      const suite = await resolveSuite(db, String(args.suite ?? ''))
+      if (!suite) return text(`No eval suite named "${args.suite ?? ''}".`, true)
+      const incoming = Array.isArray(args.cases) ? args.cases : []
+      const rows = incoming
+        .map((c: Record<string, unknown>) => ({
+          suite_id: suite.id,
+          name: String(c.name ?? '').trim(),
+          input: String(c.input ?? '').trim(),
+          expected: c.expected != null && String(c.expected).trim() !== '' ? String(c.expected).trim() : null,
+          assertions: Array.isArray(c.assertions) ? c.assertions : [],
+        }))
+        .filter((r: { input: string }) => r.input !== '')
+      if (!rows.length) return text('No valid cases — each case needs an "input" (the question/query).', true)
+      const { error } = await db.from('eval_cases').insert(rows)
+      if (error) return text(`Error: ${error.message}`, true)
+      return text(`Added ${rows.length} case${rows.length === 1 ? '' : 's'} to "${suite.name}". Run it with run_eval "${suite.id}".`)
+    }
+    case 'run_eval': {
+      if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
+      const suite = await resolveSuite(db, String(args.suite ?? ''))
+      if (!suite) return text(`No eval suite named "${args.suite ?? ''}".`, true)
+      const models = parseModels(args.models)
+      try {
+        const { run_ids } = await triggerEvalRun(suite.id, models, owner)
+        const label = models.length > 1 || models[0] ? ` across ${models.map((m) => m ?? 'default').join(', ')}` : ''
+        return text(
+          `Started eval "${suite.name}"${label}. Run id${run_ids.length === 1 ? '' : 's'}: ${run_ids.join(', ')}. It runs in the background — check on it with get_eval_run "${run_ids[0]}" (or get_eval_run suite:"${suite.id}" for the model comparison).`,
+        )
+      } catch (err) {
+        return text(`Error: ${err instanceof Error ? err.message : 'could not start the eval'}`, true)
+      }
+    }
+    case 'get_eval_run': {
+      if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
+      const runId = String(args.run_id ?? '').trim()
+      const suiteRef = String(args.suite ?? '').trim()
+      if (runId) {
+        const run = await getEvalRun(db, runId)
+        if (!run) return text('No run found yet.', true)
+        return text(formatEvalRun(run))
+      }
+      if (suiteRef) {
+        const suite = await resolveSuite(db, suiteRef)
+        if (!suite) return text(`No eval suite named "${suiteRef}".`, true)
+        const runs = await latestRunsForSuite(db, suite.id)
+        if (!runs.length) return text(`"${suite.name}" hasn't been run yet.`, true)
+        return text(`Latest runs for "${suite.name}":\n${formatMatrix(runs)}`)
+      }
+      return text('get_eval_run needs a run_id (from run_eval) or a suite name/id.', true)
     }
     default:
       return text(`Unknown tool: ${name}`, true)

@@ -10,6 +10,7 @@ type Case = Database['public']['Tables']['eval_cases']['Row']
 type Run = Database['public']['Tables']['eval_runs']['Row']
 type Result = Database['public']['Tables']['eval_results']['Row']
 type AgentLite = { id: string; name: string }
+type CollectionLite = { id: string; name: string }
 
 type AssertionRow = { type: string; value: string; k: number }
 type StoredAssertion = { type: string; doc?: string; text?: string; pattern?: string; k?: number }
@@ -160,7 +161,9 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   const [agentId, setAgentId] = useState(suite.agent_id ?? '')
   const [rubric, setRubric] = useState(suite.rubric)
   const [judgeModel, setJudgeModel] = useState(suite.judge_model ?? '')
+  const [collectionIds, setCollectionIds] = useState<string[]>(suite.collection_ids ?? [])
   const [agents, setAgents] = useState<AgentLite[]>([])
+  const [collections, setCollections] = useState<CollectionLite[]>([])
   const [cases, setCases] = useState<Case[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [activeRun, setActiveRun] = useState<string | null>(null)
@@ -168,6 +171,7 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   const [editing, setEditing] = useState<Case | 'new' | null>(null)
   const [running, setRunning] = useState(false)
   const [modelOverride, setModelOverride] = useState('')
+  const [compareModels, setCompareModels] = useState('')
   const [error, setError] = useState('')
 
   const isJudged = targetKind === 'chat' || targetKind === 'agent'
@@ -187,6 +191,7 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
     loadCases()
     loadRuns()
     supabase.from('agents').select('id, name').order('name').then(({ data }) => setAgents(data ?? []))
+    supabase.from('collections').select('id, name').order('name').then(({ data }) => setCollections(data ?? []))
   }, [loadCases, loadRuns])
 
   useEffect(() => {
@@ -223,6 +228,50 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
     } else {
       await loadRuns()
       if (data?.run_id) setActiveRun(data.run_id)
+    }
+    setRunning(false)
+  }
+
+  function toggleCollection(id: string) {
+    const next = collectionIds.includes(id) ? collectionIds.filter((c) => c !== id) : [...collectionIds, id]
+    setCollectionIds(next)
+    saveMeta({ collection_ids: next })
+  }
+
+  // Model matrix: fire a background run per model, then poll until they settle so
+  // the trend strip + run picker fill in with the side-by-side comparison.
+  async function compare() {
+    const models = compareModels.split(/[\n,]/).map((m) => m.trim()).filter(Boolean)
+    if (models.length === 0) return
+    setRunning(true)
+    setError('')
+    const { data, error: invokeErr } = await supabase.functions.invoke('evals', {
+      body: { suite_id: suite.id, models, background: true },
+    })
+    if (invokeErr) {
+      let msg = invokeErr.message
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const j = await (invokeErr as any).context.json()
+        if (j?.error) msg = j.error
+      } catch { /* keep generic */ }
+      setError(msg)
+      setRunning(false)
+      return
+    }
+    if (data?.error) {
+      setError(data.error)
+      setRunning(false)
+      return
+    }
+    const runIds: string[] = data?.run_ids ?? []
+    if (runIds.length && data?.run_id !== null) setActiveRun(runIds[0])
+    // Poll the launched runs until none are still running (cap ~2 min).
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const { data: rows } = await supabase.from('eval_runs').select('status').in('id', runIds)
+      await loadRuns()
+      if ((rows ?? []).every((r) => r.status !== 'running')) break
     }
     setRunning(false)
   }
@@ -271,6 +320,25 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
                   <input value={judgeModel} onChange={(e) => setJudgeModel(e.target.value)} onBlur={() => saveMeta({ judge_model: judgeModel.trim() || null })}
                     placeholder="e.g. anthropic/claude-sonnet-4.5" className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary" />
                 </label>
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-muted">Grounding collections (optional — answers are graded FROM these)</span>
+                  {collections.length === 0 ? (
+                    <p className="text-xs text-faint">No collections yet. Create one to ground answers in a specific knowledge set.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {collections.map((c) => {
+                        const on = collectionIds.includes(c.id)
+                        return (
+                          <button key={c.id} onClick={() => toggleCollection(c.id)}
+                            className={`rounded-full border px-2.5 py-1 text-xs ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border-strong text-muted hover:bg-surface-hover'}`}>
+                            {on ? '✓ ' : ''}{c.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-faint">When set, each question is answered with only these collections' content as context — so you test whether the assistant answers correctly out of that set.</p>
+                </div>
               </>
             )}
           </div>
@@ -285,6 +353,17 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
               title="Run with a specific model to compare quality/cost. Blank = the orchestrator profile."
               className="w-60 rounded-lg border border-border-strong px-3 py-2 text-xs outline-none focus:border-primary" />
             <span className="text-xs text-faint">{cases.length} case{cases.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2">
+            <span className="text-xs font-medium text-muted">Compare models</span>
+            <input value={compareModels} onChange={(e) => setCompareModels(e.target.value)}
+              placeholder="comma-separated slugs, e.g. anthropic/claude-sonnet-4.5, anthropic/claude-haiku-4.5, openai/gpt-4o"
+              title="Run the whole suite once per model, in the background, then compare the scores in the trend strip below."
+              className="min-w-0 flex-1 rounded-lg border border-border-strong px-3 py-2 text-xs outline-none focus:border-primary" />
+            <button onClick={compare} disabled={running || cases.length === 0 || !compareModels.trim()}
+              className="rounded-lg border border-border-strong px-3 py-2 text-xs font-semibold text-muted hover:bg-surface-hover disabled:opacity-50">
+              {running ? 'Comparing…' : 'Compare'}
+            </button>
           </div>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         </div>

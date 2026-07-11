@@ -11,6 +11,7 @@
 import { resolveModel } from './models.ts'
 import { runBuiltin } from './builtins.ts'
 import { runHttpTool } from './http_tool.ts'
+import { loadCollectionsContext } from './collections.ts'
 import {
   assistantToolCallMsg,
   orComplete,
@@ -90,14 +91,27 @@ export interface OrchestratorResult {
 // Answer one question through the full pipeline. `system` (an agent's
 // instructions) replaces the always-on prompts when provided; `toolIds` scopes
 // the toolset (an agent's tools). `model` overrides the orchestrator profile —
-// that's what powers the model-swap comparison.
+// that's what powers the model-swap comparison. `collectionIds` injects those
+// collections' content as primary context (the eval grounding-set), layered
+// AFTER the system prompt so it grounds the answer without replacing the prompt.
 export async function runOrchestrator(
   db: DB,
-  opts: { question: string; system?: string | null; toolIds?: string[] | null; model?: string | null; userId?: string | null },
+  opts: {
+    question: string
+    system?: string | null
+    toolIds?: string[] | null
+    model?: string | null
+    userId?: string | null
+    collectionIds?: string[] | null
+  },
 ): Promise<OrchestratorResult> {
   const model = opts.model || (await resolveModel(db, 'orchestrator'))
   const { tools, httpTools, builtins, webEnabled } = await loadTools(db, opts.toolIds)
-  const system = (opts.system && opts.system.trim()) ? opts.system : await loadAlwaysOnSystem(db)
+  let system = (opts.system && opts.system.trim()) ? opts.system : await loadAlwaysOnSystem(db)
+  if (opts.collectionIds && opts.collectionIds.length && opts.userId) {
+    const grounding = await loadCollectionsContext(db, opts.collectionIds, opts.userId, model)
+    if (grounding) system += `\n\n${grounding}`
+  }
 
   const messages: ORMessage[] = [systemMsg(system), { role: 'user', content: opts.question }]
   if (webEnabled) tools.push(WEB_SEARCH_TOOL)
