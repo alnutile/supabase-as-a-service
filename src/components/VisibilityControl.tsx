@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Visibility } from '../lib/database.types'
 import { validateSharePassword } from '../lib/artifactShare'
-import { GlobeIcon, LinkIcon, LockIcon } from './icons'
+import { GlobeIcon, LinkIcon, LockIcon, EyeIcon, EyeOffIcon } from './icons'
 
 const OPTIONS: { value: Visibility; label: string; hint: string; Icon: typeof LockIcon }[] = [
   { value: 'private', label: 'Private', hint: 'Only you', Icon: LockIcon },
@@ -81,6 +81,7 @@ function SharePassword({ protectedWithPassword, onSave, onRemove }: SharePasswor
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function save() {
     const err = validateSharePassword(value)
@@ -146,17 +147,31 @@ function SharePassword({ protectedWithPassword, onSave, onRemove }: SharePasswor
 
       {open && (
         <div className="mt-2 space-y-1.5">
-          <input
-            type="password"
-            autoFocus
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void save()
-            }}
-            placeholder="Password viewers must enter"
-            className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-text outline-none focus:border-primary"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              autoFocus
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void save()
+              }}
+              placeholder="Password viewers must enter"
+              className="w-full rounded-md border border-border bg-surface px-2 py-1.5 pr-8 text-xs text-text outline-none focus:border-primary"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted hover:text-text"
+              title={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? (
+                <EyeOffIcon className="h-3.5 w-3.5" />
+              ) : (
+                <EyeIcon className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
           <button
             onClick={save}
             disabled={busy}
