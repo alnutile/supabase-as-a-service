@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
-import { AgentIcon, ChatIcon, CheckIcon, CollectionIcon, PlayIcon, PlusIcon, SkillIcon, TrashIcon } from '../components/icons'
+import { AgentIcon, ChatIcon, CheckIcon, CloseIcon, CollectionIcon, PlayIcon, PlusIcon, SearchIcon, SkillIcon, TrashIcon } from '../components/icons'
 
 type Agent = Database['public']['Tables']['agents']['Row']
 type Tool = Database['public']['Tables']['tools']['Row']
@@ -35,6 +35,8 @@ export default function AgentsPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all')
   const [filterScheduled, setFilterScheduled] = useState<'all' | 'scheduled' | 'unscheduled'>('all')
+  const [search, setSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<Agent[] | null>(null)
 
   const load = useCallback(async () => {
     const [{ data: a }, { data: t }, { data: c }, { data: m }, { data: s }] = await Promise.all([
@@ -61,6 +63,26 @@ export default function AgentsPage() {
     load()
   }, [load])
 
+  // Debounced search by name, description, or instructions
+  useEffect(() => {
+    const term = search.trim()
+    if (!term) {
+      setSearchResults(null)
+      return
+    }
+    const handle = setTimeout(async () => {
+      const pattern = `%${term.replace(/[,()\\%]/g, ' ')}%`
+      const { data } = await supabase
+        .from('agents')
+        .select('*')
+        .or(`name.ilike.${pattern},description.ilike.${pattern},instructions.ilike.${pattern}`)
+        .order('updated_at', { ascending: false })
+        .limit(200)
+      setSearchResults(data ?? [])
+    }, 250)
+    return () => clearTimeout(handle)
+  }, [search])
+
   const selectedIds = useMemo(() => [...selected], [selected])
 
   const scheduledAgentIds = useMemo(() => {
@@ -70,7 +92,8 @@ export default function AgentsPage() {
   }, [schedules])
 
   const visible = useMemo(() => {
-    let filtered = agents
+    // Use search results if search is active, otherwise all agents
+    let filtered = searchResults ?? agents
 
     // Filter by collection
     if (activeCollection) {
@@ -93,7 +116,7 @@ export default function AgentsPage() {
     }
 
     return filtered
-  }, [agents, members, activeCollection, filterActive, filterScheduled, scheduledAgentIds])
+  }, [agents, searchResults, members, activeCollection, filterActive, filterScheduled, scheduledAgentIds])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -132,6 +155,26 @@ export default function AgentsPage() {
           An agent bundles a system prompt with the tools it may use. Build them here, or have an
           external Claude build them over MCP (Settings → Connect Claude).
         </p>
+
+        {/* Search */}
+        <div className="relative mb-5">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search agents by name, description, or instructions…"
+            className="w-full rounded-lg border border-border-strong bg-surface py-2 pl-9 pr-9 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-faint transition hover:bg-surface-hover hover:text-text"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
 
         {/* Filters */}
         <div className="mb-5 space-y-3">
