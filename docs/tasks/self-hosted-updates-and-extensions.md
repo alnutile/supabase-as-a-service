@@ -10,22 +10,20 @@
 
 ---
 
-## ▶ START HERE — first action for the new session
+## ▶ START HERE — status
 
-The reason this handoff exists: the **intranet MCP server was not connected** in the prior
-session, so we couldn't pull the user's own research. Do this first:
+**Resolved (2026-07-12):** the intranet MCP still wasn't connected, but the user pasted the
+**"Supanet - Claude Connection"** collection contents directly. It turned out to be
+**Anthropic's connector-review contract** (a privacy-policy spec + a tool-annotation spec),
+now folded into **Thread 3e** below and reflected in 3b.3, the net-new-work list, and the open
+questions. No further pull needed to proceed.
 
-1. Confirm the intranet MCP is connected — look for `mcp__intranet__*` tools
-   (`get_collection`, `list_collections`, …). If they're missing, tell the user and have
-   them enable the intranet connector for the chat (Settings → Connect Claude / `mcp_tokens`).
-   The generic "Supabase" connector is **not** the same thing and was not enabled.
-2. Pull the collection **"Supanet - Claude Connection"** via
-   `mcp__intranet__get_collection` (name lookup; include artifacts + files + links + notes).
-   This is the user's own research on the intranet MCP / "Supanet ↔ Claude" connection.
-3. Fold that research into **Thread 3 → "stable extension API"** below — it's expected to
-   sharpen exactly the contract that extensions bind to.
-
-Reference the `intranet-workspace` skill for how to drive the intranet MCP.
+If you *do* want the live collection (e.g. to check for items beyond the two pasted docs):
+confirm `mcp__intranet__*` tools are present (`get_collection`/`list_collections`); if missing,
+have the user enable the intranet connector (Settings → Connect Claude / `mcp_tokens` — the
+generic "Supabase" connector is **not** it), then `get_collection` "Supanet - Claude
+Connection" (include artifacts + files + links + notes). Reference the `intranet-workspace`
+skill to drive it.
 
 ---
 
@@ -119,8 +117,10 @@ conflict. Instead: **make core a versioned package/template, tenant repo a thin 
 
 Bind all three to a **stable internal API** (the existing REST fns `artifacts`/`todos`/
 `run-tool`, RPCs, MCP) — **not raw core tables** — and version it ("extensions targeting v2
-API compatible", à la WordPress "tested up to 6.4"). **← the user's "Supanet - Claude
-Connection" research should sharpen this piece.**
+API compatible", à la WordPress "tested up to 6.4"). **The "Supanet - Claude Connection"
+research sharpened this — see 3e:** the MCP slice of this surface has a *second*,
+externally-enforced contract (Anthropic connector review) that both constrains its shape and
+hands us a ready-made versioning discipline.
 
 ### 3c. The migration collision problem (they've already been bitten)
 `CLAUDE.md` records two prod migration-prefix collisions (a second `0056_*` that silently
@@ -144,6 +144,68 @@ Reuse, don't rebuild:
 - **Gap = version awareness:** a "you're on 1.4 → 1.6, here's the changelog + pending
   migration count" check (poll a releases feed) whose apply step reuses the above. Thin.
 
+### 3e. The MCP surface has a *second* contract: Anthropic connector review
+The "Supanet - Claude Connection" collection turned out to be **Anthropic's connector-review
+contract** — a privacy-policy spec + a tool-annotation spec — not internal notes. That
+reframes the stable-API question. The MCP server (`functions/mcp/`) is **two surfaces in one
+codebase**, with different consumers and different governing contracts, which Thread 3 had
+conflated:
+- **Inbound extension API** — tenant `plugins/` call *into* core to read/write workspace
+  data. Consumer = tenant code. Versioned as "extensions targeting v2 API."
+- **Outbound connector** — the same MCP server published *to Claude* (Desktop/Code/claude.ai)
+  as a reviewable connector. Consumer = Anthropic review + end users who add it. Contract =
+  the two pasted specs.
+
+What the outbound contract demands, and where core stands today (verified against
+`functions/mcp/index.ts`):
+1. **Split read from write; no catch-all.** A single `api_request(method,…)` is an
+   auto-reject. Core is *already* shaped right — `list_*`/`get_*`/`query_table`/
+   `search_documents` (read) vs `create_*`/`update_*`/`delete_*`/`add_*_to_collection`
+   (write) are separate tools; there is no first-party catch-all. **The sharp tension is the
+   re-exposed external MCP tools** (`‹label›__‹remote›`, e.g. `zapier__gmail_find_email`)
+   appended to `tools/list`, whose names + descriptions are authored by the *remote* server —
+   we can't guarantee they're split, annotated, or ≤64 chars. Proxying arbitrary external
+   tools through a *reviewed* connector is the thing that fails review. (`run-tool` /
+   `http_request` are the internal catch-alls, but they're REST/builtin, not MCP tools, so
+   they never reach this surface.)
+2. **Annotate every tool (`title` + `readOnlyHint`|`destructiveHint`).** **Gap: none of the
+   ~55 first-party MCP tools carry annotations today** — all have `name` + `description` +
+   `inputSchema`, zero `title`/hints. Net-new, but *mechanical and additive* (one field per
+   tool), and it maps 1:1 onto a distinction core already makes everywhere else — read-only
+   agents vs `webhooks.allow_tools`, the guardrail gate, `update_table_row` requiring a
+   `match`. `destructiveHint` is just that existing safety line made declarative at the tool
+   boundary.
+3. **≤64-char names, narrow descriptions, custom-query tools must name their API.**
+   First-party names/descriptions are fine; `query_table` should name its target (the
+   workspace's `ut_*` Postgres tables) to satisfy the "custom-query tool references the API"
+   rule. The external-tool passthrough is again the unbounded case.
+4. **Bounded responses; first-party only; no memory/history access.** "Summary-sized, not
+   full DB dumps" bites `get_collection`, which returns **full artifact content** — its
+   existing `include`/`since` subset is the mitigation, but a published connector likely
+   wants a *summary default*. The rest is **free for this topology**: the MCP domain **is**
+   the tenant's own service, it calls its **own** first-party API, and it never touches
+   Claude's memory/history/files — three review items that project-per-tenant self-hosting
+   satisfies by construction.
+5. **Privacy policy (HTTPS, 5 areas) + `manifest.json.privacy_policies`.** The one item that
+   **collides with self-hosted topology**: every tenant runs its own MCP endpoint on its own
+   domain, so "submit one reviewed connector" doesn't map cleanly. Two routes:
+   - **Canonical connector, self-hosted endpoints:** upstream maintains *one* reviewed
+     connector definition (annotations + a privacy-policy template); each tenant points it at
+     their own URL. Tenants who never list it publicly just use `claude mcp add` — review is
+     only required for the public connector directory, not for private use.
+   - **Ship a privacy-policy template in core** (the pasted doc, templated) under `docs/` so a
+     tenant *can* self-publish. Cheap.
+
+**Net effect on the extension-API decision (3b.3):** this is a concrete argument for making
+the **MCP surface the canonical versioned public API**, because Anthropic's rules hand you an
+*externally-enforced* discipline you'd otherwise invent from scratch — the annotations are a
+machine-readable read/write + destructive contract, and the review's "tested up to" is exactly
+the version pin the doc wanted. Net-new work this implies: (a) add `title` + `readOnlyHint`/
+`destructiveHint` to every first-party MCP tool; (b) decide the external-tool-passthrough
+policy for the *published* surface (likely: **don't** re-expose external MCP tools through the
+reviewed connector — keep passthrough on the raw `claude mcp add` path only); (c) a
+summary-mode default for `get_collection`; (d) a templated privacy policy in `docs/`.
+
 ## Net-new work, in leverage order
 1. Extract core into a versioned package/template + thin tenant shell (3a — the fork-vs-dep
    decision).
@@ -152,6 +214,10 @@ Reuse, don't rebuild:
 3. Version-aware update channel on top of the maintenance panel (3d).
 4. (Thread 2) `app_viewers` allowlist + a `withSupabase({auth:'user'})` "app data" fn pattern
    for scoped-DB vibe-coded apps.
+5. (Thread 3e) Make the MCP server review-ready as the canonical public API: annotate every
+   first-party tool (`title` + `readOnlyHint`/`destructiveHint`), decide external-tool
+   passthrough policy for the published surface, add a `get_collection` summary default, and
+   ship a templated privacy policy. Mostly mechanical; unlocks "MCP = the versioned public API."
 
 ## Open questions to resolve with the user
 - Package/template vs. git-template as the core-distribution mechanism (npm pkg? base image?
@@ -159,7 +225,16 @@ Reuse, don't rebuild:
   `one-command-install-and-hosted.md`'s bootstrap module.
 - Does the frontend plugin registry ship as part of core v1, or after the package extraction?
 - Exactly which stable-API surface extensions are allowed to touch (define the "public API"
-  vs. "internal" line) — **the "Supanet - Claude Connection" research feeds this.**
+  vs. "internal" line). **Sharpened by 3e:** lean toward the MCP server as the canonical
+  public API (Anthropic's review contract gives it externally-enforced read/write +
+  versioning discipline); REST fns + RPCs remain the non-MCP public surface. Still open:
+  where exactly the REST/RPC "public vs internal" line falls.
+- **(3e) External-MCP passthrough on a published connector:** re-expose external MCP tools
+  through the reviewed connector at all, or restrict passthrough to the raw `claude mcp add`
+  path? (Leaning: restrict — remote-authored tool names/annotations can't clear review.)
+- **(3e) Privacy-policy ownership under self-hosting:** one canonical upstream connector
+  definition tenants point at their own URL, vs. shipping a templated policy so each tenant
+  can self-publish. Ties into `one-command-install-and-hosted.md`'s bootstrap.
 - Parent-inject vs. viewer-JWT-backend as the default for scoped-DB apps (Thread 2 tension).
 
 ## Codebase anchors (so a cold session can ground itself fast)
