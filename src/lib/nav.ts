@@ -86,14 +86,6 @@ export const navGroups: NavGroup[] = [
       { to: '/artifacts', label: 'Artifacts', key: 'artifacts', icon: ArtifactIcon, keywords: 'documents docs' },
       { to: '/todos', label: 'To-dos', key: 'todos', icon: TodoIcon, keywords: 'tasks todo' },
       { to: '/links', label: 'Links', key: 'links', icon: LinkIcon, keywords: 'bookmarks' },
-      { to: '/memory', label: 'Memory', key: 'memory', icon: MemoryIcon, keywords: 'remember preferences personalization profile context' },
-      { to: '/terminology', label: 'Terminology', key: 'terminology', icon: TerminologyIcon, keywords: 'glossary terms definitions dictionary' },
-      { to: '/skills', label: 'Skills', key: 'skills', icon: SkillIcon, keywords: 'prompts' },
-    ],
-  },
-  {
-    label: 'Planner',
-    items: [
       {
         to: '/whiteboards',
         label: 'Whiteboards',
@@ -101,6 +93,9 @@ export const navGroups: NavGroup[] = [
         icon: WhiteboardIcon,
         keywords: 'excalidraw draw canvas diagram board plan sketch',
       },
+      { to: '/memory', label: 'Memory', key: 'memory', icon: MemoryIcon, keywords: 'remember preferences personalization profile context' },
+      { to: '/terminology', label: 'Terminology', key: 'terminology', icon: TerminologyIcon, keywords: 'glossary terms definitions dictionary' },
+      { to: '/skills', label: 'Skills', key: 'skills', icon: SkillIcon, keywords: 'prompts' },
     ],
   },
   {
