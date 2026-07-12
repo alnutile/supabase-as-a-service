@@ -11,6 +11,8 @@ import ArtifactEditorPage from './pages/ArtifactEditorPage'
 import WhiteboardsPage from './pages/WhiteboardsPage'
 // Excalidraw is large — keep the editor out of the initial bundle (lazy chunk).
 const WhiteboardEditorPage = lazy(() => import('./pages/WhiteboardEditorPage'))
+import CardBoardsPage from './pages/CardBoardsPage'
+import CardBoardEditorPage from './pages/CardBoardEditorPage'
 import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
@@ -93,6 +95,8 @@ export default function App() {
             </Suspense>
           }
         />
+        <Route path="cards" element={<CardBoardsPage />} />
+        <Route path="cards/:boardId" element={<CardBoardEditorPage />} />
         <Route path="collections" element={<CollectionsPage />} />
         <Route path="collections/:collectionId" element={<CollectionsPage />} />
         <Route path="collections/:collectionId/:kindSlug/:itemId" element={<CollectionsPage />} />

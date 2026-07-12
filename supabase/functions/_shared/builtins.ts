@@ -27,6 +27,7 @@ import { runSecurityScan } from './security_scan.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
+import { buildCards, cardCount, cardsToText } from './card_board.ts'
 import {
   createLoop,
   findOrCreateLoopAgent,
@@ -117,6 +118,16 @@ export async function runBuiltin(
       return updateWhiteboard(db, input, userId)
     case 'add_whiteboard_to_collection':
       return addWhiteboardToCollection(db, input, userId)
+    case 'create_card_board':
+      return createCardBoard(db, input, userId)
+    case 'list_card_boards':
+      return listCardBoards(db, input, userId)
+    case 'get_card_board':
+      return getCardBoard(db, input, userId)
+    case 'add_cards':
+      return addCards(db, input, userId)
+    case 'add_card_board_to_collection':
+      return addCardBoardToCollection(db, input, userId)
     case 'create_term':
       return createTerm(db, input, userId)
     case 'list_terms':
@@ -1352,6 +1363,140 @@ async function addWhiteboardToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added whiteboard ${whiteboardId} to collection "${col.name}".`
+}
+
+// --- Card boards (free-form wall of movable cards in the Planner) ------------
+// Read a board as a prioritized list (cardsToText) and dump ideas onto it as
+// cards (buildCards auto-positions them). Access re-enforced in code (own or
+// workspace) since the loops run as service role.
+
+async function createCardBoard(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Card boards are unavailable.'
+  const title = String(input?.title ?? '').trim()
+  if (!title) return 'A card board title is required.'
+  const cards = input?.cards ? buildCards({}, input.cards, 'replace') : []
+  const { data, error } = await db
+    .from('card_boards')
+    .insert({ owner_id: userId, title, cards, visibility: 'private' })
+    .select('id')
+    .single()
+  if (error) return `Could not create the card board: ${error.message}`
+  let note = ''
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (col) {
+      await db.from('collection_card_boards').upsert(
+        { collection_id: col.id, card_board_id: data.id, added_by: userId },
+        { onConflict: 'collection_id,card_board_id', ignoreDuplicates: true },
+      )
+      note = ` Filed into collection "${col.name}".`
+    }
+  }
+  const n = cardCount({ cards })
+  await logActivity(db, 'card_board.created', `Created card board "${title}"`, { id: data.id, collection: ref || null }, userId)
+  return `Created card board "${title}" (id ${data.id})${n ? ` with ${n} card(s)` : ''} at /cards/${data.id}.${note}`
+}
+
+async function listCardBoards(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Card boards are unavailable.'
+  let query = db
+    .from('card_boards')
+    .select('id, title, updated_at')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .order('updated_at', { ascending: false })
+    .limit(clampLimit(input?.limit, 50, 200))
+  const contains = typeof input?.title_contains === 'string' ? input.title_contains.trim() : ''
+  if (contains) query = query.ilike('title', `%${contains.replace(/[%_]/g, '\\$&')}%`)
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, false)
+    if (!col) return `Collection "${ref}" not found.`
+    const { data: members } = await db
+      .from('collection_card_boards')
+      .select('card_board_id')
+      .eq('collection_id', col.id)
+    const ids = (members ?? []).map((m: { card_board_id: string }) => m.card_board_id)
+    if (!ids.length) return `No card boards in collection "${col.name}".`
+    query = query.in('id', ids)
+  }
+  const { data } = await query
+  if (!data || !data.length) return 'No card boards.'
+  return (data as Array<{ id: string; title: string; updated_at: string }>)
+    .map((w) => `• ${w.title} — ${w.id} (updated ${w.updated_at.slice(0, 10)})`)
+    .join('\n')
+}
+
+// Find a board the caller may read, by id or exact title.
+async function findCardBoard(
+  db: DB,
+  userId: string,
+  input: Record<string, unknown>,
+): Promise<{ id: string; title: string; cards: unknown } | { error: string }> {
+  const id = String(input?.id ?? '').trim()
+  const title = String(input?.title ?? '').trim()
+  if (!id && !title) return { error: 'Pass a card board id or exact title.' }
+  let q = db.from('card_boards').select('id, title, cards').or(`owner_id.eq.${userId},visibility.eq.workspace`)
+  q = id ? q.eq('id', id) : q.eq('title', title)
+  const { data } = await q.limit(1).maybeSingle()
+  if (!data) return { error: `Card board ${id || `"${title}"`} not found (or not yours).` }
+  return data as { id: string; title: string; cards: unknown }
+}
+
+async function getCardBoard(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Card boards are unavailable.'
+  const found = await findCardBoard(db, userId, input)
+  if ('error' in found) return found.error
+  return `# Card board: ${found.title} (id ${found.id})\n\n${cardsToText({ cards: found.cards })}`
+}
+
+async function addCards(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Card boards are unavailable.'
+  if (!Array.isArray(input?.cards) || !input.cards.length) return 'Pass a non-empty `cards` array ({text, color?}).'
+  const found = await findCardBoard(db, userId, input)
+  if ('error' in found) return found.error
+  const before = cardCount({ cards: found.cards })
+  const cards = buildCards({ cards: found.cards }, input.cards, 'append')
+  const { error } = await db.from('card_boards').update({ cards }).eq('id', found.id)
+  if (error) return `Could not add cards: ${error.message}`
+  const added = cardCount({ cards }) - before
+  await logActivity(db, 'card_board.updated', `Added ${added} card(s) to "${found.title}"`, { id: found.id }, userId)
+  return `Added ${added} card(s) to "${found.title}" (id ${found.id}) — now ${cardCount({ cards })} total.`
+}
+
+async function addCardBoardToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Card boards are unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const boardId = String(input?.card_board_id ?? '').trim()
+  if (!ref || !boardId) return 'Pass both a collection (name or id) and a card_board_id.'
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_card_boards').upsert(
+    { collection_id: col.id, card_board_id: boardId, added_by: userId },
+    { onConflict: 'collection_id,card_board_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added card board ${boardId} to collection "${col.name}".`
 }
 
 // --- Terminology (glossary of terms and definitions) ------------------------
