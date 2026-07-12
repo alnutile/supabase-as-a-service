@@ -16,6 +16,7 @@ const KIND = {
   link: { table: 'collection_links', col: 'link_id', noun: 'link' },
   term: { table: 'collection_terminology', col: 'term_id', noun: 'term' },
   agent: { table: 'collection_agents', col: 'agent_id', noun: 'agent' },
+  whiteboard: { table: 'collection_whiteboards', col: 'whiteboard_id', noun: 'whiteboard' },
 } as const
 
 type Kind = keyof typeof KIND

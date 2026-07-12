@@ -562,6 +562,74 @@ const TOOLS = [
     },
   },
   {
+    name: 'create_whiteboard',
+    description:
+      'Create a whiteboard in the Planner — an Excalidraw canvas. Optionally seed it by passing `elements`: an array of Excalidraw element objects (type, x, y, width, height, text; a shape/arrow can carry a `label:{text}`). Use it to draw a diagram/flowchart/mind-map. Optionally file it into a collection (by name; created if missing).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'The whiteboard title.' },
+        elements: {
+          type: 'array',
+          description: 'Optional Excalidraw element objects to seed the canvas with.',
+          items: { type: 'object' },
+        },
+        collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'list_whiteboards',
+    description: 'List whiteboards (most recently updated first) with ids. Optionally filter by collection name/id or a title substring.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+        title_contains: { type: 'string', description: 'Optional case-insensitive title substring.' },
+        limit: { type: 'number', description: 'Max rows (default 50, max 200).' },
+      },
+    },
+  },
+  {
+    name: 'get_whiteboard',
+    description:
+      'Read a whiteboard as text: its title plus the text labels, shapes, and connections on the canvas (by id, or by exact title). Call this before update_whiteboard so you evolve the current board.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The whiteboard id (or use title).' },
+        title: { type: 'string', description: 'The exact whiteboard title (alternative to id).' },
+      },
+    },
+  },
+  {
+    name: 'update_whiteboard',
+    description:
+      'Update a whiteboard (by id, or by exact title). Rename it (`title`, only when an id is given) and/or draw by passing `elements`: with mode "replace" (default) they become the whole canvas; with "append" they are added. Call get_whiteboard first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The whiteboard id (or use title).' },
+        title: { type: 'string', description: 'The exact current title to find it by, or (with id) the new title.' },
+        elements: { type: 'array', description: 'Excalidraw element objects to draw.', items: { type: 'object' } },
+        mode: { type: 'string', enum: ['replace', 'append'], description: 'replace (default) swaps the canvas; append adds.' },
+      },
+    },
+  },
+  {
+    name: 'add_whiteboard_to_collection',
+    description: 'Add an existing whiteboard to a collection (both by name or id). The collection is created if it does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id.' },
+        whiteboard_id: { type: 'string', description: 'The whiteboard id to add.' },
+      },
+      required: ['collection', 'whiteboard_id'],
+    },
+  },
+  {
     name: 'save_message',
     description:
       'Save a message into the unified inbox — a captured note, a forwarded email, a Slack/WhatsApp message, etc. Optionally file it into a collection (by name; created if missing).',
@@ -1757,6 +1825,11 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'save_message':
     case 'list_messages':
     case 'add_message_to_collection':
+    case 'create_whiteboard':
+    case 'list_whiteboards':
+    case 'get_whiteboard':
+    case 'update_whiteboard':
+    case 'add_whiteboard_to_collection':
       return text(await runBuiltin(db, name, args, owner))
     case 'get_activity': {
       const since = parseSince(args.since)
