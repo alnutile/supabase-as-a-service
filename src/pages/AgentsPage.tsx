@@ -32,17 +32,22 @@ export default function AgentsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Agent | null>(null)
+  const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all')
+  const [filterScheduled, setFilterScheduled] = useState<'all' | 'scheduled' | 'unscheduled'>('all')
 
   const load = useCallback(async () => {
-    const [{ data: a }, { data: t }, { data: c }, { data: m }] = await Promise.all([
+    const [{ data: a }, { data: t }, { data: c }, { data: m }, { data: s }] = await Promise.all([
       supabase.from('agents').select('*').order('updated_at', { ascending: false }),
       supabase.from('tools').select('*').eq('is_active', true),
       supabase.from('collections').select('*').order('name', { ascending: true }),
       supabase.from('collection_agents').select('collection_id, agent_id'),
+      supabase.from('schedules').select('*').eq('is_active', true),
     ])
     setAgents(a ?? [])
     setTools(t ?? [])
     setCollections(c ?? [])
+    setSchedules(s ?? [])
     const map: Record<string, Set<string>> = {}
     for (const row of m ?? []) {
       const set = (map[row.collection_id] ??= new Set())
@@ -58,11 +63,37 @@ export default function AgentsPage() {
 
   const selectedIds = useMemo(() => [...selected], [selected])
 
+  const scheduledAgentIds = useMemo(() => {
+    const ids = new Set<string>()
+    schedules.forEach((s) => ids.add(s.agent_id))
+    return ids
+  }, [schedules])
+
   const visible = useMemo(() => {
-    if (!activeCollection) return agents
-    const set = members[activeCollection] ?? new Set()
-    return agents.filter((a) => set.has(a.id))
-  }, [agents, members, activeCollection])
+    let filtered = agents
+
+    // Filter by collection
+    if (activeCollection) {
+      const set = members[activeCollection] ?? new Set()
+      filtered = filtered.filter((a) => set.has(a.id))
+    }
+
+    // Filter by active status
+    if (filterActive === 'active') {
+      filtered = filtered.filter((a) => a.is_active)
+    } else if (filterActive === 'inactive') {
+      filtered = filtered.filter((a) => !a.is_active)
+    }
+
+    // Filter by scheduled status
+    if (filterScheduled === 'scheduled') {
+      filtered = filtered.filter((a) => scheduledAgentIds.has(a.id))
+    } else if (filterScheduled === 'unscheduled') {
+      filtered = filtered.filter((a) => !scheduledAgentIds.has(a.id))
+    }
+
+    return filtered
+  }, [agents, members, activeCollection, filterActive, filterScheduled, scheduledAgentIds])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -102,35 +133,105 @@ export default function AgentsPage() {
           external Claude build them over MCP (Settings → Connect Claude).
         </p>
 
-        {/* Collection filter bar */}
-        {collections.length > 0 && (
-          <div className="mb-5 flex flex-wrap items-center gap-2">
+        {/* Filters */}
+        <div className="mb-5 space-y-3">
+          {/* Status filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-muted">Status:</span>
             <button
-              onClick={() => setActiveCollection(null)}
+              onClick={() => setFilterActive('all')}
               className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                activeCollection === null
+                filterActive === 'all'
                   ? 'border-primary bg-primary-soft text-primary'
                   : 'border-border text-muted hover:bg-surface-hover'
               }`}
             >
-              All ({agents.length})
+              All
             </button>
-            {collections.map((c) => (
+            <button
+              onClick={() => setFilterActive('active')}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                filterActive === 'active'
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              Active
+            </button>
+            <button
+              onClick={() => setFilterActive('inactive')}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                filterActive === 'inactive'
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              Inactive
+            </button>
+            <span className="mx-2 text-xs font-medium text-muted">Schedules:</span>
+            <button
+              onClick={() => setFilterScheduled('all')}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                filterScheduled === 'all'
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setFilterScheduled('scheduled')}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                filterScheduled === 'scheduled'
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              Scheduled
+            </button>
+            <button
+              onClick={() => setFilterScheduled('unscheduled')}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                filterScheduled === 'unscheduled'
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              Unscheduled
+            </button>
+          </div>
+
+          {/* Collection filter bar */}
+          {collections.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted">Collection:</span>
               <button
-                key={c.id}
-                onClick={() => setActiveCollection(c.id)}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                  activeCollection === c.id
+                onClick={() => setActiveCollection(null)}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                  activeCollection === null
                     ? 'border-primary bg-primary-soft text-primary'
                     : 'border-border text-muted hover:bg-surface-hover'
                 }`}
               >
-                <CollectionIcon className="h-3.5 w-3.5" />
-                {c.name} ({(members[c.id] ?? new Set()).size})
+                All ({agents.length})
               </button>
-            ))}
-          </div>
-        )}
+              {collections.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setActiveCollection(c.id)}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                    activeCollection === c.id
+                      ? 'border-primary bg-primary-soft text-primary'
+                      : 'border-border text-muted hover:bg-surface-hover'
+                  }`}
+                >
+                  <CollectionIcon className="h-3.5 w-3.5" />
+                  {c.name} ({(members[c.id] ?? new Set()).size})
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {loading ? (
           <p className="text-sm text-faint">Loading…</p>
@@ -153,6 +254,12 @@ export default function AgentsPage() {
                 <div className="flex items-center gap-2">
                   <AgentIcon className="h-5 w-5 shrink-0 text-primary" />
                   <span className="min-w-0 flex-1 truncate font-medium text-text">{a.name}</span>
+                  {scheduledAgentIds.has(a.id) && (
+                    <div
+                      className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500"
+                      title="Agent has active schedules"
+                    />
+                  )}
                   {!a.is_active && <span className="text-[10px] uppercase text-faint">off</span>}
                   <button
                     onClick={() => toggleSelect(a.id)}
