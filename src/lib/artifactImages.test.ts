@@ -3,7 +3,9 @@ import {
   imageMarkdown,
   insertAtCursor,
   isImageFile,
+  isUrl,
   sanitizeImageName,
+  urlToMarkdown,
 } from './artifactImages'
 
 describe('isImageFile', () => {
@@ -69,5 +71,33 @@ describe('insertAtCursor', () => {
   it('clamps out-of-range positions', () => {
     const { text } = insertAtCursor('abc', 99, 99, 'X')
     expect(text).toBe('abc\nX')
+  })
+})
+
+describe('isUrl', () => {
+  it('accepts valid HTTP(S) URLs', () => {
+    expect(isUrl('https://example.com')).toBe(true)
+    expect(isUrl('http://example.com')).toBe(true)
+    expect(isUrl('https://example.com/path')).toBe(true)
+    expect(isUrl('https://example.com/path?query=value')).toBe(true)
+    expect(isUrl('https://example.com/path#anchor')).toBe(true)
+    expect(isUrl('  https://example.com  ')).toBe(true) // trims whitespace
+  })
+  it('rejects non-URLs', () => {
+    expect(isUrl('example.com')).toBe(false) // no protocol
+    expect(isUrl('not a url')).toBe(false)
+    expect(isUrl('https:// example.com')).toBe(false) // space in URL
+    expect(isUrl('')).toBe(false)
+    expect(isUrl('ftp://example.com')).toBe(false) // unsupported protocol
+  })
+})
+
+describe('urlToMarkdown', () => {
+  it('converts URL to markdown link syntax', () => {
+    expect(urlToMarkdown('https://example.com')).toBe('[https://example.com](https://example.com)')
+    expect(urlToMarkdown('http://example.com/path')).toBe('[http://example.com/path](http://example.com/path)')
+  })
+  it('trims whitespace from the URL', () => {
+    expect(urlToMarkdown('  https://example.com  ')).toBe('[https://example.com](https://example.com)')
   })
 })

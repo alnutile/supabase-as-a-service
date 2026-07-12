@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { imageMarkdown, insertAtCursor, isImageFile, sanitizeImageName } from '../lib/artifactImages'
+import { imageMarkdown, insertAtCursor, isImageFile, isUrl, sanitizeImageName, urlToMarkdown } from '../lib/artifactImages'
 import { uploadPickedFile } from '../lib/upload'
 import { makeSlug } from '../lib/util'
 import { ArtifactFrame } from '../components/ArtifactFrame'
@@ -108,9 +108,30 @@ export default function ArtifactEditorPage() {
       if (files.some(isImageFile)) {
         e.preventDefault() // don't paste the OS file path / blob text too
         void insertImages(files)
+        return
+      }
+      // URL detection: if the pasted text is a URL, convert it to a markdown link.
+      const text = e.clipboardData?.getData('text/plain')
+      if (text && isUrl(text)) {
+        e.preventDefault()
+        const el = textareaRef.current
+        const current = artifact?.content ?? ''
+        const start = el ? el.selectionStart : current.length
+        const end = el ? el.selectionEnd : current.length
+        const markdown = urlToMarkdown(text)
+        const { text: newText, cursor } = insertAtCursor(current, start, end, markdown)
+        patch({ content: newText })
+        // Restore the caret just after the inserted markdown once React repaints.
+        requestAnimationFrame(() => {
+          const node = textareaRef.current
+          if (node) {
+            node.focus()
+            node.setSelectionRange(cursor, cursor)
+          }
+        })
       }
     },
-    [insertImages],
+    [insertImages, artifact, patch],
   )
 
   const handleDrop = useCallback(
@@ -308,7 +329,7 @@ export default function ArtifactEditorPage() {
           onDrop={handleDrop}
           spellCheck={false}
           className="min-h-[45vh] flex-1 resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
-          placeholder="Write here…  (paste or drop an image to embed it)"
+          placeholder="Write here…  (paste or drop an image to embed it; paste a URL to make it a link)"
         />
         {uploadError && (
           <div className="border-t border-border bg-red-50 px-4 py-2 text-xs text-red-600 md:px-5">

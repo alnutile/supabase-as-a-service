@@ -60,3 +60,26 @@ export function insertAtCursor(
   const block = `${lead}${insert}${trail}`
   return { text: before + block + after, cursor: s + block.length }
 }
+
+// Broad URL pattern that matches http(s) URLs and common TLDs.
+// Intentionally simple — false positives (detecting something that looks like a
+// URL) are harmless, while false negatives (missing a valid URL) would be
+// frustrating.
+const URL_RE = /^https?:\/\/[^\s]+$/
+
+/**
+ * Is this text a URL? Used to detect when a pasted string should be converted
+ * to a markdown link.
+ */
+export function isUrl(text: string): boolean {
+  return URL_RE.test(text.trim())
+}
+
+/**
+ * Convert a URL into a markdown link. Returns the URL wrapped in markdown link
+ * syntax with the URL as both the link text and href, ready to be edited.
+ */
+export function urlToMarkdown(url: string): string {
+  const trimmed = url.trim()
+  return `[${trimmed}](${trimmed})`
+}
