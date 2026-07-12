@@ -11,6 +11,7 @@
 // budgeted to the model's real context window so the meter matches what's sent.
 
 import { sceneToText } from './whiteboard_scene.ts'
+import { cardsToText } from './card_board.ts'
 
 const CHARS_PER_TOKEN = 4
 
@@ -217,9 +218,28 @@ export async function loadCollectionsContext(
         .map((w) => ({ title: w.title, text: sceneToText(w.scene) }))
     }
 
+    // Card boards — the cards rendered as a prioritized list. Small; injected as
+    // a compact block (no budgeting) alongside links/todos.
+    const { data: cbLinks } = await db
+      .from('collection_card_boards')
+      .select('card_board_id')
+      .in('collection_id', visibleIds)
+    const cbIds = [...new Set((cbLinks ?? []).map((l: { card_board_id: string }) => l.card_board_id))]
+    let cardBoards: Array<{ title: string; text: string }> = []
+    if (cbIds.length) {
+      const { data: cbs } = await db
+        .from('card_boards')
+        .select('id, title, cards, owner_id, visibility')
+        .in('id', cbIds)
+        .order('updated_at', { ascending: false })
+      cardBoards = ((cbs ?? []) as Array<{ owner_id: string; visibility: string; title: string; cards: unknown }>)
+        .filter((c) => c.owner_id === userId || c.visibility !== 'private')
+        .map((c) => ({ title: c.title, text: cardsToText({ cards: c.cards }) }))
+    }
+
     if (
       !readable.length && !todos.length && !fileDocs.length && !tableDocs.length &&
-      !webLinks.length && !agents.length && !whiteboards.length
+      !webLinks.length && !agents.length && !whiteboards.length && !cardBoards.length
     ) return ''
 
     const parts: string[] = []
@@ -275,9 +295,13 @@ export async function loadCollectionsContext(
       parts.push(`## To-dos in this collection\n${lines}`)
     }
 
+    for (const cb of cardBoards) {
+      parts.push(`## ${cb.title} (card board)\n${cb.text}`)
+    }
+
     const itemCount =
       readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length + agents.length +
-      whiteboards.length
+      whiteboards.length + cardBoards.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (

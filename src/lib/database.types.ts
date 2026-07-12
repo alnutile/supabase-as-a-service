@@ -440,6 +440,44 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_whiteboards']['Insert']>
         Relationships: []
       }
+      card_boards: {
+        Row: {
+          id: string
+          owner_id: string
+          title: string
+          cards: Json
+          visibility: CollectionVisibility
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          title?: string
+          cards?: Json
+          visibility?: CollectionVisibility
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['card_boards']['Insert']>
+        Relationships: []
+      }
+      collection_card_boards: {
+        Row: {
+          collection_id: string
+          card_board_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          card_board_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_card_boards']['Insert']>
+        Relationships: []
+      }
       collection_inbox_messages: {
         Row: {
           collection_id: string

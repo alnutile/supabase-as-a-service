@@ -176,6 +176,31 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   events. *(Planned: public read-only `/share/w/:slug` snapshot pages like artifacts; a live
   board panel in Chat; whiteboards counted in the collection token meter; self-hosted
   Excalidraw fonts instead of the default CDN.)*
+- **Card boards (Planner — free-form card walls, migration 0075):** the second Planner
+  surface (sidebar **Cards**, under Assets next to Whiteboards). A `card_boards` row is a
+  `title` + a `cards` jsonb array (`[{id, text, color, x, y}]`) — deliberately NOT a Kanban:
+  you dump cards and drag them anywhere, position IS the priority ranking. Low-friction on
+  purpose — `CardBoardEditorPage` (`/cards/:id`) is a **dependency-free drag canvas** (no
+  Excalidraw): double-click empty space to add a card in edit mode, drag its top bar to move
+  (pointer-events + `cardsSig` echo suppression), × to delete, a swatch to recolor. Sticky
+  pastel colors (solid, dark text) read the same in light/dark. `CardBoardsPage` (`/cards`)
+  is the list/create + collection filter (the shared `AddToCollectionBar` gained a
+  `card_board` kind). Visibility mirrors whiteboards (`private`/`workspace`, RLS-enforced);
+  `collection_card_boards` files a board into collections and the generic
+  `collection.item_added` trigger learns it. **Real-time multiplayer** reuses the whiteboard
+  pattern: a broadcast+presence channel (`card_board:‹id›`) syncs card moves live + drives the
+  peer count, the `cards` jsonb is debounced-autosaved as the durable store, and a
+  `postgres_changes` UPDATE subscription on the same channel renders the assistant's writes
+  (and other devices) live. **AI reads AND fills:** the pure, unit-tested
+  `supabase/functions/_shared/card_board.ts` (`cardsToText` renders the cards top-to-bottom as
+  a prioritized list; `normalizeCards`/`buildCards` auto-position the loose `{text,color?}`
+  cards the model writes). `loadCollectionsContext` injects each collection's boards as text,
+  and seeded `is_builtin` tools `create_card_board` / `list_card_boards` / `get_card_board` /
+  `add_cards` / `add_card_board_to_collection` (in `_shared/builtins.ts`; same names on the MCP
+  server) let chat/agents and an external Claude dump ideas as cards and read a board
+  ("brain-dump these 10 ideas as cards", "what's the top priority on the board"). Emits
+  `card_board.created/updated` events. *(Planned: card-boards in the collection token meter;
+  public share snapshots; card size/richer content.)*
 - **Collections (tag artifacts → chat with a focused set):** a `collections` row is a
   named group ("tag") of artifacts; `collection_artifacts` is the many-to-many join
   (migration 0033). On `ArtifactsPage` you multi-select artifacts (checkboxes) and file
@@ -786,6 +811,7 @@ src/
   pages/                       LoginPage, ChatPage, ArtifactsPage,
                                ArtifactEditorPage, PublicArtifactPage,
                                WhiteboardsPage, WhiteboardEditorPage (Excalidraw, lazy),
+                               CardBoardsPage, CardBoardEditorPage (free-form drag canvas),
                                TodosPage, FilesPage, TablesPage, SkillsPage, WebhooksPage, ToolsPage,
                                AgentsPage, ApiPage, ActivityPage
     settings/                  Settings is a sidebar SECTION, one page per area:
@@ -802,12 +828,13 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection); 0065 feature_flags (admin-writable workspace-wide sidebar hide/show; realtime); 0067 artifact_filing_builtins (seeds list_artifacts; create_artifact gains a `collections` array; add_to_collection accepts `artifact_title`); 0068 collection_agents (agent↔collection join; **renumbered from a colliding second 0065 that broke `db push` on main** — prod had recorded 0065=feature_flags, so the duplicate-prefix collection_agents could never apply and blocked every later migration); 0069 user_memory (per-user `user_memories` table + owner-only RLS + realtime + memory.created/updated events; seeds the remember/list_memories/update_memory/forget builtins + an always-on "User memory" prompt); 0072 evals_mcp (adds `eval_suites.collection_ids` for chat/agent grounding; the eval MCP surface — list_evals/create_eval_suite/add_eval_cases/run_eval/get_eval_run — + model-matrix + background runs need no other schema, since `eval_runs.model` already existed); 0074 whiteboards (Planner — `whiteboards` scene table + `collection_whiteboards` join + owner/workspace RLS + realtime + whiteboard.created/updated events; teaches the generic collection.item_added trigger `collection_whiteboards`; seeds the create/list/get/update/add_whiteboard_to_collection builtins)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection); 0065 feature_flags (admin-writable workspace-wide sidebar hide/show; realtime); 0067 artifact_filing_builtins (seeds list_artifacts; create_artifact gains a `collections` array; add_to_collection accepts `artifact_title`); 0068 collection_agents (agent↔collection join; **renumbered from a colliding second 0065 that broke `db push` on main** — prod had recorded 0065=feature_flags, so the duplicate-prefix collection_agents could never apply and blocked every later migration); 0069 user_memory (per-user `user_memories` table + owner-only RLS + realtime + memory.created/updated events; seeds the remember/list_memories/update_memory/forget builtins + an always-on "User memory" prompt); 0072 evals_mcp (adds `eval_suites.collection_ids` for chat/agent grounding; the eval MCP surface — list_evals/create_eval_suite/add_eval_cases/run_eval/get_eval_run — + model-matrix + background runs need no other schema, since `eval_runs.model` already existed); 0074 whiteboards (Planner — `whiteboards` scene table + `collection_whiteboards` join + owner/workspace RLS + realtime + whiteboard.created/updated events; teaches the generic collection.item_added trigger `collection_whiteboards`; seeds the create/list/get/update/add_whiteboard_to_collection builtins); 0075 card_boards (Planner — `card_boards` cards-jsonb table + `collection_card_boards` join + owner/workspace RLS + realtime + card_board.created/updated events; teaches collection.item_added `collection_card_boards`; seeds create_card_board/list_card_boards/get_card_board/add_cards/add_card_board_to_collection)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
   functions/_shared/builtins.ts  runBuiltin: search_documents, send_email, check_email, tables/vault tools, whiteboard tools (create/list/get/update_whiteboard), + loop tools (start_loop/check_loop/list_loops) — shared by all 3 loops
   functions/_shared/whiteboard_scene.ts  Pure sceneToText / normalizeElements / buildScene for whiteboards (unit-tested in tests/whiteboard_test.ts)
+  functions/_shared/card_board.ts  Pure cardsToText / normalizeCards / buildCards for card boards (unit-tested in tests/card_board_test.ts)
   functions/_shared/loops.ts   create/trigger/format helpers for the looping system, shared by the MCP server + builtins
   functions/chat/index.ts      Deno edge function: agentic tool loop, streams the model via OpenRouter (verify_jwt: true)
   functions/webhook/index.ts   Public ingest function (verify_jwt: false), runs a prompt

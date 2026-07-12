@@ -457,3 +457,11 @@ export const WhiteboardIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M8 13l3-3 2 2 3-4" />
   </svg>
 )
+
+// Two overlapping cards — the free-form Card boards area.
+export const CardsIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="7" width="13" height="13" rx="2" />
+    <path d="M8 4h11a2 2 0 0 1 2 2v11" />
+  </svg>
+)

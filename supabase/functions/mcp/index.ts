@@ -630,6 +630,78 @@ const TOOLS = [
     },
   },
   {
+    name: 'create_card_board',
+    description:
+      'Create a card board — a free-form wall of movable cards for laying out ideas by priority (not a Kanban). Optionally seed it with `cards`: an array of {text, color?} (color one of yellow|pink|green|blue|purple|gray). Optionally file into a collection (by name; created if missing).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'The board title.' },
+        cards: {
+          type: 'array',
+          description: 'Optional cards to seed: each {text, color?}.',
+          items: { type: 'object', properties: { text: { type: 'string' }, color: { type: 'string' } }, required: ['text'] },
+        },
+        collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'list_card_boards',
+    description: 'List card boards (most recently updated first) with ids. Optionally filter by collection name/id or a title substring.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+        title_contains: { type: 'string', description: 'Optional case-insensitive title substring.' },
+        limit: { type: 'number', description: 'Max rows (default 50, max 200).' },
+      },
+    },
+  },
+  {
+    name: 'get_card_board',
+    description:
+      'Read a card board as text: its title plus the cards, ordered top-to-bottom (higher = higher priority). Identify it by id or exact title.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The board id (or use title).' },
+        title: { type: 'string', description: 'The exact board title (alternative to id).' },
+      },
+    },
+  },
+  {
+    name: 'add_cards',
+    description:
+      'Add cards to an existing board (by id or exact title). Pass `cards`: an array of {text, color?}. The cards are auto-positioned; the user drags them to rank by priority.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The board id (or use title).' },
+        title: { type: 'string', description: 'The exact board title (alternative to id).' },
+        cards: {
+          type: 'array',
+          description: 'Cards to add: each {text, color?}.',
+          items: { type: 'object', properties: { text: { type: 'string' }, color: { type: 'string' } }, required: ['text'] },
+        },
+      },
+      required: ['cards'],
+    },
+  },
+  {
+    name: 'add_card_board_to_collection',
+    description: 'Add an existing card board to a collection (both by name or id). The collection is created if it does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id.' },
+        card_board_id: { type: 'string', description: 'The card board id to add.' },
+      },
+      required: ['collection', 'card_board_id'],
+    },
+  },
+  {
     name: 'save_message',
     description:
       'Save a message into the unified inbox — a captured note, a forwarded email, a Slack/WhatsApp message, etc. Optionally file it into a collection (by name; created if missing).',
@@ -1830,6 +1902,11 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'get_whiteboard':
     case 'update_whiteboard':
     case 'add_whiteboard_to_collection':
+    case 'create_card_board':
+    case 'list_card_boards':
+    case 'get_card_board':
+    case 'add_cards':
+    case 'add_card_board_to_collection':
       return text(await runBuiltin(db, name, args, owner))
     case 'get_activity': {
       const since = parseSince(args.since)
