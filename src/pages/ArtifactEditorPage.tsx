@@ -56,7 +56,7 @@ export default function ArtifactEditorPage() {
   // link into the body at the caret. Non-image files are ignored.
   const insertImages = useCallback(
     async (files: File[]) => {
-      if (!user) return
+      if (!user || !artifact) return
       const images = files.filter(isImageFile)
       if (images.length === 0) return
       setUploading(true)
@@ -66,9 +66,12 @@ export default function ArtifactEditorPage() {
         for (const file of images) {
           const name = sanitizeImageName(file.name, file.type)
           const path = `${user.id}/${crypto.randomUUID()}/${name}`
-          await uploadPickedFile(path, file, IMAGE_BUCKET)
-          const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path)
-          urls.push(data.publicUrl)
+          await uploadPickedFile(path, file, IMAGE_BUCKET, { artifact_id: artifact.id })
+          const { data, error } = await supabase.storage
+            .from(IMAGE_BUCKET)
+            .createSignedUrl(path, 60 * 60 * 24 * 7)
+          if (error) throw error
+          urls.push(data.signedUrl)
         }
         const block = urls.map((u) => imageMarkdown(u)).join('\n')
         const el = textareaRef.current
@@ -96,7 +99,7 @@ export default function ArtifactEditorPage() {
         setUploading(false)
       }
     },
-    [artifact?.content, patch, user],
+    [artifact, patch, user],
   )
 
   const handlePaste = useCallback(

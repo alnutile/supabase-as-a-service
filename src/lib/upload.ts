@@ -19,13 +19,19 @@ const isNetworkFailure = (err: unknown) =>
  *
  * Returns the stored byte size. Defaults to the private `files` bucket; pass a
  * different bucket (e.g. `artifact-images`) to reuse the same resilient path.
+ * Optional metadata object is stored with the file (e.g. {artifact_id: "..."}).
  */
-export async function uploadPickedFile(path: string, file: File, bucket = BUCKET): Promise<number> {
+export async function uploadPickedFile(
+  path: string,
+  file: File,
+  bucket = BUCKET,
+  metadata?: Record<string, string>,
+): Promise<number> {
   // 1) Direct upload (handles both thrown and returned errors).
   try {
     const { error } = await supabase.storage
       .from(bucket)
-      .upload(path, file, { upsert: false, contentType: file.type || undefined })
+      .upload(path, file, { upsert: false, contentType: file.type || undefined, metadata })
     if (!error) return file.size
     throw error
   } catch (err) {
@@ -43,11 +49,11 @@ export async function uploadPickedFile(path: string, file: File, bucket = BUCKET
     )
   }
   if (body.byteLength === 0) {
-    throw new Error(`“${file.name}” came through empty — download it to your device first, then try again.`)
+    throw new Error(`”${file.name}” came through empty — download it to your device first, then try again.`)
   }
   const { error } = await supabase.storage
     .from(bucket)
-    .upload(path, body, { upsert: true, contentType: file.type || 'application/octet-stream' })
+    .upload(path, body, { upsert: true, contentType: file.type || 'application/octet-stream', metadata })
   if (error) throw error
   return body.byteLength
 }
