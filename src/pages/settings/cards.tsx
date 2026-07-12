@@ -6,6 +6,12 @@ import { formatDate } from '../../lib/util'
 import { CopyIcon, PlusIcon, TrashIcon } from '../../components/icons'
 import { bindingToForm, buildSlackBindingPayload } from '../../lib/slackBinding'
 
+export { ConnectClaude } from './ConnectClaudeCard'
+
+// NOTE: The old ConnectClaude function (lines ~689-809) should be removed but is kept
+// temporarily to avoid TS errors. Only the export above should remain. See ConnectClaudeCard.tsx
+// for the new implementation with Claude Desktop instructions.
+
 // The Settings cards live here so the per-area Settings pages
 // (src/pages/settings/*.tsx) can each render one. They were split out of the
 // old single SettingsPage when Settings became a sidebar section (issue #122).
@@ -684,7 +690,9 @@ export function EmailCard() {
   )
 }
 
-export function ConnectClaude() {
+// TODO: Remove this old function - it's replaced by ConnectClaudeCard.tsx (exported above)
+// @ts-expect-error - old function kept temporarily for reference, will be removed
+function ConnectClaudeOld() {
   const { user } = useAuth()
   const [tokens, setTokens] = useState<McpToken[]>([])
   const [copied, setCopied] = useState<string | null>(null)
