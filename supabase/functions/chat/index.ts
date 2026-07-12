@@ -15,6 +15,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { cardsToText } from '../_shared/card_board.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
@@ -240,6 +241,7 @@ Deno.serve(async (req: Request) => {
   let replaceSystem = false
   let toolIds: string[] | undefined
   let collectionIds: string[] = []
+  let cardBoardId = ''
   try {
     const body = await req.json()
     inMessages = body.messages
@@ -252,6 +254,8 @@ Deno.serve(async (req: Request) => {
     // Accept an array of collection ids (multi-scope) or a single legacy id.
     if (Array.isArray(body.collectionIds)) collectionIds = body.collectionIds.map(String).filter(Boolean)
     else if (typeof body.collectionId === 'string' && body.collectionId) collectionIds = [body.collectionId]
+    // Scope a chat directly to one card board (the Cards editor's chat panel).
+    if (typeof body.cardBoardId === 'string') cardBoardId = body.cardBoardId
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
       status: 400,
@@ -283,6 +287,25 @@ Deno.serve(async (req: Request) => {
   if (collectionIds.length) {
     const collectionContext = await loadCollectionsContext(db, collectionIds, userId, MODEL)
     if (collectionContext) system += `\n\n---\n\n${collectionContext}`
+  }
+
+  // Card-board scope (the Cards editor's chat panel): inject THIS board's cards
+  // as primary context. Re-enforce access in code (service role bypasses RLS):
+  // the caller must own the board or it must be workspace-visible.
+  if (cardBoardId) {
+    const { data: cb } = await db
+      .from('card_boards')
+      .select('title, cards, owner_id, visibility')
+      .eq('id', cardBoardId)
+      .maybeSingle()
+    if (cb && (cb.owner_id === userId || cb.visibility === 'workspace')) {
+      system +=
+        `\n\n---\n\n# Card board: "${cb.title}" (id ${cardBoardId})\n` +
+        `The user is chatting from this card board. Treat it as the primary reference. ` +
+        `To add ideas as cards, call add_cards with id "${cardBoardId}" and a cards array of {text, color?}; ` +
+        `to re-read it call get_card_board with that id. The board updates live as you add cards.\n\n` +
+        cardsToText({ cards: cb.cards })
+    }
   }
 
   // User memory: inject what the assistant remembers about this user, so a new

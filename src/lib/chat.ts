@@ -27,6 +27,7 @@ export async function streamChat(
     replaceSystem?: boolean
     toolIds?: string[]
     collectionIds?: string[]
+    cardBoardId?: string
     signal?: AbortSignal
   },
 ): Promise<string> {
@@ -48,6 +49,7 @@ export async function streamChat(
       replaceSystem: options?.replaceSystem,
       toolIds: options?.toolIds,
       collectionIds: options?.collectionIds,
+      cardBoardId: options?.cardBoardId,
     }),
     signal: options?.signal,
   })
