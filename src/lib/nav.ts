@@ -45,6 +45,7 @@ import {
   UsageIcon,
   UsersIcon,
   WebhookIcon,
+  WhiteboardIcon,
   type IconProps,
 } from '../components/icons'
 
@@ -88,6 +89,18 @@ export const navGroups: NavGroup[] = [
       { to: '/memory', label: 'Memory', key: 'memory', icon: MemoryIcon, keywords: 'remember preferences personalization profile context' },
       { to: '/terminology', label: 'Terminology', key: 'terminology', icon: TerminologyIcon, keywords: 'glossary terms definitions dictionary' },
       { to: '/skills', label: 'Skills', key: 'skills', icon: SkillIcon, keywords: 'prompts' },
+    ],
+  },
+  {
+    label: 'Planner',
+    items: [
+      {
+        to: '/whiteboards',
+        label: 'Whiteboards',
+        key: 'whiteboards',
+        icon: WhiteboardIcon,
+        keywords: 'excalidraw draw canvas diagram board plan sketch',
+      },
     ],
   },
   {

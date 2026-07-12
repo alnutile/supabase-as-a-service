@@ -448,3 +448,12 @@ export const EyeOffIcon = (p: SVGProps<SVGSVGElement>) => (
     <line x1="1" y1="1" x2="23" y2="23" />
   </svg>
 )
+
+// A framed board with a pen stroke — the Planner / Whiteboards area.
+export const WhiteboardIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="14" rx="2" />
+    <path d="M7 20h10" />
+    <path d="M8 13l3-3 2 2 3-4" />
+  </svg>
+)

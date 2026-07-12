@@ -26,6 +26,7 @@ import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { runSecurityScan } from './security_scan.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
+import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
 import {
   createLoop,
   findOrCreateLoopAgent,
@@ -106,6 +107,16 @@ export async function runBuiltin(
       return updateTodo(db, input, userId)
     case 'add_todo_to_collection':
       return addTodoToCollection(db, input, userId)
+    case 'create_whiteboard':
+      return createWhiteboard(db, input, userId)
+    case 'list_whiteboards':
+      return listWhiteboards(db, input, userId)
+    case 'get_whiteboard':
+      return getWhiteboard(db, input, userId)
+    case 'update_whiteboard':
+      return updateWhiteboard(db, input, userId)
+    case 'add_whiteboard_to_collection':
+      return addWhiteboardToCollection(db, input, userId)
     case 'create_term':
       return createTerm(db, input, userId)
     case 'list_terms':
@@ -1200,6 +1211,147 @@ async function addTodoToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added to-do ${todoId} to collection "${col.name}".`
+}
+
+// --- Whiteboards (Excalidraw canvases in the Planner) -----------------------
+// Read a board as text (sceneToText) and DRAW on it by writing Excalidraw
+// elements (buildScene turns skeleton elements into renderable ones). Access is
+// re-enforced in code (own or workspace) because the loops run as service role.
+
+async function createWhiteboard(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Whiteboards are unavailable.'
+  const title = String(input?.title ?? '').trim()
+  if (!title) return 'A whiteboard title is required.'
+  const scene = input?.elements ? buildScene({}, input.elements, 'replace') : {}
+  const { data, error } = await db
+    .from('whiteboards')
+    .insert({ owner_id: userId, title, scene, visibility: 'private' })
+    .select('id')
+    .single()
+  if (error) return `Could not create the whiteboard: ${error.message}`
+  let note = ''
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, true)
+    if (col) {
+      await db.from('collection_whiteboards').upsert(
+        { collection_id: col.id, whiteboard_id: data.id, added_by: userId },
+        { onConflict: 'collection_id,whiteboard_id', ignoreDuplicates: true },
+      )
+      note = ` Filed into collection "${col.name}".`
+    }
+  }
+  const n = elementCount(scene)
+  await logActivity(db, 'whiteboard.created', `Created whiteboard "${title}"`, { id: data.id, collection: ref || null }, userId)
+  return `Created whiteboard "${title}" (id ${data.id})${n ? ` with ${n} element(s)` : ''} at /whiteboards/${data.id}.${note}`
+}
+
+async function listWhiteboards(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Whiteboards are unavailable.'
+  let query = db
+    .from('whiteboards')
+    .select('id, title, updated_at')
+    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
+    .order('updated_at', { ascending: false })
+    .limit(clampLimit(input?.limit, 50, 200))
+  const contains = typeof input?.title_contains === 'string' ? input.title_contains.trim() : ''
+  if (contains) query = query.ilike('title', `%${contains.replace(/[%_]/g, '\\$&')}%`)
+  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
+  if (ref) {
+    const col = await resolveCollection(db, userId, ref, false)
+    if (!col) return `Collection "${ref}" not found.`
+    const { data: members } = await db
+      .from('collection_whiteboards')
+      .select('whiteboard_id')
+      .eq('collection_id', col.id)
+    const ids = (members ?? []).map((m: { whiteboard_id: string }) => m.whiteboard_id)
+    if (!ids.length) return `No whiteboards in collection "${col.name}".`
+    query = query.in('id', ids)
+  }
+  const { data } = await query
+  if (!data || !data.length) return 'No whiteboards.'
+  return (data as Array<{ id: string; title: string; updated_at: string }>)
+    .map((w) => `• ${w.title} — ${w.id} (updated ${w.updated_at.slice(0, 10)})`)
+    .join('\n')
+}
+
+// Find a whiteboard the caller may read, by id or exact title.
+async function findWhiteboard(
+  db: DB,
+  userId: string,
+  input: Record<string, unknown>,
+): Promise<{ id: string; title: string; scene: unknown } | { error: string }> {
+  const id = String(input?.id ?? '').trim()
+  const title = String(input?.title ?? '').trim()
+  if (!id && !title) return { error: 'Pass a whiteboard id or exact title.' }
+  let q = db.from('whiteboards').select('id, title, scene').or(`owner_id.eq.${userId},visibility.eq.workspace`)
+  q = id ? q.eq('id', id) : q.eq('title', title)
+  const { data } = await q.limit(1).maybeSingle()
+  if (!data) return { error: `Whiteboard ${id || `"${title}"`} not found (or not yours).` }
+  return data as { id: string; title: string; scene: unknown }
+}
+
+async function getWhiteboard(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Whiteboards are unavailable.'
+  const found = await findWhiteboard(db, userId, input)
+  if ('error' in found) return found.error
+  return `# Whiteboard: ${found.title} (id ${found.id})\n\n${sceneToText(found.scene)}`
+}
+
+async function updateWhiteboard(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Whiteboards are unavailable.'
+  // `title` doubles as a lookup key when no id is given; only when an id is
+  // supplied does `title` mean "rename to".
+  const id = String(input?.id ?? '').trim()
+  const found = await findWhiteboard(db, userId, input)
+  if ('error' in found) return found.error
+  const patch: Record<string, unknown> = {}
+  if (id && typeof input?.title === 'string' && input.title.trim()) patch.title = input.title.trim()
+  if (input?.elements !== undefined) {
+    const mode = input?.mode === 'append' ? 'append' : 'replace'
+    patch.scene = buildScene(found.scene, input.elements, mode)
+  }
+  if (Object.keys(patch).length === 0) return 'Nothing to update — pass `elements` to draw and/or (with an id) a new `title`.'
+  const { error } = await db.from('whiteboards').update(patch).eq('id', found.id)
+  if (error) return `Could not update the whiteboard: ${error.message}`
+  await logActivity(db, 'whiteboard.updated', `Updated whiteboard "${found.title}"`, { id: found.id }, userId)
+  const n = patch.scene ? elementCount(patch.scene) : undefined
+  return `Updated whiteboard "${patch.title ?? found.title}" (id ${found.id})${n !== undefined ? ` — now ${n} element(s)` : ''}.`
+}
+
+async function addWhiteboardToCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Whiteboards are unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  const whiteboardId = String(input?.whiteboard_id ?? '').trim()
+  if (!ref || !whiteboardId) return 'Pass both a collection (name or id) and a whiteboard_id.'
+  const col = await resolveCollection(db, userId, ref, true)
+  if (!col) return `Could not resolve collection "${ref}".`
+  const { error } = await db.from('collection_whiteboards').upsert(
+    { collection_id: col.id, whiteboard_id: whiteboardId, added_by: userId },
+    { onConflict: 'collection_id,whiteboard_id', ignoreDuplicates: true },
+  )
+  if (error) return `Could not add to the collection: ${error.message}`
+  return `Added whiteboard ${whiteboardId} to collection "${col.name}".`
 }
 
 // --- Terminology (glossary of terms and definitions) ------------------------

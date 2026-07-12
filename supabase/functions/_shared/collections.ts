@@ -10,6 +10,8 @@
 // selected collections are DEDUPED, and the large items (artifacts + files) are
 // budgeted to the model's real context window so the meter matches what's sent.
 
+import { sceneToText } from './whiteboard_scene.ts'
+
 const CHARS_PER_TOKEN = 4
 
 // Cache OpenRouter's model catalog on the (warm) instance so we can budget the
@@ -196,7 +198,29 @@ export async function loadCollectionsContext(
       ) as Array<{ title: string; due_date: string | null; done: boolean }>
     }
 
-    if (!readable.length && !todos.length && !fileDocs.length && !tableDocs.length && !webLinks.length && !agents.length) return ''
+    // Whiteboards — the Excalidraw scene rendered to text (labels/shapes/arrows)
+    // so a board is chattable. Budgeted like artifacts (a big board can be large).
+    const { data: wbLinks } = await db
+      .from('collection_whiteboards')
+      .select('whiteboard_id')
+      .in('collection_id', visibleIds)
+    const wbIds = [...new Set((wbLinks ?? []).map((l: { whiteboard_id: string }) => l.whiteboard_id))]
+    let whiteboards: Array<{ title: string; text: string }> = []
+    if (wbIds.length) {
+      const { data: wbs } = await db
+        .from('whiteboards')
+        .select('id, title, scene, owner_id, visibility')
+        .in('id', wbIds)
+        .order('updated_at', { ascending: false })
+      whiteboards = ((wbs ?? []) as Array<{ owner_id: string; visibility: string; title: string; scene: unknown }>)
+        .filter((w) => w.owner_id === userId || w.visibility !== 'private')
+        .map((w) => ({ title: w.title, text: sceneToText(w.scene) }))
+    }
+
+    if (
+      !readable.length && !todos.length && !fileDocs.length && !tableDocs.length &&
+      !webLinks.length && !agents.length && !whiteboards.length
+    ) return ''
 
     const parts: string[] = []
 
@@ -204,6 +228,7 @@ export async function loadCollectionsContext(
       ...readable.map((a) => ({ label: `## ${a.title} (${a.type})`, body: a.content ?? '' })),
       ...fileDocs,
       ...tableDocs,
+      ...whiteboards.map((w) => ({ label: `## ${w.title} (whiteboard)`, body: w.text })),
     ]
     if (budgeted.length) {
       const ctxLen = await modelContextLength(model)
@@ -250,7 +275,9 @@ export async function loadCollectionsContext(
       parts.push(`## To-dos in this collection\n${lines}`)
     }
 
-    const itemCount = readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length + agents.length
+    const itemCount =
+      readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length + agents.length +
+      whiteboards.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     return (

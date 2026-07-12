@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
@@ -7,6 +8,9 @@ import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
 import ArtifactsPage from './pages/ArtifactsPage'
 import ArtifactEditorPage from './pages/ArtifactEditorPage'
+import WhiteboardsPage from './pages/WhiteboardsPage'
+// Excalidraw is large — keep the editor out of the initial bundle (lazy chunk).
+const WhiteboardEditorPage = lazy(() => import('./pages/WhiteboardEditorPage'))
 import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
@@ -76,6 +80,19 @@ export default function App() {
         <Route path="inbox" element={<InboxPage />} />
         <Route path="artifacts" element={<ArtifactsPage />} />
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
+        <Route path="whiteboards" element={<WhiteboardsPage />} />
+        <Route
+          path="whiteboards/:whiteboardId"
+          element={
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-sm text-faint">Loading editor…</div>
+              }
+            >
+              <WhiteboardEditorPage />
+            </Suspense>
+          }
+        />
         <Route path="collections" element={<CollectionsPage />} />
         <Route path="collections/:collectionId" element={<CollectionsPage />} />
         <Route path="collections/:collectionId/:kindSlug/:itemId" element={<CollectionsPage />} />
