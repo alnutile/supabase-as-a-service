@@ -64,6 +64,7 @@ export interface Database {
           owner_id: string
           title: string
           pinned: boolean
+          card_board_id: string | null
           created_at: string
           updated_at: string
         }
@@ -72,6 +73,7 @@ export interface Database {
           owner_id: string
           title?: string
           pinned?: boolean
+          card_board_id?: string | null
           created_at?: string
           updated_at?: string
         }

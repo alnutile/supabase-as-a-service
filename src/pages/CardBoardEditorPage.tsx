@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { ChevronLeftIcon, CloseIcon, PlusIcon, TrashIcon, UsersIcon } from '../components/icons'
+import { ChatIcon, ChevronLeftIcon, CloseIcon, PlusIcon, TrashIcon, UsersIcon } from '../components/icons'
+import { BoardChatPanel } from '../components/BoardChatPanel'
 
 type CardBoard = Database['public']['Tables']['card_boards']['Row']
 type Card = { id: string; text: string; color: string; x: number; y: number }
@@ -57,6 +58,7 @@ export default function CardBoardEditorPage() {
   const [peers, setPeers] = useState(0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [colorMenu, setColorMenu] = useState<string | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const cardsRef = useRef<Card[]>([])
@@ -291,6 +293,15 @@ export default function CardBoardEditorPage() {
         >
           <PlusIcon className="h-4 w-4" /> Card
         </button>
+        <button
+          onClick={() => setChatOpen((v) => !v)}
+          title="Chat about these cards — the assistant reads the board and can add cards; history is saved"
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+            chatOpen ? 'border-primary bg-primary-soft text-primary' : 'border-border text-muted hover:border-primary hover:text-primary'
+          }`}
+        >
+          <ChatIcon className="h-4 w-4" /> Chat
+        </button>
         {peers > 0 && (
           <span
             className="flex items-center gap-1 rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary"
@@ -316,6 +327,8 @@ export default function CardBoardEditorPage() {
         </button>
       </div>
 
+      {/* Canvas + optional chat panel */}
+      <div className="relative flex min-h-0 flex-1">
       {/* Canvas — scrollable; double-click empty space to add a card */}
       <div className="min-h-0 flex-1 overflow-auto bg-surface-2">
         <div
@@ -402,6 +415,12 @@ export default function CardBoardEditorPage() {
             )
           })}
         </div>
+      </div>
+        {chatOpen && boardId && (
+          <div className="absolute inset-0 z-30 md:static md:z-auto md:w-96 md:shrink-0">
+            <BoardChatPanel boardId={boardId} boardTitle={board.title} onClose={() => setChatOpen(false)} />
+          </div>
+        )}
       </div>
     </div>
   )
