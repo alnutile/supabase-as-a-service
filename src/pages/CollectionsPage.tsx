@@ -31,10 +31,11 @@ import {
   TerminologyIcon,
   TodoIcon,
   TrashIcon,
+  WhiteboardIcon,
 } from '../components/icons'
 
 type Collection = Database['public']['Tables']['collections']['Row']
-type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'agent'
+type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'agent' | 'whiteboard'
 
 // Per-kind wiring: the base table it lives in, the join table, and the join's
 // item column — so one set of helpers handles every content type.
@@ -49,11 +50,12 @@ const KINDS: Record<
   link: { title: 'Links', icon: LinkIcon, base: 'links', link: 'collection_links', col: 'link_id', label: 'title' },
   term: { title: 'Terminology', icon: TerminologyIcon, base: 'terminology', link: 'collection_terminology', col: 'term_id', label: 'term' },
   agent: { title: 'Agents', icon: AgentIcon, base: 'agents', link: 'collection_agents', col: 'agent_id', label: 'name' },
+  whiteboard: { title: 'Whiteboards', icon: WhiteboardIcon, base: 'whiteboards', link: 'collection_whiteboards', col: 'whiteboard_id', label: 'title' },
 }
-const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'term', 'agent']
+const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'whiteboard', 'term', 'agent']
 
 // URL segment for each kind: /collections/:collectionId/todos/:itemId etc.
-const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links', term: 'terminology', agent: 'agents' }
+const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links', term: 'terminology', agent: 'agents', whiteboard: 'whiteboards' }
 const SLUG_TO_KIND: Record<string, Kind> = Object.fromEntries(Object.entries(KIND_TO_SLUG).map(([k, s]) => [s, k as Kind]))
 
 type Item = { id: string; label: string; meta?: string }
@@ -77,7 +79,7 @@ export default function CollectionsPage() {
   const [collapsed, setCollapsed] = useState(false)
 
   const load = useCallback(async () => {
-    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, stats] = await Promise.all([
+    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, stats] = await Promise.all([
       supabase.from('collections').select('*').order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id'),
       supabase.from('collection_files').select('collection_id'),
@@ -86,11 +88,12 @@ export default function CollectionsPage() {
       supabase.from('collection_links').select('collection_id'),
       supabase.from('collection_terminology').select('collection_id'),
       supabase.from('collection_agents').select('collection_id'),
+      supabase.from('collection_whiteboards').select('collection_id'),
       supabase.rpc('collection_token_stats'),
     ])
     setCollections(cRes.data ?? [])
     const c: Record<string, number> = {}
-    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes]) {
+    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes]) {
       for (const r of res.data ?? []) c[r.collection_id] = (c[r.collection_id] ?? 0) + 1
     }
     setCounts(c)
@@ -237,7 +240,7 @@ export default function CollectionsPage() {
               </div>
               <h2 className="text-lg font-semibold text-text">Your collections</h2>
               <p className="mt-2 text-sm text-muted">
-                A collection groups to-dos, artifacts, files, tables, links and agents so you can see them on one dashboard and chat with the whole set at once.
+                A collection groups to-dos, artifacts, files, tables, links, whiteboards and agents so you can see them on one dashboard and chat with the whole set at once.
               </p>
             </div>
           </div>
@@ -293,7 +296,7 @@ function CollectionDashboard({
   }
 
   const loadItems = useCallback(async () => {
-    const [a, f, t, u, l, tr, g] = await Promise.all([
+    const [a, f, t, u, l, tr, g, w] = await Promise.all([
       supabase.from('collection_artifacts').select('artifacts(id, title, type, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_files').select('files(id, name, size_bytes)').eq('collection_id', collection.id),
       supabase.from('collection_todos').select('todos(id, title, done, due_date)').eq('collection_id', collection.id),
@@ -301,6 +304,7 @@ function CollectionDashboard({
       supabase.from('collection_links').select('links(id, title, url)').eq('collection_id', collection.id),
       supabase.from('collection_terminology').select('terminology(id, term, definition)').eq('collection_id', collection.id),
       supabase.from('collection_agents').select('agents(id, name, description)').eq('collection_id', collection.id),
+      supabase.from('collection_whiteboards').select('whiteboards(id, title, updated_at)').eq('collection_id', collection.id),
     ])
     const pluck = (rows: unknown, key: string) =>
       ((rows ?? []) as Array<Record<string, unknown>>).map((r) => r[key]).filter(Boolean) as Array<Record<string, unknown>>
@@ -335,6 +339,11 @@ function CollectionDashboard({
         id: String(x.id),
         label: String(x.name),
         meta: x.description ? String(x.description) : undefined,
+      })),
+      whiteboard: pluck(w.data, 'whiteboards').map((x) => ({
+        id: String(x.id),
+        label: String(x.title),
+        meta: `updated ${formatDate(String(x.updated_at))}`,
       })),
     })
   }, [collection.id])
@@ -401,6 +410,13 @@ function CollectionDashboard({
       const { data } = await supabase
         .from('agents')
         .insert({ owner_id: user.id, name, instructions: '' })
+        .select('id')
+        .single()
+      id = data?.id ?? null
+    } else if (kind === 'whiteboard') {
+      const { data } = await supabase
+        .from('whiteboards')
+        .insert({ owner_id: user.id, title: name, scene: {}, visibility: 'private' })
         .select('id')
         .single()
       id = data?.id ?? null
@@ -882,6 +898,15 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
             )}
           </div>
         ),
+      })
+    } else if (kind === 'whiteboard') {
+      const { data } = await supabase.from('whiteboards').select('*').eq('id', id).maybeSingle()
+      if (!data) return setDetail('missing')
+      setDetail({
+        title: data.title,
+        meta: `${data.visibility === 'workspace' ? 'Workspace' : 'Private'} · updated ${formatDate(data.updated_at)}`,
+        fullPageTo: `/whiteboards/${data.id}`,
+        body: <p className="text-sm text-muted">Excalidraw canvas — open to view and edit</p>,
       })
     } else {
       const { data } = await supabase.from('links').select('*').eq('id', id).maybeSingle()
