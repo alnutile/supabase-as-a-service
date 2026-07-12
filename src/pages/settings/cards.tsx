@@ -1,23 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Database } from '../../lib/database.types'
-import { emailInboundUrl, mcpUrl, slackEventsUrl, supabase } from '../../lib/supabase'
+import { emailInboundUrl, slackEventsUrl, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate } from '../../lib/util'
-import { CopyIcon, PlusIcon, TrashIcon } from '../../components/icons'
+import { PlusIcon, TrashIcon } from '../../components/icons'
 import { bindingToForm, buildSlackBindingPayload } from '../../lib/slackBinding'
 
 export { ConnectClaude } from './ConnectClaudeCard'
-
-// NOTE: The old ConnectClaude function (lines ~689-809) should be removed but is kept
-// temporarily to avoid TS errors. Only the export above should remain. See ConnectClaudeCard.tsx
-// for the new implementation with Claude Desktop instructions.
 
 // The Settings cards live here so the per-area Settings pages
 // (src/pages/settings/*.tsx) can each render one. They were split out of the
 // old single SettingsPage when Settings became a sidebar section (issue #122).
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
-type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
 type ModelProfile = Database['public']['Tables']['model_profiles']['Row']
 
 // Your profile — email (read-only) + display name.
@@ -686,130 +681,6 @@ export function EmailCard() {
           )}
         </div>
       )}
-    </section>
-  )
-}
-
-// TODO: Remove this old function - it's replaced by ConnectClaudeCard.tsx (exported above)
-// @ts-expect-error - old function kept temporarily for reference, will be removed
-function ConnectClaudeOld() {
-  const { user } = useAuth()
-  const [tokens, setTokens] = useState<McpToken[]>([])
-  const [copied, setCopied] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('mcp_tokens')
-      .select('*')
-      .order('created_at', { ascending: false })
-    setTokens(data ?? [])
-  }, [])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  async function generate() {
-    await supabase.from('mcp_tokens').insert({ owner_id: user!.id, name: 'Claude' })
-    load()
-  }
-
-  async function revoke(id: string) {
-    await supabase.from('mcp_tokens').delete().eq('id', id)
-    load()
-  }
-
-  async function copy(text: string, key: string) {
-    await navigator.clipboard.writeText(text)
-    setCopied(key)
-    setTimeout(() => setCopied(null), 1500)
-  }
-
-  return (
-    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
-      <h2 className="text-sm font-semibold text-text">Connect Claude (MCP)</h2>
-      <p className="mt-1 text-sm text-muted">
-        Connect <strong>Claude Code</strong> (the CLI) to this workspace, then say
-        “build an agent that does X on my intranet” and Claude pushes it here — it shows up under
-        Agents, Tools, and Webhooks. Generate a token below and run the one-line command it gives you.
-      </p>
-
-      <div className="mt-3 flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-3 py-2 text-xs text-text">
-          {mcpUrl}
-        </code>
-        <button
-          onClick={() => copy(mcpUrl, 'url')}
-          className="flex shrink-0 items-center gap-1 rounded-lg border border-border-strong px-2.5 py-2 text-xs font-medium text-muted hover:bg-surface-hover"
-        >
-          <CopyIcon className="h-3.5 w-3.5" /> {copied === 'url' ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-
-      <div className="mt-4">
-        <button
-          onClick={generate}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-strong"
-        >
-          <PlusIcon className="h-4 w-4" /> New connection token
-        </button>
-      </div>
-
-      <div className="mt-3 space-y-3">
-        {tokens.map((t) => {
-          const cmd = `claude mcp add --scope user --transport http intranet ${mcpUrl} --header "Authorization: Bearer ${t.token}"`
-          return (
-            <div key={t.id} className="rounded-lg border border-border p-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-muted">
-                  {t.name} · {t.last_used_at ? `last used ${formatDate(t.last_used_at)}` : 'never used'}
-                </span>
-                <button
-                  onClick={() => revoke(t.id)}
-                  className="ml-auto rounded-md p-1 text-faint hover:bg-red-50 hover:text-red-600"
-                  title="Revoke"
-                >
-                  <TrashIcon className="h-4 w-4" />
-                </button>
-              </div>
-
-              <p className="mt-2 text-xs font-medium text-muted">
-                1. Run this in your terminal (anywhere — <code className="rounded bg-surface-2 px-1">--scope user</code>{' '}
-                makes it available in every project):
-              </p>
-              <div className="mt-1 flex items-start gap-2">
-                <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
-                  {cmd}
-                </pre>
-                <button
-                  onClick={() => copy(cmd, t.id)}
-                  className="shrink-0 rounded-lg border border-border-strong px-2 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
-                >
-                  {copied === t.id ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-
-              <p className="mt-2 text-xs text-muted">
-                2. Start <code className="rounded bg-surface-2 px-1">claude</code> and run{' '}
-                <code className="rounded bg-surface-2 px-1">/mcp</code> — you should see{' '}
-                <strong>intranet</strong> connected. Then ask it to “list my intranet agents” to confirm.
-              </p>
-              <p className="mt-1 text-[11px] text-faint">
-                Treat this token like a password — anyone with it can act as you here. Revoke it (🗑) if it leaks.
-              </p>
-            </div>
-          )
-        })}
-        {tokens.length === 0 && (
-          <p className="text-xs text-faint">No connection tokens yet.</p>
-        )}
-      </div>
-
-      <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-        <strong>Using Claude Desktop or claude.ai?</strong> Their “Add custom connector” dialog only
-        speaks OAuth, which this token-based server doesn’t offer yet — it’ll fail to register. Use the
-        Claude Code command above for now. (OAuth sign-in is on the roadmap.)
-      </p>
     </section>
   )
 }
