@@ -26,6 +26,8 @@ export function matchesTodoQuery(todo: { title: string; notes: string }, query: 
 // Apply the page's filters (collection membership → done → quick search) and,
 // in "due" mode, the sort. In "manual" mode the incoming order (position asc,
 // created_at desc from the query) is preserved.
+// When multiple collections are selected, a to-do is visible if it belongs to
+// ANY of them (union, not intersection).
 export function filterAndSortTodos<T extends FilterableTodo>(
   todos: T[],
   opts: { memberIds?: Set<string> | null; showDone: boolean; sortMode: TodoSortMode; query?: string },
