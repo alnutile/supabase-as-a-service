@@ -55,7 +55,14 @@ export function ResizeHandle({
     <div
       onPointerDown={onPointerDown}
       title="Drag to resize"
-      className="absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize touch-none select-none hover:bg-primary/25 active:bg-primary/40 md:block"
-    />
+      className="group absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize touch-none select-none hover:bg-primary/25 active:bg-primary/40 md:flex md:items-center md:justify-center"
+    >
+      {/* Visual handle indicator: three vertical dots */}
+      <div className="flex flex-col gap-0.5 opacity-40 transition-opacity group-hover:opacity-70">
+        <div className="h-1 w-1 rounded-full bg-muted" />
+        <div className="h-1 w-1 rounded-full bg-muted" />
+        <div className="h-1 w-1 rounded-full bg-muted" />
+      </div>
+    </div>
   )
 }
