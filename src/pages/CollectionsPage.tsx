@@ -309,11 +309,13 @@ function CollectionDashboard({
     const pluck = (rows: unknown, key: string) =>
       ((rows ?? []) as Array<Record<string, unknown>>).map((r) => r[key]).filter(Boolean) as Array<Record<string, unknown>>
     setItems({
-      todo: pluck(t.data, 'todos').map((x) => ({
-        id: String(x.id),
-        label: String(x.title),
-        meta: `${x.done ? 'done' : 'open'}${x.due_date ? ` · due ${x.due_date}` : ''}`,
-      })),
+      todo: pluck(t.data, 'todos')
+        .filter((x) => !x.done) // Hide completed todos in collection view
+        .map((x) => ({
+          id: String(x.id),
+          label: String(x.title),
+          meta: `${x.done ? 'done' : 'open'}${x.due_date ? ` · due ${x.due_date}` : ''}`,
+        })),
       artifact: pluck(a.data, 'artifacts').map((x) => ({
         id: String(x.id),
         label: String(x.title),
