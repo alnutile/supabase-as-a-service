@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams, useBlocker } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -267,14 +267,6 @@ export default function ArtifactEditorPage() {
       }
     }
   }, [dirty, artifact])
-
-  // Block navigation and save before leaving
-  useBlocker(({ currentLocation, nextLocation }) => {
-    if (dirty && currentLocation.pathname !== nextLocation.pathname) {
-      void save()
-    }
-    return false // never actually block, just save
-  })
 
   // Save before page unload (browser close/refresh)
   useEffect(() => {
