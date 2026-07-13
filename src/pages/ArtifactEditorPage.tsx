@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useBlocker } from 'react-router-dom'
 import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -31,6 +31,7 @@ export default function ArtifactEditorPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const panelResize = usePanelResize('artifact-editor-panel-w', 384)
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!artifactId) return
@@ -228,6 +229,66 @@ export default function ArtifactEditorPage() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [save])
+
+  // Auto-save when dirty (debounced)
+  useEffect(() => {
+    if (!dirty) return
+    // Clear any pending timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+    }
+    // Set new timer for 2 seconds
+    autoSaveTimerRef.current = setTimeout(() => {
+      void save()
+    }, 2000)
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [dirty, save])
+
+  // Save before unmount or navigation
+  useEffect(() => {
+    return () => {
+      // Save on unmount if dirty
+      if (dirty && artifact) {
+        void supabase
+          .from('artifacts')
+          .update({
+            title: artifact.title,
+            type: artifact.type,
+            content: artifact.content,
+            visibility: artifact.visibility,
+            public_slug: artifact.public_slug,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', artifact.id)
+      }
+    }
+  }, [dirty, artifact])
+
+  // Block navigation and save before leaving
+  useBlocker(({ currentLocation, nextLocation }) => {
+    if (dirty && currentLocation.pathname !== nextLocation.pathname) {
+      void save()
+    }
+    return false // never actually block, just save
+  })
+
+  // Save before page unload (browser close/refresh)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirty) {
+        void save()
+        // Browser will show its own confirmation dialog
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [dirty, save])
 
   if (notFound) {
     return (
