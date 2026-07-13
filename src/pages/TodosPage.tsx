@@ -99,7 +99,7 @@ export default function TodosPage() {
   const [adding, setAdding] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('manual')
   const [showDone, setShowDone] = useState(false)
-  const [activeCollection, setActiveCollection] = useState<string | null>(null)
+  const [activeCollections, setActiveCollections] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -131,16 +131,22 @@ export default function TodosPage() {
   const selectedIds = useMemo(() => [...selected], [selected])
 
   // The visible list: collection filter → done filter → quick search → sort.
-  const visible = useMemo(
-    () =>
-      filterAndSortTodos(todos, {
-        memberIds: activeCollection ? members[activeCollection] ?? new Set<string>() : null,
-        showDone,
-        sortMode,
-        query: search,
-      }),
-    [todos, members, activeCollection, showDone, sortMode, search],
-  )
+  const visible = useMemo(() => {
+    let memberIds: Set<string> | null = null
+    if (activeCollections.size > 0) {
+      memberIds = new Set<string>()
+      for (const cid of activeCollections) {
+        const set = members[cid] ?? new Set<string>()
+        for (const id of set) memberIds.add(id)
+      }
+    }
+    return filterAndSortTodos(todos, {
+      memberIds,
+      showDone,
+      sortMode,
+      query: search,
+    })
+  }, [todos, members, activeCollections, showDone, sortMode, search])
 
   // Drag reorder only makes sense over the raw manual order, not a searched subset.
   const dragEnabled = sortMode === 'manual' && !search.trim()
@@ -164,16 +170,20 @@ export default function TodosPage() {
     if (!error && data) {
       setTodos((prev) => [data, ...prev])
       setQuickTitle('')
-      // If filtering by a collection, file the new to-do into it so it shows up.
-      if (activeCollection) {
+      // If filtering by collections, file the new to-do into all of them so it shows up.
+      if (activeCollections.size > 0) {
         await supabase.from('collection_todos').upsert(
-          { collection_id: activeCollection, todo_id: data.id, added_by: user.id },
+          [...activeCollections].map((cid) => ({ collection_id: cid, todo_id: data.id, added_by: user.id })),
           { onConflict: 'collection_id,todo_id', ignoreDuplicates: true },
         )
         setMembers((prev) => {
-          const set = new Set(prev[activeCollection] ?? [])
-          set.add(data.id)
-          return { ...prev, [activeCollection]: set }
+          const next = { ...prev }
+          for (const cid of activeCollections) {
+            const set = new Set(next[cid] ?? [])
+            set.add(data.id)
+            next[cid] = set
+          }
+          return next
         })
       }
     }
@@ -306,12 +316,20 @@ export default function TodosPage() {
   }
 
   async function removeFromActive(todoId: string) {
-    if (!activeCollection) return
-    await supabase.from('collection_todos').delete().eq('collection_id', activeCollection).eq('todo_id', todoId)
+    if (activeCollections.size === 0) return
+    await Promise.all(
+      [...activeCollections].map((cid) =>
+        supabase.from('collection_todos').delete().eq('collection_id', cid).eq('todo_id', todoId)
+      )
+    )
     setMembers((prev) => {
-      const set = new Set(prev[activeCollection] ?? [])
-      set.delete(todoId)
-      return { ...prev, [activeCollection]: set }
+      const next = { ...prev }
+      for (const cid of activeCollections) {
+        const set = new Set(next[cid] ?? [])
+        set.delete(todoId)
+        next[cid] = set
+      }
+      return next
     })
   }
 
@@ -406,9 +424,9 @@ export default function TodosPage() {
         {collections.length > 0 && (
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setActiveCollection(null)}
+              onClick={() => setActiveCollections(new Set())}
               className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                activeCollection === null
+                activeCollections.size === 0
                   ? 'border-primary bg-primary-soft text-primary'
                   : 'border-border text-muted hover:bg-surface-hover'
               }`}
@@ -418,9 +436,16 @@ export default function TodosPage() {
             {collections.map((c) => (
               <button
                 key={c.id}
-                onClick={() => setActiveCollection(c.id)}
+                onClick={() => {
+                  setActiveCollections((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(c.id)) next.delete(c.id)
+                    else next.add(c.id)
+                    return next
+                  })
+                }}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                  activeCollection === c.id
+                  activeCollections.has(c.id)
                     ? 'border-primary bg-primary-soft text-primary'
                     : 'border-border text-muted hover:bg-surface-hover'
                 }`}
@@ -440,8 +465,8 @@ export default function TodosPage() {
             <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted">
               {search.trim()
                 ? `No to-dos match “${search.trim()}”.`
-                : activeCollection
-                  ? 'No to-dos in this collection yet.'
+                : activeCollections.size > 0
+                  ? 'No to-dos in the selected collections yet.'
                   : 'Nothing here yet — add your first to-do above.'}
             </div>
           ) : (
@@ -461,7 +486,7 @@ export default function TodosPage() {
                       onChangeTitle={(title) => title.trim() && title !== t.title && patchTodo(t.id, { title: title.trim() })}
                       onChangeDue={(due) => patchTodo(t.id, { due_date: due || null })}
                       onDelete={() => deleteTodo(t.id)}
-                      onRemoveFromCollection={activeCollection ? () => removeFromActive(t.id) : undefined}
+                      onRemoveFromCollection={activeCollections.size > 0 ? () => removeFromActive(t.id) : undefined}
                     />
                   ))}
                 </ul>
