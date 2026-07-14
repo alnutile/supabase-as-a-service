@@ -150,16 +150,18 @@ export function buildRedirect(redirectUri: string, params: Record<string, string
   return u.toString()
 }
 
-/** Derive our own function's public base URL from the incoming request URL, so
- *  every OAuth endpoint is relative to whatever host the user pasted (their
- *  *.supabase.co, a custom domain, or the hosted proxy) — nothing hardcoded.
- *  `segment` is the function slug, e.g. 'mcp-oauth' or 'mcp'. */
+/** The public base URL of one of our edge functions, e.g.
+ *  `https://<host>/functions/v1/mcp-oauth`. Used to advertise every OAuth endpoint.
+ *
+ *  We CANNOT trust `req.url`: inside the Supabase edge runtime it is
+ *  `http://<host>/<segment>/…` — the `/functions/v1` prefix is stripped and the
+ *  scheme is the internal `http`. Echoing that back advertises an unreachable
+ *  URL (wrong scheme, missing `/functions/v1`), which breaks OAuth discovery.
+ *  So reconstruct the canonical public URL from the host: always `https`, always
+ *  the `/functions/v1/<segment>` path Supabase serves functions under. */
 export function functionBaseUrl(reqUrl: string, segment: string): string {
   const u = new URL(reqUrl)
-  const marker = `/${segment}`
-  const i = u.pathname.indexOf(marker)
-  const path = i >= 0 ? u.pathname.slice(0, i + marker.length) : `/functions/v1/${segment}`
-  return `${u.origin}${path}`
+  return `https://${u.host}/functions/v1/${segment}`
 }
 
 function escapeHtml(s: string): string {

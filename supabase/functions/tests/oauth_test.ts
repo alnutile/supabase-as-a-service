@@ -117,7 +117,7 @@ Deno.test('buildRedirect: appends code+state, skips empties', () => {
   assertFalse(u.searchParams.has('error')) // empty skipped
 })
 
-Deno.test('functionBaseUrl: derives base from the request host (nothing hardcoded)', () => {
+Deno.test('functionBaseUrl: always yields the public https /functions/v1/<segment> URL', () => {
   assertEquals(
     functionBaseUrl('https://abc.supabase.co/functions/v1/mcp-oauth/authorize?x=1', 'mcp-oauth'),
     'https://abc.supabase.co/functions/v1/mcp-oauth',
@@ -126,8 +126,19 @@ Deno.test('functionBaseUrl: derives base from the request host (nothing hardcode
     functionBaseUrl('https://mcp.acme.com/functions/v1/mcp/.well-known/oauth-protected-resource', 'mcp'),
     'https://mcp.acme.com/functions/v1/mcp',
   )
-  // Fallback when the segment isn't in the path.
-  assertEquals(functionBaseUrl('https://h/', 'mcp-oauth'), 'https://h/functions/v1/mcp-oauth')
+})
+
+Deno.test('functionBaseUrl: repairs the Supabase-internal request shape (http + stripped prefix)', () => {
+  // Inside the edge runtime req.url is http://<host>/<segment>/… — /functions/v1 stripped,
+  // scheme http. Both must be repaired or OAuth discovery advertises unreachable URLs.
+  assertEquals(
+    functionBaseUrl('http://ref.supabase.co/mcp/.well-known/oauth-protected-resource', 'mcp'),
+    'https://ref.supabase.co/functions/v1/mcp',
+  )
+  assertEquals(
+    functionBaseUrl('http://ref.supabase.co/mcp-oauth/authorize?code_challenge=x', 'mcp-oauth'),
+    'https://ref.supabase.co/functions/v1/mcp-oauth',
+  )
 })
 
 Deno.test('metadata builders: endpoints derive from issuer / resource', () => {
