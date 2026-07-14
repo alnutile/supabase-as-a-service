@@ -1,4 +1,4 @@
--- 0070_mcp_oauth.sql
+-- 0077_mcp_oauth.sql
 -- OAuth 2.1 (PKCE) authorization-server backing tables for the MCP connector, so
 -- Claude's "Add custom connector" flow works by pasting the workspace MCP URL and
 -- approving — no static-token copy. The authorization server is the `mcp-oauth`
