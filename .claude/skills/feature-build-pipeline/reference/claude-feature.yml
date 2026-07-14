@@ -1,0 +1,121 @@
+# The build half of the Features board (src/pages/FeaturesPage.tsx).
+#
+# Dragging a card to "Approved for work" makes the `features` edge function
+# open an issue labeled `approved-for-work`. This workflow fires on that label,
+# runs Claude Code against a checkout, and opens a PR that references the
+# issue (the board's sync picks the PR up from the issue timeline and tracks
+# it on the card). Dragging to "Approved to merge" squash-merges the PR, which
+# triggers the Railway rebuild plus deploy-migrations.yml / deploy-functions.yml.
+#
+# Setup — ONE secret (Settings → Secrets and variables → Actions):
+#   OPEN_ROUTER_KEY – an OpenRouter API key (sk-or-...). Claude Code is routed
+#     through OpenRouter's Anthropic-compatible endpoint, so the feature build
+#     runs on OpenRouter billing instead of an Anthropic key.
+#
+# Guardrails: the agent works on a branch and opens a PR — it cannot push to
+# main (the token below has no direct-push step, and branch protection on main
+# is recommended). A human reviews and the board's merge lane ships it.
+
+name: Build approved feature
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  build:
+    if: github.event.label.name == 'approved-for-work'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Claude Code implements the feature
+        uses: anthropics/claude-code-action@v1
+        # The action wires up GIT auth itself (push works), but the `gh` CLI
+        # reads GH_TOKEN from the environment — without this, `gh pr create`
+        # fails silently and the branch never gets a PR (issue #66 taught us).
+        # Claude Code is routed through OpenRouter's Anthropic-compatible endpoint.
+        # The action's pre-flight rejects an empty anthropic_api_key, but Claude
+        # Code's auth precedence prefers ANTHROPIC_AUTH_TOKEN (Authorization:
+        # Bearer) over the api key (X-Api-Key), and OpenRouter wants Bearer — so we
+        # pass the OpenRouter key as BOTH; the Bearer token is what authenticates.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPEN_ROUTER_KEY }}
+        with:
+          anthropic_api_key: ${{ secrets.OPEN_ROUTER_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            Implement the feature described in issue #${{ github.event.issue.number }}:
+
+            Title: ${{ github.event.issue.title }}
+
+            ${{ github.event.issue.body }}
+
+            Instructions:
+            - Read CLAUDE.md first and follow the repository conventions.
+            - Work on a new branch named feature/issue-${{ github.event.issue.number }}.
+            - Run `npm install` and verify your change with `npm run build` AND
+              `npm test` before finishing. If your change adds or alters logic
+              (parsing, validation, calculations), add or update tests for it —
+              frontend tests live next to the code as src/**/*.test.ts(x);
+              edge-function tests live in supabase/functions/tests/.
+            - If the change needs a DB migration, add the next-numbered file under
+              supabase/migrations/ (deploy-migrations.yml applies it on merge) and
+              hand-update src/lib/database.types.ts to match.
+            - Commit, push the branch, and open a pull request whose description
+              explains the change and contains "Closes #${{ github.event.issue.number }}".
+            - Do NOT push to main. Do NOT merge the PR.
+          claude_args: |
+            --model anthropic/claude-sonnet-4.5 --max-turns 150 --allowedTools "Bash(git:*),Bash(npm:*),Bash(gh:*),Read,Write,Edit,Glob,Grep"
+
+      # Green must mean "a PR exists", not "the agent didn't crash". Check this
+      # FIRST: if the agent finished without pushing the branch + opening a PR
+      # (e.g. it ran out of turns before committing), flag it on the issue and
+      # fail with a clear message — rather than letting the test steps below fail
+      # confusingly on a `git fetch` of a ref that was never pushed (exit 128).
+      - name: Verify a PR was opened
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="feature/issue-${{ github.event.issue.number }}"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            gh issue comment "${{ github.event.issue.number }}" --repo "$GITHUB_REPOSITORY" \
+              --body "⚠️ The build run finished without opening a PR for \`$branch\` (the agent may have run out of turns before committing) — see the [run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            echo "::error::No open PR for $branch — the agent finished without gh pr create succeeding."
+            exit 1
+          fi
+          echo "PR #$pr is open for $branch."
+
+      # PRs opened with the workflow's GITHUB_TOKEN don't trigger pull_request
+      # workflows (GitHub anti-recursion), so the Tests workflow will NOT run
+      # on the bot's PR — run the same checks here, deterministically, against
+      # the branch the agent pushed. Red here = don't merge.
+      - name: Test the built branch
+        run: |
+          branch="feature/issue-${{ github.event.issue.number }}"
+          git fetch origin "$branch"
+          git checkout "$branch"
+          npm ci
+          npm run lint
+          npm run build
+          npm test
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test edge functions on the built branch
+        run: deno test supabase/functions/tests/
