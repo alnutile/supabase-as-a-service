@@ -76,6 +76,73 @@ export function ProfileCard() {
   )
 }
 
+// Password — set or update it. Magic-link-only users have no password until they
+// set one here; a password is what the Claude connector's OAuth sign-in uses.
+// Setting it also stamps user_metadata.has_password so other pages (Connect Claude)
+// can tell it's configured.
+export function PasswordCard() {
+  const { user } = useAuth()
+  const hasPassword = Boolean(user?.user_metadata?.has_password)
+  const [pw, setPw] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function save() {
+    setMsg(null)
+    if (pw.length < 8) return setMsg({ ok: false, text: 'Use at least 8 characters.' })
+    if (pw !== confirm) return setMsg({ ok: false, text: 'Passwords do not match.' })
+    setSaving(true)
+    const { error } = await supabase.auth.updateUser({ password: pw, data: { has_password: true } })
+    setSaving(false)
+    if (error) return setMsg({ ok: false, text: error.message })
+    setPw('')
+    setConfirm('')
+    setMsg({ ok: true, text: 'Password set — you can now sign in with it, including the Claude connector.' })
+  }
+
+  return (
+    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Password</h2>
+      <p className="mt-1 text-sm text-muted">
+        {hasPassword
+          ? 'You have a password set. Use it to sign in, or update it below.'
+          : "You sign in with magic links and don't have a password yet. Set one to sign in with email + password — needed to approve the Claude connector (OAuth)."}
+      </p>
+      <div className="mt-4 max-w-sm space-y-4">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">{hasPassword ? 'New password' : 'Password'}</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">Confirm password</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+          />
+        </label>
+        {msg && <p className={`text-xs ${msg.ok ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
+        <button
+          onClick={save}
+          disabled={saving || !pw}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : hasPassword ? 'Update password' : 'Set password'}
+        </button>
+      </div>
+    </section>
+  )
+}
+
 export function AboutCard() {
   return (
     <section className="mt-4 rounded-xl border border-border bg-surface p-5">

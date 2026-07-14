@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Database } from '../../lib/database.types'
 import { mcpUrl, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -7,8 +8,13 @@ import { CopyIcon, PlusIcon, TrashIcon } from '../../components/icons'
 
 type McpToken = Database['public']['Tables']['mcp_tokens']['Row']
 
+// The one-click OAuth connector is served from the APP's own domain (see server.js),
+// not the Supabase functions host — that's the only place OAuth discovery resolves.
+const connectorUrl = `${window.location.origin}/mcp`
+
 export function ConnectClaude() {
   const { user } = useAuth()
+  const hasPassword = Boolean(user?.user_metadata?.has_password)
   const [tokens, setTokens] = useState<McpToken[]>([])
   const [copied, setCopied] = useState<string | null>(null)
 
@@ -44,10 +50,63 @@ export function ConnectClaude() {
     <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Connect Claude (MCP)</h2>
       <p className="mt-1 text-sm text-muted">
-        Connect <strong>Claude Code</strong> (the CLI) or <strong>Claude Desktop</strong> to this workspace, then say
-        "build an agent that does X on my intranet" and Claude pushes it here — it shows up under
-        Agents, Tools, and Webhooks. Generate a token below and follow the instructions for your client.
+        Connect Claude to this workspace, then say "build an agent that does X on my intranet" and
+        Claude pushes it here — it shows up under Agents, Tools, and Webhooks. There are two ways to
+        connect; the first is the easiest.
       </p>
+
+      {/* Option 1 — OAuth custom connector (recommended). Signs in at the app domain. */}
+      <div className="mt-4 rounded-xl border border-primary/40 bg-primary/5 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+            Recommended
+          </span>
+          <h3 className="text-sm font-semibold text-text">Add custom connector (sign in — no token)</h3>
+        </div>
+        <p className="mt-2 text-sm text-muted">
+          Works in <strong>Claude Desktop</strong> and <strong>claude.ai</strong>. In Claude, open{' '}
+          <strong>Settings → Connectors → Add custom connector</strong>, paste the URL below, leave the
+          OAuth Client ID / Secret fields <strong>empty</strong>, and click <strong>Add</strong>. Claude
+          sends you to a sign-in page — log in with your workspace <strong>email + password</strong> and
+          approve.
+        </p>
+
+        {!hasPassword && (
+          <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+            <strong>One-time setup:</strong> the connector signs in with a <strong>password</strong>, but
+            your account uses magic links and doesn't have one yet.{' '}
+            <Link to="/settings/profile" className="font-semibold underline">
+              Set a password
+            </Link>{' '}
+            first, then come back here.
+          </div>
+        )}
+
+        <div className="mt-3 flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-3 py-2 text-xs text-text">
+            {connectorUrl}
+          </code>
+          <button
+            onClick={() => copy(connectorUrl, 'connector')}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-border-strong px-2.5 py-2 text-xs font-medium text-muted hover:bg-surface-hover"
+          >
+            <CopyIcon className="h-3.5 w-3.5" /> {copied === 'connector' ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-faint">
+          This is your app's own URL — OAuth discovery is served here (a raw{' '}
+          <code className="rounded bg-surface-2 px-1">*.supabase.co</code> URL can't do the discovery step).
+        </p>
+      </div>
+
+      {/* Option 2 — personal bearer token (Claude Code CLI, or a fallback). */}
+      <div className="mt-6 border-t border-border pt-5">
+        <h3 className="text-sm font-semibold text-text">Or use a personal token</h3>
+        <p className="mt-1 text-sm text-muted">
+          Best for <strong>Claude Code</strong> (the CLI), or as a fallback. Generate a token and follow
+          the steps for your client.
+        </p>
+      </div>
 
       <div className="mt-3 flex items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-3 py-2 text-xs text-text">
