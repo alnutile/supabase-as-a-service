@@ -21,6 +21,7 @@ const raw = import.meta.glob('../../supabase/functions/**/*.ts', {
 const VERIFY_JWT: Record<string, boolean> = {
   webhook: false,
   mcp: false,
+  'mcp-oauth': false,
   'email-inbound': false,
   scheduler: false,
   ingest: false,

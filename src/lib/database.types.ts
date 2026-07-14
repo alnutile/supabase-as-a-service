@@ -936,6 +936,9 @@ export interface Database {
           token: string
           last_used_at: string | null
           created_at: string
+          expires_at: string | null
+          refresh_token: string | null
+          client_id: string | null
         }
         Insert: {
           id?: string
@@ -944,8 +947,57 @@ export interface Database {
           token?: string
           last_used_at?: string | null
           created_at?: string
+          expires_at?: string | null
+          refresh_token?: string | null
+          client_id?: string | null
         }
         Update: Partial<Database['public']['Tables']['mcp_tokens']['Insert']>
+        Relationships: []
+      }
+      oauth_clients: {
+        Row: {
+          client_id: string
+          client_name: string | null
+          redirect_uris: string[]
+          created_at: string
+        }
+        Insert: {
+          client_id: string
+          client_name?: string | null
+          redirect_uris?: string[]
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['oauth_clients']['Insert']>
+        Relationships: []
+      }
+      oauth_authorization_codes: {
+        Row: {
+          code: string
+          client_id: string
+          owner_id: string
+          redirect_uri: string
+          code_challenge: string
+          code_challenge_method: string
+          resource: string | null
+          scope: string | null
+          used: boolean
+          expires_at: string
+          created_at: string
+        }
+        Insert: {
+          code: string
+          client_id: string
+          owner_id: string
+          redirect_uri: string
+          code_challenge: string
+          code_challenge_method?: string
+          resource?: string | null
+          scope?: string | null
+          used?: boolean
+          expires_at: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['oauth_authorization_codes']['Insert']>
         Relationships: []
       }
       schedules: {

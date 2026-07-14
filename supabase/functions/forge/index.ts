@@ -34,6 +34,7 @@ const CORE_SLUGS = new Set([
   'chat',
   'webhook',
   'mcp',
+  'mcp-oauth',
   'scheduler',
   'ingest',
   'email-inbound',

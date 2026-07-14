@@ -33,6 +33,11 @@ verify_jwt = false
 [functions.mcp]
 verify_jwt = false
 
+# OAuth 2.1 (PKCE) authorization server for the MCP connector — public so Claude's
+# "Add custom connector" flow can discover it, register, and run authorize/token.
+[functions.mcp-oauth]
+verify_jwt = false
+
 [functions.email-inbound]
 verify_jwt = false
 
