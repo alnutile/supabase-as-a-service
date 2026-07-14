@@ -13,6 +13,7 @@ import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from 
 import { forget, listMemories, remember, updateMemory } from '../_shared/memory.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, type McpRouter, runMcpTool } from '../_shared/mcp.ts'
+import { functionBaseUrl, isExpired, protectedResourceMetadata } from '../_shared/oauth.ts'
 import {
   createLoop,
   findOrCreateLoopAgent,
@@ -2232,6 +2233,15 @@ async function loadExternalTools(db: DB): Promise<{ tools: McpTool[]; router: Mc
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method === 'GET') {
+    // OAuth 2.1 discovery (RFC 9728): point Claude's "Add custom connector" flow
+    // at the authorization server (the sibling `mcp-oauth` function).
+    if (new URL(req.url).pathname.endsWith('/.well-known/oauth-protected-resource')) {
+      const resource = functionBaseUrl(req.url, 'mcp')
+      const issuer = resource.replace(/\/mcp$/, '/mcp-oauth')
+      return new Response(JSON.stringify(protectedResourceMetadata(resource, issuer)), {
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
     // No server-initiated stream in this stateless server.
     return new Response('MCP server. POST JSON-RPC here.', { status: 405, headers: CORS })
   }
@@ -2244,12 +2254,19 @@ Deno.serve(async (req: Request) => {
     (url.searchParams.get('token') ?? '').trim()
   const db = admin()
   const { data: tok } = token
-    ? await db.from('mcp_tokens').select('owner_id').eq('token', token).maybeSingle()
+    ? await db.from('mcp_tokens').select('owner_id, expires_at').eq('token', token).maybeSingle()
     : { data: null }
-  if (!tok) {
+  if (!tok || isExpired((tok as { expires_at?: string | null }).expires_at, Date.now())) {
+    // Advertise where to authenticate so an OAuth-capable client can start the
+    // "Add custom connector" flow. Static (non-expiring) tokens still work as-is.
+    const resource = functionBaseUrl(req.url, 'mcp')
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
+      headers: {
+        ...CORS,
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': `Bearer resource_metadata="${resource}/.well-known/oauth-protected-resource"`,
+      },
     })
   }
   const owner = tok.owner_id as string

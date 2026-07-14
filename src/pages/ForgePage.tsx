@@ -24,6 +24,7 @@ const CORE_FUNCTIONS: { slug: string; description: string }[] = [
   { slug: 'chat', description: 'The AI chat assistant — runs the agentic tool loop and streams replies.' },
   { slug: 'webhook', description: 'Public ingress — runs a prompt, agent, or tool against incoming payloads.' },
   { slug: 'mcp', description: 'MCP server an external Claude connects to (build agents/tools/artifacts).' },
+  { slug: 'mcp-oauth', description: 'OAuth 2.1 authorization server for the MCP connector (paste-URL-and-approve).' },
   { slug: 'scheduler', description: 'Runs scheduled agents on the cron tick.' },
   { slug: 'ingest', description: 'Extracts, chunks, and embeds uploaded PDFs for knowledge search.' },
   { slug: 'email-inbound', description: 'Public inbound-email sink — normalizes incoming mail into the inbox.' },
