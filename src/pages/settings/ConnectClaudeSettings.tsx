@@ -5,7 +5,7 @@ export default function ConnectClaudeSettings() {
   return (
     <SettingsShell
       title="Connect Claude"
-      subtitle="Connect Claude Code to this workspace over MCP with a personal token."
+      subtitle="Connect Claude Desktop, claude.ai, or Claude Code to this workspace over MCP — sign in with one click, or use a personal token."
     >
       <ConnectClaude />
     </SettingsShell>

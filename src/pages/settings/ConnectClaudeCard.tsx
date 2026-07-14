@@ -44,21 +44,54 @@ export function ConnectClaude() {
     <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Connect Claude (MCP)</h2>
       <p className="mt-1 text-sm text-muted">
-        Connect <strong>Claude Code</strong> (the CLI) or <strong>Claude Desktop</strong> to this workspace, then say
-        "build an agent that does X on my intranet" and Claude pushes it here — it shows up under
-        Agents, Tools, and Webhooks. Generate a token below and follow the instructions for your client.
+        Connect Claude to this workspace, then say "build an agent that does X on my intranet" and
+        Claude pushes it here — it shows up under Agents, Tools, and Webhooks. There are two ways to
+        connect; the first is the easiest.
       </p>
 
-      <div className="mt-3 flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-3 py-2 text-xs text-text">
-          {mcpUrl}
-        </code>
-        <button
-          onClick={() => copy(mcpUrl, 'url')}
-          className="flex shrink-0 items-center gap-1 rounded-lg border border-border-strong px-2.5 py-2 text-xs font-medium text-muted hover:bg-surface-hover"
-        >
-          <CopyIcon className="h-3.5 w-3.5" /> {copied === 'url' ? 'Copied' : 'Copy'}
-        </button>
+      {/* Option 1 — OAuth custom connector (recommended). No token to copy. */}
+      <div className="mt-4 rounded-xl border border-primary/40 bg-primary/5 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+            Recommended
+          </span>
+          <h3 className="text-sm font-semibold text-text">Add custom connector (sign in — no token)</h3>
+        </div>
+        <p className="mt-2 text-sm text-muted">
+          The simplest way, and it works in <strong>Claude Desktop</strong> and{' '}
+          <strong>claude.ai</strong>. In Claude, open{' '}
+          <strong>Settings → Connectors → Add custom connector</strong>, paste the URL below, leave
+          the OAuth Client ID / Secret fields <strong>empty</strong>, and click <strong>Add</strong>.
+          Claude sends you to a sign-in page — log in with your workspace email and password, approve,
+          and you're connected. Nothing to copy or paste back.
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-3 py-2 text-xs text-text">
+            {mcpUrl}
+          </code>
+          <button
+            onClick={() => copy(mcpUrl, 'url')}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-border-strong px-2.5 py-2 text-xs font-medium text-muted hover:bg-surface-hover"
+          >
+            <CopyIcon className="h-3.5 w-3.5" /> {copied === 'url' ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-faint">
+          Use this <strong>exact</strong> URL — it's your Supabase Functions endpoint, not your app's
+          web address (e.g. a custom domain pointing at the site won't work). If Claude says{' '}
+          <em>"couldn't register with the sign-in service,"</em> your host may not expose OAuth
+          discovery yet — use a personal token below instead.
+        </p>
+      </div>
+
+      {/* Option 2 — personal bearer token (Claude Code CLI, or a fallback). */}
+      <div className="mt-6 border-t border-border pt-5">
+        <h3 className="text-sm font-semibold text-text">Or use a personal token</h3>
+        <p className="mt-1 text-sm text-muted">
+          Best for <strong>Claude Code</strong> (the CLI), or as a fallback if the connector above
+          can't register. Generate a token and follow the steps for your client. The URL is the same{' '}
+          <code className="rounded bg-surface-2 px-1">{mcpUrl}</code>.
+        </p>
       </div>
 
       <div className="mt-4">
