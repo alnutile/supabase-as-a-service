@@ -16,4 +16,11 @@ module.exports = {
     ],
     '@typescript-eslint/no-explicit-any': 'off',
   },
+  overrides: [
+    {
+      // The Railway production server is Node (ESM), not browser code.
+      files: ['server.js'],
+      env: { node: true, browser: false },
+    },
+  ],
 }

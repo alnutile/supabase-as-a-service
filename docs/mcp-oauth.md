@@ -42,12 +42,31 @@ Backing tables: migration `0070_mcp_oauth.sql` (`oauth_clients`,
 `mcp_tokens`). Pure logic in `supabase/functions/_shared/oauth.ts`, unit-tested in
 `tests/oauth_test.ts`.
 
-## `*.supabase.co` discovery caveat
-RFC 8414/9728 also define **root** well-known paths (`https://host/.well-known/…`). On a
-shared `*.supabase.co` host we can't serve the domain root, so discovery relies on the
-`WWW-Authenticate` `resource_metadata` pointer + the function-suffixed well-known path
-(which the MCP client SDK falls back to). A **custom functions domain** (or the hosted
-`connection.supanet.io` proxy) can serve the root paths for the strictest clients.
+## `*.supabase.co` discovery caveat — and the fix (`server.js`)
+RFC 8414/9728 define **root** well-known paths (`https://host/.well-known/…`). On a shared
+`*.supabase.co` host **Supabase's gateway owns the root and returns 401**, so Claude's OAuth
+discovery can't fetch the authorization-server metadata and "Add custom connector" fails with
+`mcp_registration_failed` — even though the endpoints themselves work when hit directly.
+(Confirmed live: registration/authorize/token all function; only *discovery* breaks.)
+
+**The fix is to front the connector from a domain we control** — the app's own domain. The
+Railway production server (`server.js`, replacing `serve -s dist`) does exactly this:
+- serves the OAuth **discovery** documents (`/.well-known/oauth-authorization-server`,
+  `/.well-known/oauth-protected-resource[/mcp]`) at the **root**, built **per-request from the
+  incoming Host** (zero config — works on any tenant domain);
+- **reverse-proxies** `/mcp` and `/mcp-oauth/*` to the Supabase edge functions (which already
+  implement the whole flow), rewriting the 401 `WWW-Authenticate` pointer to the app domain and
+  restoring `text/html` on the login page (Supabase rewrites function `text/html`→`text/plain`);
+- serves the SPA for everything else.
+
+So users paste the **app URL** — `https://‹app-domain›/mcp` — into Add custom connector, and
+discovery resolves at the root like a normal OAuth server (this is what a Laravel/Passport app
+gets for free by controlling its own domain). Needs no new env vars beyond the existing
+`VITE_SUPABASE_URL` (the proxy target); set `SUPABASE_FUNCTIONS_URL` to override. This is the
+first concrete piece of the planned `connection.supanet.io` proxy, just on the app's own domain.
+
+The raw `*.supabase.co/functions/v1/mcp` URL still works for the **personal-token** path
+(`claude mcp add --header …`); it's only OAuth *discovery* that needs the app-domain front.
 
 ## Manual verification (until tested against a live Claude connector)
 Against a deployed project (`BASE=https://<ref>.supabase.co/functions/v1`):
