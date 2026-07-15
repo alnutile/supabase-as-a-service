@@ -2,7 +2,21 @@ import { describe, it, expect } from 'vitest'
 
 // Test the filtering logic itself (pure function)
 describe('Skills search filtering', () => {
-  const mockSkills = [
+  type MockSkill = {
+    id: string
+    name: string
+    description: string | null
+    instructions: string
+    auto_apply: boolean
+    output_mode: 'reply' | 'artifact'
+    artifact_type: 'markdown'
+    owner_id: string
+    created_at: string
+    updated_at: string
+    is_builtin: boolean
+  }
+
+  const mockSkills: MockSkill[] = [
     {
       id: '1',
       name: 'Code Review',
@@ -46,9 +60,9 @@ describe('Skills search filtering', () => {
 
   // Pure function extracted from the component for testing
   function filterSkills(
-    skillList: typeof mockSkills,
+    skillList: MockSkill[],
     searchQuery: string
-  ): typeof mockSkills {
+  ): MockSkill[] {
     if (!searchQuery.trim()) return skillList
     const query = searchQuery.toLowerCase()
     return skillList.filter(
