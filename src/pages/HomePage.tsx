@@ -3,6 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { isMac, openGlobalSearch } from '../components/GlobalSearch'
+import { DashboardWidget } from '../components/DashboardWidget'
+import { AddWidgetPanel } from '../components/AddWidgetPanel'
+import type { Database } from '../lib/database.types'
 import {
   activityFamily,
   bucketByDay,
@@ -19,6 +22,7 @@ import {
   CheckIcon,
   FileIcon,
   ForgeIcon,
+  PlusIcon,
   PulseIcon,
   SearchIcon,
   SettingsIcon,
@@ -66,6 +70,7 @@ const TREND_DAYS = 14
 // ── Data shapes the dashboard renders ──────────────────────────────────────
 type ActivityRow = { id: string; type: string; summary: string; created_at: string }
 type TodoRow = { id: string; title: string; due_date: string | null; done: boolean }
+type WidgetRow = Database['public']['Tables']['dashboard_widgets']['Row']
 
 type Stats = {
   todosOpen: number
@@ -100,6 +105,10 @@ export default function HomePage() {
   const [feed, setFeed] = useState<ActivityRow[]>([])
   const [todos, setTodos] = useState<TodoRow[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Custom widgets (owner-only rows; realtime so AI-added ones pop in live)
+  const [widgets, setWidgets] = useState<WidgetRow[]>([])
+  const [addOpen, setAddOpen] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -187,6 +196,49 @@ export default function HomePage() {
     }
   }, [])
 
+  // Load the user's widgets + subscribe: a widget the AI adds in chat (or on
+  // another device) appears here live; removals/edits sync too.
+  useEffect(() => {
+    if (!user) return
+    let alive = true
+    supabase
+      .from('dashboard_widgets')
+      .select('*')
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        if (alive) setWidgets((data ?? []) as WidgetRow[])
+      })
+    const channel = supabase
+      .channel('home_widgets')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dashboard_widgets', filter: `owner_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as WidgetRow
+            setWidgets((prev) => (prev.some((w) => w.id === row.id) ? prev : [...prev, row]))
+          } else if (payload.eventType === 'DELETE') {
+            const old = payload.old as { id: string }
+            setWidgets((prev) => prev.filter((w) => w.id !== old.id))
+          } else {
+            const row = payload.new as WidgetRow
+            setWidgets((prev) => prev.map((w) => (w.id === row.id ? row : w)))
+          }
+        },
+      )
+      .subscribe()
+    return () => {
+      alive = false
+      supabase.removeChannel(channel)
+    }
+  }, [user])
+
+  const removeWidget = async (id: string) => {
+    setWidgets((prev) => prev.filter((w) => w.id !== id))
+    await supabase.from('dashboard_widgets').delete().eq('id', id)
+  }
+
   const buckets = useMemo(() => bucketByDay(trendRows, TREND_DAYS), [trendRows])
   const pct = completionPct(stats?.todosDone ?? 0, (stats?.todosOpen ?? 0) + (stats?.todosDone ?? 0))
 
@@ -236,17 +288,26 @@ export default function HomePage() {
         </div>
 
         {tab === 'overview' ? (
-          <Overview
-            loading={loading}
-            stats={stats}
-            pct={pct}
-            buckets={buckets}
-            feed={feed}
-            todos={todos}
-            navigate={navigate}
-            quick={quick}
-            onComplete={completeTodo}
-          />
+          <>
+            <Overview
+              loading={loading}
+              stats={stats}
+              pct={pct}
+              buckets={buckets}
+              feed={feed}
+              todos={todos}
+              navigate={navigate}
+              quick={quick}
+              onComplete={completeTodo}
+            />
+            <WidgetsSection
+              widgets={widgets}
+              addOpen={addOpen}
+              onToggleAdd={() => setAddOpen((v) => !v)}
+              onCloseAdd={() => setAddOpen(false)}
+              onRemove={removeWidget}
+            />
+          </>
         ) : (
           <Explore cards={cards} quick={quick} navigate={navigate} />
         )}
@@ -347,6 +408,66 @@ function Overview({
         <TodoList todos={todos} loading={loading} onComplete={onComplete} />
       </div>
     </>
+  )
+}
+
+// Custom, user-composable widgets. Additive to the built-in overview above —
+// the AI (or the "Add widget" prompt) writes DB rows the dashboard renders.
+function WidgetsSection({
+  widgets,
+  addOpen,
+  onToggleAdd,
+  onCloseAdd,
+  onRemove,
+}: {
+  widgets: WidgetRow[]
+  addOpen: boolean
+  onToggleAdd: () => void
+  onCloseAdd: () => void
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="mt-10">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-[13px] font-bold uppercase tracking-[0.08em] text-faint">Your widgets</div>
+        <button
+          onClick={onToggleAdd}
+          className="flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-[13px] font-bold text-text transition hover:border-primary hover:text-primary"
+        >
+          <PlusIcon className="h-4 w-4" /> Add widget
+        </button>
+      </div>
+
+      {addOpen && (
+        <div className="mb-[18px]">
+          <AddWidgetPanel onClose={onCloseAdd} />
+        </div>
+      )}
+
+      {widgets.length === 0 ? (
+        !addOpen && (
+          <button
+            onClick={onToggleAdd}
+            className="flex w-full flex-col items-center justify-center rounded-[18px] border border-dashed border-border-strong bg-surface px-6 py-12 text-center transition hover:border-primary"
+          >
+            <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-[13px] bg-primary-soft text-primary">
+              <PlusIcon className="h-[22px] w-[22px]" />
+            </span>
+            <div className="text-[15px] font-bold text-text">Build your own dashboard</div>
+            <div className="mt-1 max-w-sm text-sm text-muted">
+              Add counts, lists, or charts of your to-dos, artifacts, files, links, collections, or
+              activity — just describe what you want to see.
+            </div>
+          </button>
+        )
+      ) : (
+        <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
+          {widgets.map((w) => (
+            <DashboardWidget key={w.id} widget={w} onRemove={onRemove} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
