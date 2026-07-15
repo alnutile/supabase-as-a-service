@@ -442,6 +442,32 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_whiteboards']['Insert']>
         Relationships: []
       }
+      dashboard_widgets: {
+        Row: {
+          id: string
+          owner_id: string
+          title: string
+          kind: string
+          source: string
+          spec: Json
+          position: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          title?: string
+          kind: string
+          source: string
+          spec?: Json
+          position?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['dashboard_widgets']['Insert']>
+        Relationships: []
+      }
       card_boards: {
         Row: {
           id: string
