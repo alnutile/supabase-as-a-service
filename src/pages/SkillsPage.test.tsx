@@ -44,11 +44,14 @@ describe('Skills search filtering', () => {
     },
   ]
 
-  // Pure function extracted from the component for testing
-  function filterSkills(
-    skillList: typeof mockSkills,
+  // Pure function extracted from the component for testing.
+  // Generic over the element type so it also accepts skills whose
+  // `description` is null (the column is nullable) — see the null-handling
+  // test below.
+  function filterSkills<T extends { name: string; description: string | null; instructions: string }>(
+    skillList: T[],
     searchQuery: string
-  ): typeof mockSkills {
+  ): T[] {
     if (!searchQuery.trim()) return skillList
     const query = searchQuery.toLowerCase()
     return skillList.filter(
