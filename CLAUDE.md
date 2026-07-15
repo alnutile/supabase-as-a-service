@@ -884,7 +884,18 @@ the actual user tables are real `ut_*` tables created at runtime), `collections`
 - **Invite-only:** `profiles.is_admin` (first signup = admin). A BEFORE INSERT guard
   on `auth.users` (`enforce_invite_only`) rejects signups unless it's the first user
   or the email is in `allowed_emails` (admin-managed; RLS gated to admins). Admins
-  manage invites in Settings → Invite people.
+  manage invites in Settings → Invite people, two ways: **by email** (add an address to
+  `allowed_emails`) or **by shareable link** (`invite_links`, migration 0078). A link is
+  an opaque UUID token an admin mints and hands out (Slack/DM); the recipient opens the
+  public `/join/:token` route (`JoinPage`) and signs up with their own email. The page
+  validates the token via the anon-callable security-definer `invite_link_status(token)`
+  RPC, then `redeem_invite_link(token, email)` (also anon-callable, security-definer)
+  allowlists the entered email into `allowed_emails` so the SAME `enforce_invite_only`
+  guard still gates the actual signup — the link only authorizes an email on the fly, it
+  never creates the account (Supabase Auth still does). Links support optional
+  `expires_at`/`max_uses` (both null = open/unlimited) and an `active` revoke switch;
+  admins create/copy/revoke them in the same Settings page. `inviteLinkUrl(token)` in
+  `src/lib/supabase.ts` builds the URL.
 
 If you change the schema: update the migration, apply it, run `npm run gen:types`
 (or hand-edit `database.types.ts` to match), and re-check Supabase security advisors.

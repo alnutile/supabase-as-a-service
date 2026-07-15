@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Database } from '../../lib/database.types'
-import { emailInboundUrl, slackEventsUrl, supabase } from '../../lib/supabase'
+import { emailInboundUrl, inviteLinkUrl, slackEventsUrl, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate } from '../../lib/util'
-import { PlusIcon, TrashIcon } from '../../components/icons'
+import { CheckIcon, CopyIcon, LinkIcon, PlusIcon, TrashIcon } from '../../components/icons'
 import { bindingToForm, buildSlackBindingPayload } from '../../lib/slackBinding'
 
 export { ConnectClaude } from './ConnectClaudeCard'
@@ -13,6 +13,7 @@ export { ConnectClaude } from './ConnectClaudeCard'
 // old single SettingsPage when Settings became a sidebar section (issue #122).
 
 type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
+type InviteLink = Database['public']['Tables']['invite_links']['Row']
 type ModelProfile = Database['public']['Tables']['model_profiles']['Row']
 
 // Your profile — email (read-only) + display name.
@@ -798,8 +799,9 @@ export function InvitePeople() {
   }
 
   return (
+    <>
     <section className="mt-6 rounded-xl border border-border bg-surface p-5">
-      <h2 className="text-sm font-semibold text-text">Invite people</h2>
+      <h2 className="text-sm font-semibold text-text">Invite by email</h2>
       <p className="mt-1 text-sm text-muted">
         This workspace is invite-only. Add an email here, then the person can sign up with it
         at your app’s login page.
@@ -838,6 +840,136 @@ export function InvitePeople() {
               >
                 <TrashIcon className="h-4 w-4" />
               </button>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+    <InviteLinks />
+    </>
+  )
+}
+
+// Shareable invite links (admin-only). Instead of allowlisting a specific
+// email, mint an opaque link to hand out (Slack, DM, wherever). When the
+// recipient opens /join/:token and signs up, the redeem RPC allowlists the
+// email they enter, so the same invite-only guard still protects signups.
+export function InviteLinks() {
+  const { user } = useAuth()
+  const [links, setLinks] = useState<InviteLink[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase
+      .from('invite_links')
+      .select('*')
+      .order('created_at', { ascending: false })
+    setLinks(data ?? [])
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function create() {
+    setBusy(true)
+    setError(null)
+    const { error: insErr } = await supabase
+      .from('invite_links')
+      .insert({ created_by: user!.id })
+    setBusy(false)
+    if (insErr) {
+      setError(insErr.message)
+      return
+    }
+    load()
+  }
+
+  async function revoke(id: string) {
+    await supabase.from('invite_links').update({ active: false }).eq('id', id)
+    load()
+  }
+
+  async function remove(id: string) {
+    await supabase.from('invite_links').delete().eq('id', id)
+    load()
+  }
+
+  async function copy(link: InviteLink) {
+    const url = inviteLinkUrl(link.token)
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedId(link.id)
+      setTimeout(() => setCopiedId((c) => (c === link.id ? null : c)), 1500)
+    } catch {
+      setError('Could not copy — copy the link manually.')
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Invite by link</h2>
+      <p className="mt-1 text-sm text-muted">
+        Or skip the email — create a link to share directly (Slack, DM, anywhere). Whoever
+        opens it can sign up with their own email.
+      </p>
+
+      <button
+        onClick={create}
+        disabled={busy}
+        className="mt-4 flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+      >
+        <LinkIcon className="h-4 w-4" /> Create invite link
+      </button>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+
+      <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-lg border border-border">
+        {links.length === 0 ? (
+          <p className="px-3 py-4 text-center text-sm text-faint">No links yet.</p>
+        ) : (
+          links.map((l) => (
+            <div key={l.id} className="flex items-center gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-xs text-text">
+                  {inviteLinkUrl(l.token)}
+                </div>
+                <div className="mt-0.5 text-xs text-faint">
+                  {formatDate(l.created_at)} · {l.uses} {l.uses === 1 ? 'signup' : 'signups'}
+                  {!l.active && ' · revoked'}
+                </div>
+              </div>
+              {l.active ? (
+                <>
+                  <button
+                    onClick={() => copy(l)}
+                    title="Copy link"
+                    className="rounded-md p-1.5 text-faint hover:bg-primary-soft hover:text-primary"
+                  >
+                    {copiedId === l.id ? (
+                      <CheckIcon className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <CopyIcon className="h-4 w-4" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => revoke(l.id)}
+                    title="Revoke link"
+                    className="rounded-md px-2 py-1 text-xs font-medium text-faint hover:bg-red-50 hover:text-red-600"
+                  >
+                    Revoke
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => remove(l.id)}
+                  title="Delete link"
+                  className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                </button>
+              )}
             </div>
           ))
         )}
