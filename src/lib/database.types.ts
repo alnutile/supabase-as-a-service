@@ -65,6 +65,7 @@ export interface Database {
           title: string
           pinned: boolean
           card_board_id: string | null
+          cancel_requested_run: string | null
           created_at: string
           updated_at: string
         }
@@ -74,6 +75,7 @@ export interface Database {
           title?: string
           pinned?: boolean
           card_board_id?: string | null
+          cancel_requested_run?: string | null
           created_at?: string
           updated_at?: string
         }
