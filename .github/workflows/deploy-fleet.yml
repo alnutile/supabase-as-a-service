@@ -1,0 +1,91 @@
+name: Deploy fleet
+
+# Shared-repo fan-out: deploy the core backend (DB migrations + edge functions)
+# to EVERY customer's Supabase project from this one repo, driven by the
+# customers.json registry. Additive — the single-target deploy-migrations.yml
+# and deploy-functions.yml still deploy the host's own project unchanged.
+#
+# Flow: prepare (split registry into canary vs fleet) -> canary (deploy the ONE
+# canary first, fail-fast) -> fleet (fan out to everyone else only if the canary
+# succeeded/was-absent). The frontend is NOT deployed here — each customer is
+# its own Railway service that rebuilds from `main` with its own VITE_* env.
+#
+# Setup — two GitHub secrets (Settings -> Secrets and variables -> Actions):
+#   SUPABASE_ACCESS_TOKEN  – one host-org Supabase PAT that can reach every
+#                            customer project (same kind as the single-target
+#                            workflows reuse).
+#   CUSTOMER_DB_PASSWORDS  – ONE JSON secret mapping project ref -> db password,
+#                            e.g. {"oncnshpcwutkpjanwmbp":"…","xxxx":"…"}.
+# See docs/multi-tenant-hosting.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+      - 'customers.json'
+      - '.github/workflows/deploy-fleet.yml'
+      - '.github/actions/deploy-customer/action.yml'
+  workflow_dispatch: {}
+
+# One fleet rollout at a time; never cancel an in-flight one (a half-applied
+# fan-out is worse than waiting).
+concurrency:
+  group: deploy-fleet
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      canary: ${{ steps.split.outputs.canary }}
+      fleet: ${{ steps.split.outputs.fleet }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: split
+        run: |
+          canary=$(jq -c '[.customers[] | select(.canary == true)]' customers.json)
+          fleet=$(jq -c  '[.customers[] | select(.canary != true)]' customers.json)
+          echo "canary=$canary" >> "$GITHUB_OUTPUT"
+          echo "fleet=$fleet"   >> "$GITHUB_OUTPUT"
+          echo "Canary: $(jq 'length' <<< "$canary") | Fleet: $(jq 'length' <<< "$fleet")"
+
+  # Deploy the canary first and stop the whole rollout if it breaks.
+  canary:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.canary != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        customer: ${{ fromJson(needs.prepare.outputs.canary) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy ${{ matrix.customer.name }}
+        uses: ./.github/actions/deploy-customer
+        with:
+          ref: ${{ matrix.customer.supabase_ref }}
+          db_password: ${{ fromJson(secrets.CUSTOMER_DB_PASSWORDS)[matrix.customer.supabase_ref] }}
+          access_token: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+  # Fan out to everyone else. fail-fast:false so one broken customer does NOT
+  # halt the others; runs only after a clean (or absent) canary.
+  fleet:
+    needs: [prepare, canary]
+    if: ${{ always() && (needs.canary.result == 'success' || needs.canary.result == 'skipped') && needs.prepare.outputs.fleet != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        customer: ${{ fromJson(needs.prepare.outputs.fleet) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy ${{ matrix.customer.name }}
+        uses: ./.github/actions/deploy-customer
+        with:
+          ref: ${{ matrix.customer.supabase_ref }}
+          db_password: ${{ fromJson(secrets.CUSTOMER_DB_PASSWORDS)[matrix.customer.supabase_ref] }}
+          access_token: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
