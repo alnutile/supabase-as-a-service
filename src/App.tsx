@@ -4,6 +4,7 @@ import { useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
+import JoinPage from './pages/JoinPage'
 import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
 import ArtifactsPage from './pages/ArtifactsPage'
@@ -64,6 +65,7 @@ export default function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/join/:token" element={<JoinPage />} />
       <Route path="/share/a/:slug" element={<PublicArtifactPage />} />
       <Route path="/p/:slug" element={<StandaloneArtifactPage />} />
 

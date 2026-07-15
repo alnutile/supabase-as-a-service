@@ -47,6 +47,9 @@ export const forgeFunctionUrl = `${supabaseUrl}/functions/v1/forge`
  */
 export const standalonePageUrl = (slug: string) => `${window.location.origin}/p/${slug}`
 
+/** Shareable invite link — hand this out instead of allowlisting an email. */
+export const inviteLinkUrl = (token: string) => `${window.location.origin}/join/${token}`
+
 /** Base URL of the public Artifacts CRUD API (bearer-token auth via mcp_tokens). */
 export const artifactsApiUrl = `${supabaseUrl}/functions/v1/artifacts`
 

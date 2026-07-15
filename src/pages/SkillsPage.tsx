@@ -46,6 +46,7 @@ export default function SkillsPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Skill | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -90,26 +91,49 @@ export default function SkillsPage() {
     }
   }
 
-  const alwaysOn = skills.filter((s) => s.auto_apply)
-  const onDemand = skills.filter((s) => !s.auto_apply)
+  // Filter skills based on search query
+  const filterSkills = (skillList: Skill[]) => {
+    if (!searchQuery.trim()) return skillList
+    const query = searchQuery.toLowerCase()
+    return skillList.filter(
+      (s) =>
+        s.name.toLowerCase().includes(query) ||
+        s.description?.toLowerCase().includes(query) ||
+        s.instructions.toLowerCase().includes(query)
+    )
+  }
+
+  const alwaysOn = filterSkills(skills.filter((s) => s.auto_apply))
+  const onDemand = filterSkills(skills.filter((s) => !s.auto_apply))
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-text">Prompts &amp; skills</h1>
-            <p className="mt-1 text-sm text-muted">
-              Always-on prompts shape every chat. On-demand skills run when you type{' '}
-              <code className="rounded bg-surface-2 px-1">/</code>.
-            </p>
+        <div className="mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-text">Prompts &amp; skills</h1>
+              <p className="mt-1 text-sm text-muted">
+                Always-on prompts shape every chat. On-demand skills run when you type{' '}
+                <code className="rounded bg-surface-2 px-1">/</code>.
+              </p>
+            </div>
+            <button
+              onClick={() => create(false)}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
+            >
+              <PlusIcon className="h-4 w-4" /> New skill
+            </button>
           </div>
-          <button
-            onClick={() => create(false)}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
-          >
-            <PlusIcon className="h-4 w-4" /> New skill
-          </button>
+          <div className="mt-4">
+            <input
+              type="text"
+              placeholder="Search skills by name or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-sm outline-none placeholder:text-faint focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </div>
         </div>
 
         {loading ? (
@@ -133,7 +157,9 @@ export default function SkillsPage() {
               </div>
               {alwaysOn.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-border-strong py-8 text-center text-sm text-faint">
-                  No always-on prompts yet.
+                  {searchQuery.trim()
+                    ? 'No always-on prompts match your search.'
+                    : 'No always-on prompts yet.'}
                 </p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -156,7 +182,9 @@ export default function SkillsPage() {
               </h2>
               {onDemand.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-border-strong py-8 text-center text-sm text-faint">
-                  No skills yet. Create one to run it from chat.
+                  {searchQuery.trim()
+                    ? 'No on-demand skills match your search.'
+                    : 'No skills yet. Create one to run it from chat.'}
                 </p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
