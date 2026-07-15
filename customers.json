@@ -1,0 +1,11 @@
+{
+  "$comment": "Customer fleet registry for the shared-repo fan-out. NON-SECRET data only (names + public Supabase project refs + Railway service names). Secrets live in GitHub (SUPABASE_ACCESS_TOKEN, CUSTOMER_DB_PASSWORDS) and in each customer's own Supabase project. Adding a customer = one PR editing this file, which triggers deploy-fleet.yml. Exactly one entry should be canary:true (deployed and verified before the rest fan out). See docs/multi-tenant-hosting.md.",
+  "customers": [
+    {
+      "name": "civicsense",
+      "supabase_ref": "oncnshpcwutkpjanwmbp",
+      "railway_service": "civicsense-supanet",
+      "canary": true
+    }
+  ]
+}
