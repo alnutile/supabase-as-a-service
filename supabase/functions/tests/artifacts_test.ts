@@ -2,7 +2,13 @@
 // and the MCP server. The DB reads/writes live in the callers; only the branching
 // (id detection, collection-ref parsing, limit clamping, type normalizing) is here.
 import { assertEquals } from 'jsr:@std/assert@1'
-import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from '../_shared/artifacts.ts'
+import {
+  clampLimit,
+  collectionRefs,
+  isArtifactId,
+  normalizeArtifactType,
+  parseArtifactBlocks,
+} from '../_shared/artifacts.ts'
 
 Deno.test('isArtifactId: real UUIDs vs titles', () => {
   assertEquals(isArtifactId('3f2504e0-4f89-41d3-9a0c-0305e82c3301'), true)
@@ -34,6 +40,46 @@ Deno.test('collectionRefs: single, array, comma-string, dedupe', () => {
   // nothing
   assertEquals(collectionRefs({}), [])
   assertEquals(collectionRefs({ collections: 42 as unknown }), [])
+})
+
+Deno.test('parseArtifactBlocks: plain prose passes through', () => {
+  assertEquals(parseArtifactBlocks('just a normal answer'), [
+    { kind: 'text', text: 'just a normal answer' },
+  ])
+})
+
+Deno.test('parseArtifactBlocks: extracts a block with surrounding prose', () => {
+  const text = 'Here you go:\n:::artifact {"title":"Plan","type":"markdown"}\n# Hello\nbody\n:::\nDone.'
+  assertEquals(parseArtifactBlocks(text), [
+    { kind: 'text', text: 'Here you go:\n' },
+    { kind: 'artifact', title: 'Plan', type: 'markdown', content: '# Hello\nbody' },
+    { kind: 'text', text: '\nDone.' },
+  ])
+})
+
+Deno.test('parseArtifactBlocks: unknown type falls back to markdown, title clamped', () => {
+  const longTitle = 'x'.repeat(200)
+  const text = `:::artifact {"title":"${longTitle}","type":"pdf"}\ncontent\n:::`
+  const chunks = parseArtifactBlocks(text)
+  assertEquals(chunks.length, 1)
+  const art = chunks[0]
+  if (art.kind !== 'artifact') throw new Error('expected an artifact chunk')
+  assertEquals(art.type, 'markdown') // unknown → markdown
+  assertEquals(art.title.length, 120) // clamped
+})
+
+Deno.test('parseArtifactBlocks: malformed header stays visible text', () => {
+  const text = ':::artifact {not json}\ncontent\n:::'
+  assertEquals(parseArtifactBlocks(text), [{ kind: 'text', text }])
+})
+
+Deno.test('parseArtifactBlocks: missing title defaults', () => {
+  const chunks = parseArtifactBlocks(':::artifact {"type":"code"}\nprint(1)\n:::')
+  const art = chunks[0]
+  if (art.kind !== 'artifact') throw new Error('expected an artifact chunk')
+  assertEquals(art.title, 'Untitled artifact')
+  assertEquals(art.type, 'code')
+  assertEquals(art.content, 'print(1)')
 })
 
 Deno.test('clampLimit: default, cap, and floor', () => {

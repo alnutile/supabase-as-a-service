@@ -28,6 +28,17 @@ export async function streamChat(
     toolIds?: string[]
     collectionIds?: string[]
     cardBoardId?: string
+    // Server-side persistence (the main chat composer): the chat function writes
+    // the assistant reply itself, in a background task that survives the browser
+    // navigating away or reloading. `runId` (a fresh uuid per send) lets Stop
+    // truly cancel that background run. When persist is set, the function hands
+    // back the saved artifact/message rows over SSE via these callbacks so a
+    // still-connected client updates instantly instead of inserting them itself.
+    conversationId?: string
+    persist?: boolean
+    runId?: string
+    onArtifact?: (artifact: unknown) => void
+    onMessage?: (message: unknown) => void
     signal?: AbortSignal
   },
 ): Promise<string> {
@@ -50,6 +61,9 @@ export async function streamChat(
       toolIds: options?.toolIds,
       collectionIds: options?.collectionIds,
       cardBoardId: options?.cardBoardId,
+      conversationId: options?.conversationId,
+      persist: options?.persist,
+      runId: options?.runId,
     }),
     signal: options?.signal,
   })
@@ -80,6 +94,16 @@ export async function streamChat(
       try {
         const json = JSON.parse(payload)
         if (json.type === 'error') throw new Error(json.error || 'stream error')
+        // Server-persisted rows (persist mode): open the artifact panel / add the
+        // saved assistant message to the thread without a client-side insert.
+        if (json.artifact) {
+          options?.onArtifact?.(json.artifact)
+          continue
+        }
+        if (json.message) {
+          options?.onMessage?.(json.message)
+          continue
+        }
         const delta: string = json.delta ?? ''
         if (delta) {
           full += delta

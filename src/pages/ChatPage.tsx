@@ -115,11 +115,25 @@ export default function ChatPage() {
   // Aborts the in-flight streamed response so the user can stop a run they
   // started (e.g. sent by accident). Cleared when the run settles.
   const abortRef = useRef<AbortController | null>(null)
+  // The in-flight main-chat run (persisted server-side). Stop needs its
+  // conversation + run id to cancel the BACKGROUND run, not just the local
+  // fetch — a dropped SSE alone can't tell Stop apart from navigating away.
+  // Null for skill runs (client-side, no background to cancel).
+  const activeRunRef = useRef<{ conversationId: string; runId: string } | null>(null)
 
   // Stop the current model run. The stream rejects with an AbortError, which
   // submit()/runSkill() treat as a normal stop (no error banner, partial text
-  // dropped) — the user asked to cancel, not to see a failure.
+  // dropped) — the user asked to cancel, not to see a failure. For a persisted
+  // main-chat run we ALSO mark it cancelled so the background task halts and
+  // saves nothing (the local abort alone would leave it running server-side).
   const stop = useCallback(() => {
+    const run = activeRunRef.current
+    if (run) {
+      void supabase
+        .from('conversations')
+        .update({ cancel_requested_run: run.runId })
+        .eq('id', run.conversationId)
+    }
     abortRef.current?.abort()
   }, [])
 
@@ -634,8 +648,11 @@ export default function ChatPage() {
 
       const controller = new AbortController()
       abortRef.current = controller
+      // Per-send id so Stop can cancel the specific background run.
+      const runId = crypto.randomUUID()
+      activeRunRef.current = { conversationId: convId, runId }
       setStreaming('')
-      const full = await streamChat(
+      await streamChat(
         history,
         (delta) => setStreaming((s) => (s ?? '') + delta),
         // Running as an agent: layer its prompt onto the workspace context and
@@ -656,18 +673,33 @@ export default function ChatPage() {
             ...(system ? { system } : {}),
             ...(agent ? { toolIds: agent.tool_ids } : {}),
             ...(merged.length ? { collectionIds: merged } : {}),
+            // Persist the reply server-side so a reload / navigating away mid-
+            // stream no longer loses it: the chat function finishes the run in a
+            // background task and writes the assistant message itself. It hands
+            // the saved rows back over SSE (onMessage/onArtifact) for an instant
+            // in-place update; if we've disconnected, Realtime / a remount
+            // surfaces them instead. So we DON'T insert the assistant message or
+            // materialize artifacts here anymore.
+            conversationId: convId,
+            persist: true,
+            runId,
+            onArtifact: (a) => setPanelArtifact(a as Artifact),
+            onMessage: (m) => {
+              const row = m as Message
+              if (!seen.current.has(row.id)) {
+                seen.current.add(row.id)
+                setMessages((prev) => [...prev, row])
+              }
+              // The saved reply replaced the live stream — drop the placeholder.
+              setStreaming(null)
+            },
             signal: controller.signal,
           }
         })(),
       )
       setStreaming(null)
-      const finalText = await materializeArtifacts(convId, full)
-      await insertMessage(convId, 'assistant', finalText)
-      // Touch conversation so it floats to the top of the list.
-      await supabase
-        .from('conversations')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', convId)
+      // The assistant reply + any artifacts were written server-side; just
+      // refresh the list so this conversation floats up with its new updated_at.
       loadConversations()
     } catch (err) {
       setStreaming(null)
@@ -676,6 +708,7 @@ export default function ChatPage() {
       if (!isAbortError(err)) setError(friendlyChatError(err, 'Failed to send'))
     } finally {
       abortRef.current = null
+      activeRunRef.current = null
       setSending(false)
     }
   }

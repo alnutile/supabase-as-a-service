@@ -15,6 +15,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { parseArtifactBlocks } from '../_shared/artifacts.ts'
 import { cardsToText } from '../_shared/card_board.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
@@ -76,6 +77,12 @@ interface ToolRow {
 function sse(data: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
 }
+
+// Thrown by push() when the client has disconnected AND we're not persisting in
+// the background — it unwinds the run so a reader that vanished stops the model
+// loop (saving cost), exactly as enqueue-throwing did before. In persist mode
+// push() swallows instead, so the background task runs to completion.
+class ClientGoneError extends Error {}
 
 function admin() {
   const url = Deno.env.get('SUPABASE_URL')
@@ -146,6 +153,29 @@ async function logActivity(
     await db.from('activity_log').insert({ type, summary, detail, actor_id: actorId })
   } catch {
     // best-effort
+  }
+}
+
+// Did the user hit Stop for THIS run? The client writes conversations
+// .cancel_requested_run = runId on Stop; the background task checks this between
+// tool turns and right before it persists. Scoped by runId so a stale marker
+// from a previous, finished run never cancels the next one. Best-effort: a read
+// error means "not cancelled" (fail toward saving the reply, not dropping it).
+async function isRunCancelled(
+  db: ReturnType<typeof createClient> | null,
+  conversationId: string,
+  runId: string,
+): Promise<boolean> {
+  if (!db || !conversationId || !runId) return false
+  try {
+    const { data } = await db
+      .from('conversations')
+      .select('cancel_requested_run')
+      .eq('id', conversationId)
+      .maybeSingle()
+    return data?.cancel_requested_run === runId
+  } catch {
+    return false
   }
 }
 
@@ -242,6 +272,14 @@ Deno.serve(async (req: Request) => {
   let toolIds: string[] | undefined
   let collectionIds: string[] = []
   let cardBoardId = ''
+  // Server-side persistence: the main chat composer passes conversationId +
+  // persist so the assistant reply is written HERE (in a background task that
+  // survives the browser navigating away / reloading), plus a per-send runId
+  // used to honor a Stop. Skill/board/collection chats omit these and keep
+  // client-side persistence, unchanged.
+  let conversationId = ''
+  let persist = false
+  let runId = ''
   try {
     const body = await req.json()
     inMessages = body.messages
@@ -256,6 +294,9 @@ Deno.serve(async (req: Request) => {
     else if (typeof body.collectionId === 'string' && body.collectionId) collectionIds = [body.collectionId]
     // Scope a chat directly to one card board (the Cards editor's chat panel).
     if (typeof body.cardBoardId === 'string') cardBoardId = body.cardBoardId
+    if (typeof body.conversationId === 'string') conversationId = body.conversationId
+    persist = body.persist === true
+    if (typeof body.runId === 'string') runId = body.runId
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
       status: 400,
@@ -265,6 +306,9 @@ Deno.serve(async (req: Request) => {
 
   const db = admin()
   const userId = userIdFromAuth(req)
+  // Own the assistant write only when the caller asked for it and we can
+  // attribute + target it. Everything else streams exactly as before.
+  const doPersist = persist && !!conversationId && !!userId && !!db
   const MODEL = await resolveModel(db, 'orchestrator')
   const { tools, httpTools, builtins, mcpRouter, capabilities, webEnabled } = await loadTools(db, toolIds)
 
@@ -324,9 +368,26 @@ Deno.serve(async (req: Request) => {
   } else if (guard.ok === false && guard.blocked) {
     const gname = guard.violations[0].name
     await logActivity(db, 'guardrail.blocked', `Blocked chat message — ${gname}`, { violations: guard.violations }, userId)
+    const text = `Blocked by workspace guardrail: ${gname}.`
+    // In persist mode the server owns the assistant write, so persist the block
+    // notice here (and hand the saved row back over SSE) — the client no longer
+    // inserts it itself, and it must survive a reload like any other reply.
+    let savedRow: unknown = null
+    if (doPersist) {
+      const { data: msg } = await db!
+        .from('messages')
+        .insert({ conversation_id: conversationId, owner_id: userId, role: 'assistant', content: text })
+        .select()
+        .single()
+      savedRow = msg ?? null
+      if (msg) {
+        await db!.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId)
+      }
+    }
     const blocked = new ReadableStream({
       start(controller) {
-        controller.enqueue(sse({ delta: `Blocked by workspace guardrail: ${gname}.` }))
+        controller.enqueue(sse({ delta: text }))
+        if (savedRow) controller.enqueue(sse({ message: savedRow }))
         controller.enqueue(sse('[DONE]'))
         controller.close()
       },
@@ -348,59 +409,172 @@ Deno.serve(async (req: Request) => {
   if (webEnabled) tools.push(WEB_SEARCH_TOOL)
   const reasoning = reasoningParam()
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-          const result = await orStream(
-            {
-              model: MODEL,
-              messages,
-              tools: tools.length ? tools : undefined,
-              reasoning,
-              maxTokens: 16000,
-            },
-            (delta) => controller.enqueue(sse({ delta })),
-          )
-          await recordUsage(db, { context: 'chat', model: MODEL, actorId: userId, usage: result.usage })
-
-          if (result.toolCalls.length) {
-            // Preserve the assistant turn (content + tool_calls) before results.
-            messages.push(assistantToolCallMsg(result.content, result.toolCalls))
-            for (const call of result.toolCalls) {
-              const name = call.function.name
-              const input = parseToolArgs(call.function.arguments)
-              const tool = httpTools.get(name)
-              let output: string
-              if (tool) output = await runHttpTool(db, tool, input)
-              else if (builtins.has(name)) output = await runBuiltin(db, name, input, userId)
-              else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
-              else output = `Unknown tool: ${name}`
-              if (tool || builtins.has(name) || mcpRouter.has(name)) {
-                await logActivity(db, 'tool.call', `Used tool: ${name}`, { name }, userId)
-              }
-              messages.push(toolResultMsg(call.id, output))
-            }
-            continue
-          }
-
-          break // stop / length / content_filter
-        }
-        controller.enqueue(sse('[DONE]'))
-      } catch (err) {
-        // The model/tool loop blew up. Surface a legible message to the user
-        // (orStream already parses the raw OpenRouter blob into a friendly line)
-        // AND record it in Activity so failures are visible after the fact.
-        const message = err instanceof Error ? err.message : 'stream failed'
-        await logActivity(db, 'chat.error', `Chat failed — ${message}`.slice(0, 200), { error: message, model: MODEL }, userId)
-        controller.enqueue(sse({ type: 'error', error: message }))
-      } finally {
-        controller.close()
-      }
+  // The model loop is decoupled from the client stream so it can outlive the
+  // browser. We push deltas to the client best-effort; if the client is gone
+  // and we're persisting, we keep working and drop the output (the reply still
+  // lands in the DB). If the client is gone and we're NOT persisting, push()
+  // throws to unwind the run — a vanished reader shouldn't burn tokens.
+  let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null
+  let clientGone = false
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controllerRef = controller
+    },
+    cancel() {
+      // The browser tab closed, reloaded, navigated away, or hit Stop.
+      clientGone = true
     },
   })
 
-  return new Response(stream, {
+  const push = (chunk: Uint8Array) => {
+    if (clientGone) {
+      if (doPersist) return
+      throw new ClientGoneError()
+    }
+    try {
+      controllerRef?.enqueue(chunk)
+    } catch {
+      clientGone = true
+      if (!doPersist) throw new ClientGoneError()
+    }
+  }
+  const closeStream = () => {
+    if (clientGone) return
+    try {
+      controllerRef?.close()
+    } catch {
+      // already closed / errored
+    }
+    clientGone = true
+  }
+
+  // Materialize :::artifact blocks server-side (insert rows as the caller, swap
+  // in share links) and persist the assistant message + touch the conversation.
+  // Mirrors ChatPage.materializeArtifacts so the protocol behaves identically
+  // when the server owns the write. Emits the created artifact/message rows over
+  // SSE so a still-connected client updates instantly (its Realtime subscription
+  // dedupes the echo); a disconnected client picks them up on remount.
+  const persistReply = async (fullText: string): Promise<void> => {
+    let out = ''
+    for (const chunk of parseArtifactBlocks(fullText)) {
+      if (chunk.kind === 'text') {
+        out += chunk.text
+        continue
+      }
+      const { data: art } = await db!
+        .from('artifacts')
+        .insert({
+          owner_id: userId,
+          conversation_id: conversationId,
+          title: chunk.title,
+          type: chunk.type,
+          content: chunk.content,
+          visibility: 'private',
+        })
+        .select()
+        .single()
+      if (art) push(sse({ artifact: art }))
+      out += art
+        ? `✺ **${chunk.title}** — [open & share →](/artifacts/${art.id})`
+        : `**${chunk.title}** (couldn’t save)`
+    }
+    if (!out.trim()) return // nothing to save (e.g. a pure tool run with no text)
+    const { data: msg } = await db!
+      .from('messages')
+      .insert({ conversation_id: conversationId, owner_id: userId, role: 'assistant', content: out })
+      .select()
+      .single()
+    if (msg) push(sse({ message: msg }))
+    await db!.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId)
+  }
+
+  const task = (async () => {
+    let full = ''
+    try {
+      for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+        const result = await orStream(
+          {
+            model: MODEL,
+            messages,
+            tools: tools.length ? tools : undefined,
+            reasoning,
+            maxTokens: 16000,
+          },
+          (delta) => {
+            full += delta
+            push(sse({ delta }))
+          },
+        )
+        await recordUsage(db, { context: 'chat', model: MODEL, actorId: userId, usage: result.usage })
+
+        // The user hit Stop mid-run: halt, save nothing, don't run more turns.
+        if (doPersist && (await isRunCancelled(db, conversationId, runId))) {
+          closeStream()
+          return
+        }
+
+        if (result.toolCalls.length) {
+          // Preserve the assistant turn (content + tool_calls) before results.
+          messages.push(assistantToolCallMsg(result.content, result.toolCalls))
+          for (const call of result.toolCalls) {
+            const name = call.function.name
+            const input = parseToolArgs(call.function.arguments)
+            const tool = httpTools.get(name)
+            let output: string
+            if (tool) output = await runHttpTool(db, tool, input)
+            else if (builtins.has(name)) output = await runBuiltin(db, name, input, userId)
+            else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
+            else output = `Unknown tool: ${name}`
+            if (tool || builtins.has(name) || mcpRouter.has(name)) {
+              await logActivity(db, 'tool.call', `Used tool: ${name}`, { name }, userId)
+            }
+            messages.push(toolResultMsg(call.id, output))
+          }
+          continue
+        }
+
+        break // stop / length / content_filter
+      }
+
+      // Persist BEFORE [DONE] so a still-connected client receives the saved row
+      // and the DB is written by the time the stream ends. Re-check the Stop
+      // marker one last time to close the "Stop landed as the model finished"
+      // race — if cancelled, save nothing.
+      if (doPersist) {
+        if (await isRunCancelled(db, conversationId, runId)) {
+          closeStream()
+          return
+        }
+        await persistReply(full)
+      }
+      push(sse('[DONE]'))
+    } catch (err) {
+      // A non-persist run whose reader vanished — nothing to surface, just stop.
+      if (err instanceof ClientGoneError) return
+      // The model/tool loop blew up. Surface a legible message to a connected
+      // client (orStream already parses the raw OpenRouter blob into a friendly
+      // line) AND record it in Activity so failures are visible after the fact.
+      const message = err instanceof Error ? err.message : 'stream failed'
+      await logActivity(db, 'chat.error', `Chat failed — ${message}`.slice(0, 200), { error: message, model: MODEL }, userId)
+      try {
+        push(sse({ type: 'error', error: message }))
+      } catch {
+        // client gone — the Activity log above is the durable record
+      }
+    } finally {
+      closeStream()
+    }
+  })()
+
+  // Keep the worker alive for the background task so a disconnect doesn't kill
+  // the run (same pattern as slack-events / loop / evals). Locally there's no
+  // EdgeRuntime — leave the promise floating so the Response still streams while
+  // it runs (awaiting it here would block the stream from starting).
+  // deno-lint-ignore no-explicit-any
+  const er = (globalThis as any).EdgeRuntime
+  if (er && typeof er.waitUntil === 'function') er.waitUntil(task)
+
+  return new Response(body, {
     headers: {
       ...CORS,
       'Content-Type': 'text/event-stream',
