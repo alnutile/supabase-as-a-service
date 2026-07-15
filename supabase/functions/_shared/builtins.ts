@@ -28,6 +28,7 @@ import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
 import { buildCards, cardCount, cardsToText } from './card_board.ts'
+import { validateWidget } from './widgets.ts'
 import {
   buildIdempotencyKey,
   clampPriority,
@@ -182,6 +183,12 @@ export async function runBuiltin(
       return updateMemory(db, userId, input)
     case 'forget':
       return forget(db, userId, input)
+    case 'create_widget':
+      return createWidget(db, input, userId)
+    case 'list_widgets':
+      return listWidgets(db, userId)
+    case 'remove_widget':
+      return removeWidget(db, input, userId)
     case 'http_request':
       return httpRequest(db, input, userId)
     case 'run_security_scan':
@@ -266,6 +273,77 @@ async function httpRequest(
   } catch (err) {
     return `Request failed: ${err instanceof Error ? err.message : 'error'}`
   }
+}
+
+// ── Dashboard widgets ───────────────────────────────────────────────────────
+// The AI composes a Home-dashboard tile from a description. validateWidget
+// enforces the kind/source allow-list + sanitizes the spec; the dashboard runs
+// the widget's query under RLS, so a stored spec can never read other users'
+// rows. Owner-only table → we insert as the caller.
+async function createWidget(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Dashboard widgets are unavailable.'
+  const valid = validateWidget(input)
+  if (typeof valid === 'string') return `Could not create the widget: ${valid}`
+  const { data, error } = await db
+    .from('dashboard_widgets')
+    .insert({
+      owner_id: userId,
+      title: valid.title,
+      kind: valid.kind,
+      source: valid.source,
+      spec: valid.spec,
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not create the widget: ${error.message}`
+  await logActivity(
+    db,
+    'widget.created',
+    `Added dashboard widget "${valid.title}"`,
+    { id: data.id, kind: valid.kind, source: valid.source },
+    userId,
+  )
+  return `Added the "${valid.title}" widget (${valid.kind} of ${valid.source}) to your dashboard. It will appear on Home right away.`
+}
+
+async function listWidgets(db: DB | null, userId: string | null): Promise<string> {
+  if (!db || !userId) return 'Dashboard widgets are unavailable.'
+  const { data, error } = await db
+    .from('dashboard_widgets')
+    .select('id, title, kind, source')
+    .eq('owner_id', userId)
+    .order('position', { ascending: true })
+    .order('created_at', { ascending: true })
+  if (error) return `Could not list widgets: ${error.message}`
+  if (!data || data.length === 0) return 'You have no dashboard widgets yet.'
+  return data
+    .map((w) => `- ${w.title} (${w.kind} of ${w.source}) — id ${w.id}`)
+    .join('\n')
+}
+
+async function removeWidget(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Dashboard widgets are unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A widget id is required (use list_widgets to find it).'
+  const { data, error } = await db
+    .from('dashboard_widgets')
+    .delete()
+    .eq('id', id)
+    .eq('owner_id', userId)
+    .select('title')
+    .maybeSingle()
+  if (error) return `Could not remove the widget: ${error.message}`
+  if (!data) return 'No widget with that id (or not yours).'
+  await logActivity(db, 'widget.removed', `Removed dashboard widget "${data.title}"`, { id }, userId)
+  return `Removed the "${data.title}" widget from your dashboard.`
 }
 
 async function logActivity(

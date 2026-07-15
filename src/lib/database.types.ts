@@ -65,6 +65,7 @@ export interface Database {
           title: string
           pinned: boolean
           card_board_id: string | null
+          cancel_requested_run: string | null
           created_at: string
           updated_at: string
         }
@@ -74,6 +75,7 @@ export interface Database {
           title?: string
           pinned?: boolean
           card_board_id?: string | null
+          cancel_requested_run?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -524,6 +526,32 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['agent_job_events']['Insert']>
         Relationships: []
       }
+      dashboard_widgets: {
+        Row: {
+          id: string
+          owner_id: string
+          title: string
+          kind: string
+          source: string
+          spec: Json
+          position: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          title?: string
+          kind: string
+          source: string
+          spec?: Json
+          position?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['dashboard_widgets']['Insert']>
+        Relationships: []
+      }
       card_boards: {
         Row: {
           id: string
@@ -734,6 +762,32 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['allowed_emails']['Insert']>
+        Relationships: []
+      }
+      invite_links: {
+        Row: {
+          id: string
+          token: string
+          label: string | null
+          created_by: string | null
+          expires_at: string | null
+          max_uses: number | null
+          uses: number
+          active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          token?: string
+          label?: string | null
+          created_by?: string | null
+          expires_at?: string | null
+          max_uses?: number | null
+          uses?: number
+          active?: boolean
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['invite_links']['Insert']>
         Relationships: []
       }
       feature_flags: {
@@ -1834,6 +1888,14 @@ export interface Database {
           created_at: string
           updated_at: string
         }[]
+      }
+      invite_link_status: {
+        Args: { p_token: string }
+        Returns: { valid: boolean; reason: string; label: string | null }[]
+      }
+      redeem_invite_link: {
+        Args: { p_token: string; p_email: string }
+        Returns: undefined
       }
     }
     Enums: { [_ in never]: never }

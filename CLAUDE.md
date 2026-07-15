@@ -39,6 +39,23 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Auth:** `src/contexts/AuthContext.tsx` wraps Supabase Auth (session, sign in/up,
   magic link, sign out). `ProtectedRoute` gates the authenticated app; routing is in
   `src/App.tsx`.
+- **Home dashboard (`src/pages/HomePage.tsx`, route `/home`):** a two-tab landing page.
+  **Overview** is a live "what's going on" dashboard — quick actions, stat tiles (open
+  to-dos with a completion bar, artifacts, files, events this week), a dependency-free
+  14-day activity **trend chart**, a realtime **recent-activity feed**, and your open
+  to-dos with inline complete. **Explore** keeps the original feature-card index + ⌘K
+  search. Pure logic (day-bucketing, completion %, relative time, activity→dot mapping)
+  is in `src/lib/dashboard.ts` (unit-tested). **Custom widgets (migration 0078):** users
+  compose their own tiles — a `dashboard_widgets` row is `{kind: stat|list|chart, source,
+  spec}` (owner-only, realtime). The "Add widget" prompt (`AddWidgetPanel`) drives the AI
+  to call the seeded `create_widget` builtin from a natural-language description; the
+  dashboard (`DashboardWidget`) renders each by querying its `source` (a fixed allow-list:
+  todos/artifacts/files/links/collections/activity) under the caller's RLS — so a stored
+  spec **can never read another user's rows**, and a customer adds widgets without forking
+  the code (configuration-as-data, like tools/agents/forge). The allow-list + spec
+  sanitizing lives in `src/lib/widgets.ts` (browser) and `_shared/widgets.ts` (the
+  create_widget validator), both unit-tested. *(Planned: drag-reorder, workspace-shared
+  widgets, more sources, a REST/MCP surface for widgets.)*
 - **Chat:** `src/pages/ChatPage.tsx` writes user/assistant messages to Postgres and
   subscribes to `messages` via Supabase Realtime (websockets) for cross-device sync.
   The composer can **attach files** (📎): they upload to the `files` bucket (and show in
@@ -48,6 +65,24 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   returns **SSE** lines `data: {"delta": "..."}` and ends with `data: [DONE]`.
   The function calls OpenRouter; the client only sends the message history + the user's
   access token (+ the anon key as the `apikey` header).
+  **Background persistence (migration 0079):** the main composer sends
+  `{conversationId, persist:true, runId}`, and the `chat` function finishes the model
+  run and **writes the assistant message itself** (service role, as the caller) inside an
+  `EdgeRuntime.waitUntil` background task — the same off-request pattern as
+  slack-events/loop/evals. So reloading the page or navigating away mid-reply no longer
+  loses it: the run completes server-side, `:::artifact` blocks are materialized there
+  (shared `_shared/artifacts.ts` `parseArtifactBlocks`, unit-tested — a mirror of the
+  frontend parser), and the saved artifact/message rows are handed back over SSE
+  (`data:{"artifact":…}` / `data:{"message":…}`) for an instant in-place update while
+  connected; a disconnected client picks them up via the existing `messages` Realtime
+  subscription (or a remount). Because a dropped SSE looks identical whether the user
+  navigated away (→ keep going) or hit **Stop** (→ halt), Stop writes
+  `conversations.cancel_requested_run = runId`; the task checks that marker between tool
+  turns and again right before it persists, and if it matches the in-flight run it stops
+  and **saves nothing** (scoped by runId so a stale marker can't cancel the next send).
+  Skill runs, the Cards board chat panel, and the Collections bubble omit `persist`, so
+  they keep the classic client-side insert path (server streams and aborts on disconnect,
+  unchanged).
   **Group chat (humans first, AI on @ai):** a thread can be shared with other workspace
   members — the "People" button on an open conversation adds them via
   `conversation_members` (migration 0053). Access = owner OR member, enforced by RLS
@@ -626,7 +661,7 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   `interval_minutes`) is run by the `scheduler` edge function, which a `pg_cron` job
   ticks every minute (via `pg_net`, authed by a `cron_config` secret). Manage schedules
   inside the agent editor.
-- **Capability workers (agent jobs, migration 0078):** turn heavy open-source
+- **Capability workers (agent jobs, migration 0080):** turn heavy open-source
   libraries into specialized **Docker workers** that do focused jobs for the main
   AI, so the app never shells out to big binaries in-process. First two: **office**
   (Word/Excel/PowerPoint via LibreOffice) and **media** (audio/video via ffmpeg).
@@ -866,7 +901,7 @@ src/
     database.types.ts          Typed schema (keep in sync with the migration)
     util.ts                    makeSlug, formatBytes, formatDate
 supabase/
-  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection); 0065 feature_flags (admin-writable workspace-wide sidebar hide/show; realtime); 0067 artifact_filing_builtins (seeds list_artifacts; create_artifact gains a `collections` array; add_to_collection accepts `artifact_title`); 0068 collection_agents (agent↔collection join; **renumbered from a colliding second 0065 that broke `db push` on main** — prod had recorded 0065=feature_flags, so the duplicate-prefix collection_agents could never apply and blocked every later migration); 0069 user_memory (per-user `user_memories` table + owner-only RLS + realtime + memory.created/updated events; seeds the remember/list_memories/update_memory/forget builtins + an always-on "User memory" prompt); 0072 evals_mcp (adds `eval_suites.collection_ids` for chat/agent grounding; the eval MCP surface — list_evals/create_eval_suite/add_eval_cases/run_eval/get_eval_run — + model-matrix + background runs need no other schema, since `eval_runs.model` already existed); 0074 whiteboards (Planner — `whiteboards` scene table + `collection_whiteboards` join + owner/workspace RLS + realtime + whiteboard.created/updated events; teaches the generic collection.item_added trigger `collection_whiteboards`; seeds the create/list/get/update/add_whiteboard_to_collection builtins); 0075 card_boards (Planner — `card_boards` cards-jsonb table + `collection_card_boards` join + owner/workspace RLS + realtime + card_board.created/updated events; teaches collection.item_added `collection_card_boards`; seeds create_card_board/list_card_boards/get_card_board/add_cards/add_card_board_to_collection); 0076 conversation_card_board (adds `conversations.card_board_id` so the Cards editor's `BoardChatPanel` gets a PERSISTENT per-board chat thread; the chat function accepts `cardBoardId` and injects that board's cardsToText); 0077 mcp_oauth; 0078 agent_jobs (capability-worker queue — `agent_jobs` + `agent_job_events` tables, `claim_agent_job`/`recover_stale_agent_jobs` RPCs with FOR UPDATE SKIP LOCKED + lease recovery, agent_job.created/updated events, owner/admin RLS; seeds the create_agent_job/get_agent_job/list_agent_jobs/cancel_agent_job builtins + the capability-worker-jobs/office-document-worker/media-ffmpeg-worker skills; workers live in `workers/`)
+  migrations/                  0001 base … 0008 agents/MCP; 0012 PDF knowledge; 0014 model profiles; 0015 guardrails; 0016 email/Vault; 0019 OpenRouter provider; 0020 usage tracking; 0029 user tables (Airtable-like real Postgres tables); 0033 collections (tag/group artifacts to chat with); 0034 collection_token_stats RPC (per-collection size for the context-window meter); 0035 collections_combined_chars RPC (deduped size of several collections); 0036 mcp_servers (external MCP endpoints, Vault tokens); 0037 vault_secrets (Vault-backed team secrets vault); 0038 loop_builtins (start_loop/check_loop/list_loops); 0039 loop_stop_reason_time ('time' stop reason); 0040 authoring_builtins (create_artifact/create_collection/add_to_collection/list_collections/add_note); 0041 todos (+ collection_todos join; seeds to-do builtins); 0042 collection_files (files in collections + _file_chars sizing); 0055 files_builtins (files.tags/source columns + seeds the file CRUD builtins create_file/list_files/get_file/delete_file/add_file_to_collection); 0058 security_scans; 0059 artifact_images (public artifact-images bucket); 0060 drop_plugins; 0061 features_realtime; 0062 artifact_share_password; 0063 events (events + event_listeners + event_listener_runs; emit_event helper + DB triggers on the core tables/collection joins); 0064 messages (generalizes inbox_messages into the unified inbox + collection_inbox_messages join; seeds save_message/list_messages/add_message_to_collection); 0065 feature_flags (admin-writable workspace-wide sidebar hide/show; realtime); 0067 artifact_filing_builtins (seeds list_artifacts; create_artifact gains a `collections` array; add_to_collection accepts `artifact_title`); 0068 collection_agents (agent↔collection join; **renumbered from a colliding second 0065 that broke `db push` on main** — prod had recorded 0065=feature_flags, so the duplicate-prefix collection_agents could never apply and blocked every later migration); 0069 user_memory (per-user `user_memories` table + owner-only RLS + realtime + memory.created/updated events; seeds the remember/list_memories/update_memory/forget builtins + an always-on "User memory" prompt); 0072 evals_mcp (adds `eval_suites.collection_ids` for chat/agent grounding; the eval MCP surface — list_evals/create_eval_suite/add_eval_cases/run_eval/get_eval_run — + model-matrix + background runs need no other schema, since `eval_runs.model` already existed); 0074 whiteboards (Planner — `whiteboards` scene table + `collection_whiteboards` join + owner/workspace RLS + realtime + whiteboard.created/updated events; teaches the generic collection.item_added trigger `collection_whiteboards`; seeds the create/list/get/update/add_whiteboard_to_collection builtins); 0075 card_boards (Planner — `card_boards` cards-jsonb table + `collection_card_boards` join + owner/workspace RLS + realtime + card_board.created/updated events; teaches collection.item_added `collection_card_boards`; seeds create_card_board/list_card_boards/get_card_board/add_cards/add_card_board_to_collection); 0076 conversation_card_board (adds `conversations.card_board_id` so the Cards editor's `BoardChatPanel` gets a PERSISTENT per-board chat thread; the chat function accepts `cardBoardId` and injects that board's cardsToText); 0077 mcp_oauth; 0078 dashboard_widgets (user-composable Home-dashboard tiles — `{kind: stat|list|chart, source, spec}` owner-only rows + realtime; the app renders them by querying the source under RLS, so a customer adds widgets without forking/redeploying; seeds create_widget/list_widgets/remove_widget); 0079 chat_cancel (adds `conversations.cancel_requested_run` so the chat function can persist the assistant reply in a background `EdgeRuntime.waitUntil` task — surviving a mid-reply reload/navigation — while the Stop button still truly cancels the run via this per-run marker); 0080 agent_jobs (capability-worker queue — `agent_jobs` + `agent_job_events` tables, `claim_agent_job`/`recover_stale_agent_jobs` RPCs with FOR UPDATE SKIP LOCKED + lease recovery, agent_job.created/updated events, owner/admin RLS; seeds the create_agent_job/get_agent_job/list_agent_jobs/cancel_agent_job builtins + the capability-worker-jobs/office-document-worker/media-ffmpeg-worker skills; workers live in `workers/`; **renumbered from a colliding 0078 that clashed with main's dashboard_widgets/invite_links**)
   functions/_shared/openrouter.ts  OpenRouter client (orComplete/orStream + tool/web helpers + usage) shared by all 3 loops + guardrails
   functions/_shared/usage.ts   recordUsage: writes a usage_events row per model call (all 3 loops + guardrails)
   functions/openrouter-balance/index.ts  Admin-only (verify_jwt: true): proxies OpenRouter GET /api/v1/key for the /usage page
@@ -913,7 +948,18 @@ the actual user tables are real `ut_*` tables created at runtime), `collections`
 - **Invite-only:** `profiles.is_admin` (first signup = admin). A BEFORE INSERT guard
   on `auth.users` (`enforce_invite_only`) rejects signups unless it's the first user
   or the email is in `allowed_emails` (admin-managed; RLS gated to admins). Admins
-  manage invites in Settings → Invite people.
+  manage invites in Settings → Invite people, two ways: **by email** (add an address to
+  `allowed_emails`) or **by shareable link** (`invite_links`, migration 0078). A link is
+  an opaque UUID token an admin mints and hands out (Slack/DM); the recipient opens the
+  public `/join/:token` route (`JoinPage`) and signs up with their own email. The page
+  validates the token via the anon-callable security-definer `invite_link_status(token)`
+  RPC, then `redeem_invite_link(token, email)` (also anon-callable, security-definer)
+  allowlists the entered email into `allowed_emails` so the SAME `enforce_invite_only`
+  guard still gates the actual signup — the link only authorizes an email on the fly, it
+  never creates the account (Supabase Auth still does). Links support optional
+  `expires_at`/`max_uses` (both null = open/unlimited) and an `active` revoke switch;
+  admins create/copy/revoke them in the same Settings page. `inviteLinkUrl(token)` in
+  `src/lib/supabase.ts` builds the URL.
 
 If you change the schema: update the migration, apply it, run `npm run gen:types`
 (or hand-edit `database.types.ts` to match), and re-check Supabase security advisors.

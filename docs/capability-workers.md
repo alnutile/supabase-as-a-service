@@ -39,7 +39,7 @@ prompt.
 
 | Piece | Where |
 | --- | --- |
-| `agent_jobs` + `agent_job_events` tables, `claim_agent_job` / `recover_stale_agent_jobs` RPCs, events, seeded builtins + skills | `supabase/migrations/0078_agent_jobs.sql` |
+| `agent_jobs` + `agent_job_events` tables, `claim_agent_job` / `recover_stale_agent_jobs` RPCs, events, seeded builtins + skills | `supabase/migrations/0080_agent_jobs.sql` |
 | Pure job logic (validation, manifest, idempotency, backoff, failure policy) | `supabase/functions/_shared/agent_jobs.ts` (unit-tested in `tests/agent_jobs_test.ts`) |
 | Main-AI builtins `create_agent_job` / `get_agent_job` / `list_agent_jobs` / `cancel_agent_job` | `supabase/functions/_shared/builtins.ts` |
 | Reusable worker runtime (claim loop, storage, lease/heartbeat, health, events) | `workers/shared/` |

@@ -3,7 +3,7 @@
 The shared contract for handing heavy, specialized work to a **capability worker**
 instead of running it inside the main app. This is the source-of-truth document;
 the same guidance is seeded into the workspace `skills` table (migration
-`0078_agent_jobs.sql`) so the assistant loads it automatically.
+`0080_agent_jobs.sql`) so the assistant loads it automatically.
 
 > Railway is the first deployment target, **not** the architecture. The protocol
 > below is Postgres + Storage + Docker + env vars — portable to local Docker
