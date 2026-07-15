@@ -1,0 +1,47 @@
+# Local development for the capability workers. Runs the same images as
+# production against your Supabase project — proving the workers are
+# provider-neutral (identical env-var contract as Railway/Fly/Render/K8s).
+#
+#   cp infra/.env.example infra/.env   # fill in SUPABASE_URL + service role key
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up --build
+#
+# Build context is `../workers` (the workspace root) so each service can pull in
+# the @supanet/worker-shared package.
+services:
+  office-worker:
+    build:
+      context: ../workers
+      dockerfile: office-worker/Dockerfile
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-files}
+      WORKER_CAPABILITY: office
+      WORKER_ID: office-local
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-3000}
+      JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-120}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 8080
+    ports:
+      - "8091:8080"
+    restart: unless-stopped
+
+  media-worker:
+    build:
+      context: ../workers
+      dockerfile: media-worker/Dockerfile
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-files}
+      WORKER_CAPABILITY: media
+      WORKER_ID: media-local
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-3000}
+      JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-120}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 8080
+    ports:
+      - "8092:8080"
+    restart: unless-stopped

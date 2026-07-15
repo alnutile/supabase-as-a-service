@@ -442,6 +442,88 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_whiteboards']['Insert']>
         Relationships: []
       }
+      agent_jobs: {
+        Row: {
+          id: string
+          workspace_id: string | null
+          conversation_id: string | null
+          requested_by: string | null
+          capability: string
+          operation: string
+          status: string
+          priority: number
+          instructions: string | null
+          input_manifest: Json
+          parameters: Json
+          result_manifest: Json | null
+          error: string | null
+          error_code: string | null
+          worker_id: string | null
+          attempts: number
+          max_attempts: number
+          idempotency_key: string | null
+          created_at: string
+          started_at: string | null
+          completed_at: string | null
+          heartbeat_at: string | null
+          lease_expires_at: string | null
+          available_at: string | null
+          cancelled_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id?: string | null
+          conversation_id?: string | null
+          requested_by?: string | null
+          capability: string
+          operation: string
+          status?: string
+          priority?: number
+          instructions?: string | null
+          input_manifest?: Json
+          parameters?: Json
+          result_manifest?: Json | null
+          error?: string | null
+          error_code?: string | null
+          worker_id?: string | null
+          attempts?: number
+          max_attempts?: number
+          idempotency_key?: string | null
+          created_at?: string
+          started_at?: string | null
+          completed_at?: string | null
+          heartbeat_at?: string | null
+          lease_expires_at?: string | null
+          available_at?: string | null
+          cancelled_at?: string | null
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['agent_jobs']['Insert']>
+        Relationships: []
+      }
+      agent_job_events: {
+        Row: {
+          id: string
+          job_id: string
+          event_type: string
+          worker_id: string | null
+          message: string | null
+          data: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          event_type: string
+          worker_id?: string | null
+          message?: string | null
+          data?: Json
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['agent_job_events']['Insert']>
+        Relationships: []
+      }
       card_boards: {
         Row: {
           id: string
