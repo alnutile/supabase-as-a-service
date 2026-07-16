@@ -42,6 +42,7 @@ prompt.
 | `agent_jobs` + `agent_job_events` tables, `claim_agent_job` / `recover_stale_agent_jobs` RPCs, events, seeded builtins + skills | `supabase/migrations/0080_agent_jobs.sql` |
 | Pure job logic (validation, manifest, idempotency, backoff, failure policy) | `supabase/functions/_shared/agent_jobs.ts` (unit-tested in `tests/agent_jobs_test.ts`) |
 | Main-AI builtins `create_agent_job` / `get_agent_job` / `list_agent_jobs` / `cancel_agent_job` | `supabase/functions/_shared/builtins.ts` |
+| Same four tools exposed on the MCP server (external Claude / Claude Desktop can queue + poll jobs) | `supabase/functions/mcp/index.ts` |
 | Reusable worker runtime (claim loop, storage, lease/heartbeat, health, events) | `workers/shared/` |
 | The two workers | `workers/office-worker/`, `workers/media-worker/` |
 | Local dev + isolated Railway config | `infra/docker-compose.yml`, `infra/railway/*.json` |
