@@ -1,0 +1,73 @@
+name: Build & deploy capability workers
+
+# The capability workers (office-worker, media-worker) are standalone Docker
+# services under workers/. They are NOT part of the frontend's auto-deploy — this
+# workflow builds their images on every change (so a broken Dockerfile/TS is
+# caught in CI) and, when a Railway token is configured, deploys them.
+#
+# Railway is the FIRST deployment target, not a hard dependency: the build job
+# always runs and proves the images build anywhere; the deploy job is gated on the
+# optional RAILWAY_TOKEN secret and only touches deployment config. To move to
+# another provider, replace the deploy job — the workers themselves don't change.
+#
+# Optional secrets (Settings → Secrets and variables → Actions):
+#   RAILWAY_TOKEN                – a Railway project/account token. If absent, the
+#                                  deploy job is skipped (build still runs).
+#   RAILWAY_OFFICE_SERVICE_ID    – the Railway service id for the office worker.
+#   RAILWAY_MEDIA_SERVICE_ID     – the Railway service id for the media worker.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/**'
+      - 'infra/**'
+      - '.github/workflows/deploy-workers.yml'
+  pull_request:
+    paths:
+      - 'workers/**'
+      - '.github/workflows/deploy-workers.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-workers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Provider-neutral: just build both images from their Dockerfiles (context =
+  # workers/). This is the real CI gate for the workers.
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        worker: [office-worker, media-worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.worker }} image
+        run: docker build -f workers/${{ matrix.worker }}/Dockerfile -t supanet-${{ matrix.worker }}:ci workers
+
+  # Deploy to Railway (the first target). Skipped entirely without RAILWAY_TOKEN,
+  # so forks and PRs never fail on it.
+  deploy-railway:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy workers to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          OFFICE_SERVICE_ID: ${{ secrets.RAILWAY_OFFICE_SERVICE_ID }}
+          MEDIA_SERVICE_ID: ${{ secrets.RAILWAY_MEDIA_SERVICE_ID }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "RAILWAY_TOKEN not set — skipping Railway deploy (build already validated the images)."
+            exit 0
+          fi
+          npm i -g @railway/cli
+          if [ -n "$OFFICE_SERVICE_ID" ]; then
+            railway up --service "$OFFICE_SERVICE_ID" --ci --path-as-root workers
+          fi
+          if [ -n "$MEDIA_SERVICE_ID" ]; then
+            railway up --service "$MEDIA_SERVICE_ID" --ci --path-as-root workers
+          fi

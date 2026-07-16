@@ -30,6 +30,16 @@ import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
 import { buildCards, cardCount, cardsToText } from './card_board.ts'
 import { validateWidget } from './widgets.ts'
 import {
+  buildIdempotencyKey,
+  clampPriority,
+  DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_PRIORITY,
+  normalizeInputManifest,
+  OPEN_STATUSES,
+  summarizeJob,
+  validateOperation,
+} from './agent_jobs.ts'
+import {
   createLoop,
   findOrCreateLoopAgent,
   formatRun,
@@ -183,6 +193,14 @@ export async function runBuiltin(
       return httpRequest(db, input, userId)
     case 'run_security_scan':
       return runSecurityScan(db, userId)
+    case 'create_agent_job':
+      return createAgentJob(db, input, userId)
+    case 'get_agent_job':
+      return getAgentJob(db, input, userId)
+    case 'list_agent_jobs':
+      return listAgentJobs(db, input, userId)
+    case 'cancel_agent_job':
+      return cancelAgentJob(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -1969,4 +1987,143 @@ async function addTableToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added table "${t.name}" to collection "${col.name}".`
+}
+
+// ---------------------------------------------------------------------------
+// Capability-worker jobs (agent_jobs). The main AI queues heavy binary work for
+// a specialized Railway worker (OfficeCLI / ffmpeg), then polls for the result.
+// All four run with the service role and re-scope to the caller in code: jobs
+// are attributed to `requested_by = userId`, and reads/cancels require the
+// caller to own the job (or be an admin, enforced by the get). The worker side
+// (claim/run/complete) lives in workers/* and is not reachable from chat.
+// ---------------------------------------------------------------------------
+async function createAgentJob(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Capability workers are unavailable.'
+  const operation = String(input?.operation ?? '').trim()
+  const capability = operation.split('.')[0]
+  const opError = validateOperation(capability, operation)
+  if (opError) return opError
+
+  const manifest = normalizeInputManifest(input?.input_manifest)
+  const parameters = input?.parameters && typeof input.parameters === 'object' ? input.parameters : {}
+  const instructions = typeof input?.instructions === 'string' ? input.instructions.trim() : ''
+  const priority = input?.priority != null ? clampPriority(input.priority) : DEFAULT_PRIORITY
+  const conversationId = typeof input?.conversation_id === 'string' && input.conversation_id.trim()
+    ? input.conversation_id.trim()
+    : null
+
+  const idempotencyKey = buildIdempotencyKey({ workspaceId: null, operation, manifest, instructions, parameters })
+
+  // Dedup: if an identical request is already open for this user, return it
+  // instead of minting a duplicate job (the partial unique index also guards).
+  const { data: existing } = await db
+    .from('agent_jobs')
+    .select('id, status')
+    .eq('requested_by', userId)
+    .eq('idempotency_key', idempotencyKey)
+    .in('status', OPEN_STATUSES)
+    .maybeSingle()
+  if (existing) {
+    return `An identical ${operation} job is already ${existing.status} (id ${existing.id}). Poll it with get_agent_job.`
+  }
+
+  const { data, error } = await db
+    .from('agent_jobs')
+    .insert({
+      requested_by: userId,
+      conversation_id: conversationId,
+      capability,
+      operation,
+      status: 'queued',
+      priority,
+      instructions: instructions || null,
+      input_manifest: manifest,
+      parameters,
+      attempts: 0,
+      max_attempts: DEFAULT_MAX_ATTEMPTS,
+      idempotency_key: idempotencyKey,
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not create the job: ${error.message}`
+  await logActivity(db, 'agent_job.created', `Queued ${operation}`, { id: data.id, capability, operation }, userId)
+  return `Queued job ${data.id} (${operation}). It will run on the ${capability} worker — poll get_agent_job with id "${data.id}" until it completes.`
+}
+
+async function getAgentJob(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Capability workers are unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A job id is required.'
+  const { data: job, error } = await db.from('agent_jobs').select('*').eq('id', id).maybeSingle()
+  if (error) return `Could not read the job: ${error.message}`
+  if (!job) return `No job with id "${id}".`
+  if (job.requested_by !== userId && !(await isAdmin(db, userId))) {
+    return `No job with id "${id}".`
+  }
+  return summarizeJob(job as Record<string, unknown>)
+}
+
+async function listAgentJobs(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Capability workers are unavailable.'
+  const limit = Math.max(1, Math.min(100, Number(input?.limit) || 20))
+  let q = db
+    .from('agent_jobs')
+    .select('id, capability, operation, status, created_at')
+    .eq('requested_by', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  const capability = typeof input?.capability === 'string' ? input.capability.trim() : ''
+  if (capability) q = q.eq('capability', capability)
+  const status = typeof input?.status === 'string' ? input.status.trim() : ''
+  if (status) q = q.eq('status', status)
+  const { data, error } = await q
+  if (error) return `Could not list jobs: ${error.message}`
+  if (!data || !data.length) return 'No jobs yet.'
+  return data
+    .map((j) => `• ${j.operation} — ${j.status} — id: ${j.id} — ${String(j.created_at).slice(0, 10)}`)
+    .join('\n')
+}
+
+async function cancelAgentJob(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Capability workers are unavailable.'
+  const id = String(input?.id ?? '').trim()
+  if (!id) return 'A job id is required.'
+  const { data: job } = await db
+    .from('agent_jobs')
+    .select('id, requested_by, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (!job || job.requested_by !== userId) return `No job with id "${id}".`
+  if (!OPEN_STATUSES.includes(job.status as typeof OPEN_STATUSES[number])) {
+    return `Job ${id} is already ${job.status} — nothing to cancel.`
+  }
+  const { error } = await db
+    .from('agent_jobs')
+    .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('requested_by', userId)
+  if (error) return `Could not cancel the job: ${error.message}`
+  await logActivity(db, 'agent_job.cancelled', `Cancelled job ${id}`, { id }, userId)
+  return `Cancelled job ${id}.`
+}
+
+async function isAdmin(db: DB, userId: string): Promise<boolean> {
+  const { data } = await db.from('profiles').select('is_admin').eq('id', userId).maybeSingle()
+  return !!data?.is_admin
 }

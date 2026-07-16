@@ -1,0 +1,14 @@
+{
+  "name": "@supanet/workers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SupaNet capability workers — standalone Railway services that run heavy libraries (OfficeCLI, ffmpeg) against agent_jobs. Not part of the main app build.",
+  "workspaces": [
+    "shared",
+    "office-worker",
+    "media-worker"
+  ],
+  "scripts": {
+    "build": "npm run build -w @supanet/worker-shared && npm run build -w @supanet/office-worker && npm run build -w @supanet/media-worker"
+  }
+}

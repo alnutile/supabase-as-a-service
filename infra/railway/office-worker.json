@@ -1,0 +1,16 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "_comment": "Railway service config for the office-worker. Railway is the FIRST deployment target, not a hard dependency — this file is the only Railway-specific config for this worker, and the same Docker image runs anywhere. In Railway: create a service, set Root Directory = 'workers', and this config (Dockerfile build + health check). Set the environment variables listed in workers/office-worker/README.md as service variables.",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "office-worker/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node office-worker/dist/index.js",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10,
+    "numReplicas": 1
+  }
+}

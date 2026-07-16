@@ -1,0 +1,20 @@
+{
+  "name": "@supanet/office-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "@supanet/worker-shared": "*",
+    "docx": "^8.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.2"
+  }
+}
