@@ -7,6 +7,7 @@ import { formatDate } from '../lib/util'
 import { estimateTokensFromChars, formatCount } from '../lib/tokens'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextMeter } from '../components/ContextMeter'
+import { generateMarkdownContent, generateFilename, downloadMarkdown } from '../lib/artifactDownload'
 import {
   ArtifactIcon,
   ChatIcon,
@@ -19,6 +20,7 @@ import {
   PlusIcon,
   SearchIcon,
   TrashIcon,
+  DownloadIcon,
 } from '../components/icons'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
@@ -286,6 +288,15 @@ export default function ArtifactsPage() {
 
   const ownsActive = activeCollection?.owner_id === user?.id
 
+  function downloadSelectedAsMarkdown() {
+    const selectedArtifacts = artifacts.filter((a) => selected.has(a.id))
+    if (selectedArtifacts.length === 0) return
+
+    const content = generateMarkdownContent(selectedArtifacts, formatDate)
+    const filename = generateFilename(selectedArtifacts)
+    downloadMarkdown(content, filename)
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-8">
@@ -524,6 +535,12 @@ export default function ArtifactsPage() {
               className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-primary-strong"
             >
               <CollectionIcon className="h-4 w-4" /> Add to collection
+            </button>
+            <button
+              onClick={downloadSelectedAsMarkdown}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text transition hover:bg-surface-hover"
+            >
+              <DownloadIcon className="h-4 w-4" /> Download as MD
             </button>
             <button
               onClick={clearSelection}
