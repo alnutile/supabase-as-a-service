@@ -395,6 +395,18 @@ export default function ArtifactsPage() {
                 >
                   <ChatIcon className="h-4 w-4" /> Chat with this
                 </button>
+                {visible.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const content = generateMarkdownContent(visible, formatDate)
+                      const filename = `${activeCollection.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_collection_${new Date().toISOString().split('T')[0]}.md`
+                      downloadMarkdown(content, filename)
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-semibold text-text transition hover:bg-surface-hover"
+                  >
+                    <DownloadIcon className="h-4 w-4" /> Download all
+                  </button>
+                )}
                 {ownsActive && (
                   <button
                     onClick={() => setEditing((v) => !v)}
