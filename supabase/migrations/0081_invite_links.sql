@@ -9,7 +9,12 @@
 -- 1. The links. Opaque UUID token in the URL (same "secret-URL" model as
 --    webhooks). Optional expiry + max_uses so a link can be scoped; both null
 --    means an open, unlimited link. `active` is the revoke switch.
-create table public.invite_links (
+-- Idempotent (create table if not exists + drop-policy-if-exists guards): this
+-- migration was originally shipped as a second `0078_*` file that collided with
+-- 0078_dashboard_widgets, so `db push` re-ran it against a table that already
+-- existed. Renumbered to 0081 and made re-runnable so applying it against a
+-- workspace that already has the objects is a harmless no-op.
+create table if not exists public.invite_links (
   id uuid primary key default gen_random_uuid(),
   token uuid not null default gen_random_uuid() unique,
   label text,
@@ -24,10 +29,12 @@ create table public.invite_links (
 alter table public.invite_links enable row level security;
 
 -- Admin-only CRUD, mirroring allowed_emails.
+drop policy if exists "Admins view invite links" on public.invite_links;
 create policy "Admins view invite links"
   on public.invite_links for select
   using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin));
 
+drop policy if exists "Admins create invite links" on public.invite_links;
 create policy "Admins create invite links"
   on public.invite_links for insert
   with check (
@@ -35,10 +42,12 @@ create policy "Admins create invite links"
     and exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin)
   );
 
+drop policy if exists "Admins update invite links" on public.invite_links;
 create policy "Admins update invite links"
   on public.invite_links for update
   using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin));
 
+drop policy if exists "Admins remove invite links" on public.invite_links;
 create policy "Admins remove invite links"
   on public.invite_links for delete
   using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin));
