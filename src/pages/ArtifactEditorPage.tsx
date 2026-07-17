@@ -11,7 +11,7 @@ import { Markdown } from '../components/Markdown'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { VisibilityControl } from '../components/VisibilityControl'
 import { CopyButton } from '../components/CopyButton'
-import { ChatIcon, PaperclipIcon, TrashIcon } from '../components/icons'
+import { ChatIcon, PaperclipIcon, PinIcon, TrashIcon } from '../components/icons'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
 
@@ -363,6 +363,23 @@ export default function ArtifactEditorPage() {
               className="ml-auto rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition hover:bg-primary-strong disabled:opacity-50 md:ml-0"
             >
               {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+            </button>
+            <button
+              onClick={async () => {
+                await supabase
+                  .from('artifacts')
+                  .update({ pinned: !artifact.pinned })
+                  .eq('id', artifact.id)
+                patch({ pinned: !artifact.pinned })
+              }}
+              title={artifact.pinned ? 'Unpin from Home' : 'Pin to Home'}
+              className={`rounded-lg p-1.5 transition ${
+                artifact.pinned
+                  ? 'text-primary hover:bg-primary-soft'
+                  : 'text-faint hover:bg-surface-hover'
+              }`}
+            >
+              <PinIcon className="h-[18px] w-[18px]" />
             </button>
             <button
               onClick={remove}

@@ -17,6 +17,7 @@ import {
   GlobeIcon,
   LinkIcon,
   LockIcon,
+  PinIcon,
   PlusIcon,
   SearchIcon,
   TrashIcon,
@@ -297,6 +298,18 @@ export default function ArtifactsPage() {
     downloadMarkdown(content, filename)
   }
 
+  async function togglePin(id: string, currentlyPinned: boolean) {
+    // Optimistically update local state
+    setArtifacts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, pinned: !currentlyPinned } : a))
+    )
+    // Update in database
+    await supabase
+      .from('artifacts')
+      .update({ pinned: !currentlyPinned })
+      .eq('id', id)
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-8">
@@ -505,8 +518,24 @@ export default function ArtifactsPage() {
                     <CheckIcon className="h-3.5 w-3.5" />
                   </button>
 
+                  {/* Pin button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      togglePin(a.id, a.pinned)
+                    }}
+                    title={a.pinned ? 'Unpin from Home' : 'Pin to Home'}
+                    className={`absolute right-2 top-2 rounded-md p-1 transition ${
+                      a.pinned
+                        ? 'text-primary opacity-100 hover:bg-primary-soft'
+                        : 'text-faint opacity-100 hover:bg-surface-hover md:opacity-0 md:group-hover:opacity-100'
+                    } ${activeId ? 'right-9' : ''}`}
+                  >
+                    <PinIcon className="h-4 w-4" />
+                  </button>
+
                   <button onClick={() => navigate(`/artifacts/${a.id}`)} className="block w-full text-left">
-                    <div className="flex items-start justify-between pl-6">
+                    <div className="flex items-start justify-between pl-6 pr-6">
                       <h3 className="truncate font-medium text-text group-hover:text-primary">{a.title}</h3>
                       <VisIcon className="h-4 w-4 shrink-0 text-faint" />
                     </div>
@@ -522,7 +551,7 @@ export default function ArtifactsPage() {
                     <button
                       onClick={() => removeFromActive(a.id)}
                       title="Remove from this collection"
-                      className="absolute right-2 top-2 rounded-md p-1 text-faint opacity-100 transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100"
+                      className="absolute bottom-2 right-2 rounded-md p-1 text-faint opacity-100 transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100"
                     >
                       <CloseIcon className="h-4 w-4" />
                     </button>

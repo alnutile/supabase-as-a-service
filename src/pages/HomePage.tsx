@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { formatDate } from '../lib/util'
 import { isMac, openGlobalSearch } from '../components/GlobalSearch'
 import { DashboardWidget } from '../components/DashboardWidget'
 import { AddWidgetPanel } from '../components/AddWidgetPanel'
@@ -22,6 +23,10 @@ import {
   CheckIcon,
   FileIcon,
   ForgeIcon,
+  GlobeIcon,
+  LinkIcon,
+  LockIcon,
+  PinIcon,
   PlusIcon,
   PulseIcon,
   SearchIcon,
@@ -71,6 +76,7 @@ const TREND_DAYS = 14
 type ActivityRow = { id: string; type: string; summary: string; created_at: string }
 type TodoRow = { id: string; title: string; due_date: string | null; done: boolean }
 type WidgetRow = Database['public']['Tables']['dashboard_widgets']['Row']
+type ArtifactRow = Database['public']['Tables']['artifacts']['Row']
 
 type Stats = {
   todosOpen: number
@@ -104,6 +110,7 @@ export default function HomePage() {
   const [trendRows, setTrendRows] = useState<ActivityRow[]>([])
   const [feed, setFeed] = useState<ActivityRow[]>([])
   const [todos, setTodos] = useState<TodoRow[]>([])
+  const [pinnedArtifacts, setPinnedArtifacts] = useState<ArtifactRow[]>([])
   const [loading, setLoading] = useState(true)
 
   // Custom widgets (owner-only rows; realtime so AI-added ones pop in live)
@@ -156,7 +163,13 @@ export default function HomePage() {
         .order('position', { ascending: true })
         .order('created_at', { ascending: false })
         .limit(6),
-    ]).then(([oTodos, dTodos, arts, fls, wk, trend, td]) => {
+      supabase
+        .from('artifacts')
+        .select('*')
+        .eq('pinned', true)
+        .order('updated_at', { ascending: false })
+        .limit(12),
+    ]).then(([oTodos, dTodos, arts, fls, wk, trend, td, pinned]) => {
       if (!alive) return
       setStats({
         todosOpen: oTodos.count ?? 0,
@@ -169,6 +182,7 @@ export default function HomePage() {
       setTrendRows(rows)
       setFeed(rows.slice(0, 7))
       setTodos((td.data ?? []) as TodoRow[])
+      setPinnedArtifacts((pinned.data ?? []) as ArtifactRow[])
       setLoading(false)
     })
     return () => {
@@ -195,6 +209,37 @@ export default function HomePage() {
       supabase.removeChannel(channel)
     }
   }, [])
+
+  // Subscribe to pinned artifacts changes
+  useEffect(() => {
+    if (!user) return
+    const channel = supabase
+      .channel('home_pinned_artifacts')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'artifacts', filter: `owner_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            const row = payload.new as ArtifactRow
+            if (row.pinned) {
+              setPinnedArtifacts((prev) => {
+                const filtered = prev.filter((a) => a.id !== row.id)
+                return [row, ...filtered].slice(0, 12)
+              })
+            } else {
+              setPinnedArtifacts((prev) => prev.filter((a) => a.id !== row.id))
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const old = payload.old as { id: string }
+            setPinnedArtifacts((prev) => prev.filter((a) => a.id !== old.id))
+          }
+        },
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user])
 
   // Load the user's widgets + subscribe: a widget the AI adds in chat (or on
   // another device) appears here live; removals/edits sync too.
@@ -296,6 +341,7 @@ export default function HomePage() {
               buckets={buckets}
               feed={feed}
               todos={todos}
+              pinnedArtifacts={pinnedArtifacts}
               navigate={navigate}
               quick={quick}
               onComplete={completeTodo}
@@ -324,6 +370,7 @@ function Overview({
   buckets,
   feed,
   todos,
+  pinnedArtifacts,
   navigate,
   quick,
   onComplete,
@@ -334,6 +381,7 @@ function Overview({
   buckets: DayBucket[]
   feed: ActivityRow[]
   todos: TodoRow[]
+  pinnedArtifacts: ArtifactRow[]
   navigate: (to: string) => void
   quick: string
   onComplete: (id: string) => void
@@ -361,6 +409,11 @@ function Overview({
           <AgentIcon className="h-[18px] w-[18px]" /> New agent
         </button>
       </div>
+
+      {/* Pinned artifacts */}
+      {pinnedArtifacts.length > 0 && (
+        <PinnedArtifacts artifacts={pinnedArtifacts} loading={loading} navigate={navigate} />
+      )}
 
       {/* Stat tiles */}
       <div className="mb-6 grid grid-cols-2 gap-[18px] lg:grid-cols-4">
@@ -642,6 +695,63 @@ function TodoList({
             )
           })}
         </ul>
+      )}
+    </div>
+  )
+}
+
+function PinnedArtifacts({
+  artifacts,
+  loading,
+  navigate,
+}: {
+  artifacts: ArtifactRow[]
+  loading: boolean
+  navigate: (to: string) => void
+}) {
+  const VIS_ICON = { private: LockIcon, unlisted: LinkIcon, public: GlobeIcon }
+
+  return (
+    <div className="mb-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <PinIcon className="h-4 w-4 text-primary" />
+          <h2 className="text-[15px] font-bold tracking-tight text-text">Pinned artifacts</h2>
+        </div>
+        <Link to="/artifacts" className="flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">
+          View all <ArrowRightIcon className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+      {loading ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-28 animate-pulse rounded-xl bg-surface-2" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {artifacts.map((a) => {
+            const VisIcon = VIS_ICON[a.visibility]
+            return (
+              <button
+                key={a.id}
+                onClick={() => navigate(`/artifacts/${a.id}`)}
+                className="group rounded-xl border border-border bg-surface p-4 text-left shadow-soft transition hover:-translate-y-[2px] hover:border-border-strong hover:shadow-soft-lg"
+              >
+                <div className="flex items-start justify-between">
+                  <h3 className="truncate font-medium text-text group-hover:text-primary">{a.title}</h3>
+                  <VisIcon className="h-4 w-4 shrink-0 text-faint" />
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-muted">
+                  {a.content.replace(/[#*`>]/g, '').slice(0, 120) || 'Empty'}
+                </p>
+                <p className="mt-3 text-[11px] uppercase tracking-wide text-faint">
+                  {a.type} · {formatDate(a.updated_at)}
+                </p>
+              </button>
+            )
+          })}
+        </div>
       )}
     </div>
   )
