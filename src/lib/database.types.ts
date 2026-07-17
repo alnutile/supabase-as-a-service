@@ -135,6 +135,7 @@ export interface Database {
           public_slug: string | null
           data: Json
           share_password_hash: string | null
+          pinned: boolean
           created_at: string
           updated_at: string
         }
@@ -150,6 +151,7 @@ export interface Database {
           public_slug?: string | null
           data?: Json
           share_password_hash?: string | null
+          pinned?: boolean
           created_at?: string
           updated_at?: string
         }
