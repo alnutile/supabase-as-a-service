@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useBlocker } from 'react-router-dom'
 import { Excalidraw, restoreElements } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import type { Database } from '../lib/database.types'
@@ -13,13 +13,13 @@ type Whiteboard = Database['public']['Tables']['whiteboards']['Row']
 type Any = any
 
 // Multiplayer whiteboard editor. The `whiteboards.scene` jsonb is the durable
-// store (autosaved as people draw); on TOP of that we layer the first
+// store (manually saved by the user); on TOP of that we layer the first
 // broadcast+presence Realtime channel in the app so edits and cursors sync live
 // between everyone with the board open — the "used by others at the same time"
 // experience. The DB subscription in the SAME channel also catches the
 // assistant's update_whiteboard writes (which don't broadcast), so an AI drawing
-// on the board renders live too. If broadcast ever drops, the debounced DB save +
-// postgres_changes still keeps everyone eventually-consistent.
+// on the board renders live too. Changes are broadcast to peers in real-time,
+// but persisted only when the user explicitly saves (Save button or Ctrl/Cmd+S).
 
 const CURSOR_COLORS = ['#e64980', '#7048e8', '#1c7ed6', '#0ca678', '#f08c00', '#e8590c', '#ae3ec9', '#2f9e44']
 function colorFor(id: string): string {
@@ -56,15 +56,16 @@ export default function WhiteboardEditorPage() {
   const [notFound, setNotFound] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [peers, setPeers] = useState(0)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
   const apiRef = useRef<Any>(null)
   const channelRef = useRef<Any>(null)
   const collabRef = useRef<Map<string, Any>>(new Map())
   const lastSigRef = useRef<string>('')
   const suppressRef = useRef(false)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const bcastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const ptrTime = useRef(0)
+  const pendingSceneRef = useRef<{ elements: Any[]; appState: Any; files: Any } | null>(null)
 
   const myId = user?.id ?? 'anon'
   const myName = (user?.user_metadata?.name as string) || user?.email?.split('@')[0] || 'Someone'
@@ -161,24 +162,35 @@ export default function WhiteboardEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [whiteboardId, board?.id])
 
-  // Persist the scene to Postgres (debounced) — the durable store.
+  // Manual save function — no longer auto-debounced.
   const persist = useCallback(
-    (elements: Any[], appState: Any, files: Any) => {
+    async (elements: Any[], appState: Any, files: Any) => {
       if (!whiteboardId) return
-      clearTimeout(saveTimer.current)
       setSaveState('saving')
-      saveTimer.current = setTimeout(async () => {
-        const scene = {
-          elements,
-          appState: { viewBackgroundColor: appState?.viewBackgroundColor ?? '#ffffff' },
-          files: files ?? {},
-        }
-        const { error } = await supabase.from('whiteboards').update({ scene }).eq('id', whiteboardId)
-        setSaveState(error ? 'idle' : 'saved')
-      }, 900)
+      const scene = {
+        elements,
+        appState: { viewBackgroundColor: appState?.viewBackgroundColor ?? '#ffffff' },
+        files: files ?? {},
+      }
+      const { error } = await supabase.from('whiteboards').update({ scene }).eq('id', whiteboardId)
+      if (!error) {
+        setSaveState('saved')
+        setHasUnsavedChanges(false)
+        pendingSceneRef.current = null
+        setTimeout(() => setSaveState('idle'), 2000)
+      } else {
+        setSaveState('idle')
+      }
     },
     [whiteboardId],
   )
+
+  // Manual save handler — saves the pending scene.
+  const handleSave = useCallback(() => {
+    const pending = pendingSceneRef.current
+    if (!pending) return
+    persist(pending.elements, pending.appState, pending.files)
+  }, [persist])
 
   // Broadcast the scene to peers (debounced short, for low latency).
   const broadcast = useCallback(
@@ -203,9 +215,11 @@ export default function WhiteboardEditorPage() {
       lastSigRef.current = sig
       const els = elements as Any[]
       broadcast(els, files)
-      persist(els, appState, files)
+      // Store the pending scene and mark as unsaved (no autosave).
+      pendingSceneRef.current = { elements: els, appState, files }
+      setHasUnsavedChanges(true)
     },
-    [broadcast, persist],
+    [broadcast],
   )
 
   const onPointerUpdate = useCallback(
@@ -223,6 +237,35 @@ export default function WhiteboardEditorPage() {
     },
     [myId, myName, myColor],
   )
+
+  // Block navigation when there are unsaved changes.
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    return hasUnsavedChanges && currentLocation.pathname !== nextLocation.pathname
+  })
+
+  // Warn on page unload/reload when there are unsaved changes.
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedChanges])
+
+  // Keyboard shortcut for saving (Ctrl+S / Cmd+S).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        if (hasUnsavedChanges) handleSave()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hasUnsavedChanges, handleSave])
 
   async function rename(title: string) {
     setBoard((b) => (b ? { ...b, title } : b))
@@ -288,9 +331,14 @@ export default function WhiteboardEditorPage() {
             <UsersIcon className="h-3.5 w-3.5" /> {peers}
           </span>
         )}
-        <span className="text-xs text-faint">
-          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
-        </span>
+        <button
+          onClick={handleSave}
+          disabled={!hasUnsavedChanges || saveState === 'saving'}
+          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+          title={hasUnsavedChanges ? 'Save changes' : 'No changes to save'}
+        >
+          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved!' : hasUnsavedChanges ? 'Save' : 'Saved'}
+        </button>
         <select
           value={board.visibility}
           onChange={(e) => changeVisibility(e.target.value as Whiteboard['visibility'])}
@@ -320,6 +368,44 @@ export default function WhiteboardEditorPage() {
           theme={theme}
         />
       </div>
+
+      {/* Navigation blocker dialog */}
+      {blocker.state === 'blocked' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+            <h2 className="mb-2 text-lg font-semibold">Unsaved changes</h2>
+            <p className="mb-6 text-sm text-muted">
+              You have unsaved changes. Do you want to save before leaving?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => blocker.reset?.()}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-surface-hover"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setHasUnsavedChanges(false)
+                  blocker.proceed?.()
+                }}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+              >
+                Leave without saving
+              </button>
+              <button
+                onClick={async () => {
+                  await handleSave()
+                  blocker.proceed?.()
+                }}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+              >
+                Save and leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
