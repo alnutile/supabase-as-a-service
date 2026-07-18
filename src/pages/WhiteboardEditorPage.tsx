@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams, useBlocker } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Excalidraw, restoreElements } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import type { Database } from '../lib/database.types'
@@ -238,10 +238,16 @@ export default function WhiteboardEditorPage() {
     [myId, myName, myColor],
   )
 
-  // Block navigation when there are unsaved changes.
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
-    return hasUnsavedChanges && currentLocation.pathname !== nextLocation.pathname
-  })
+  // In-app navigation guard. This app uses the classic <BrowserRouter> (see
+  // src/main.tsx), so react-router's useBlocker (data-router only) can't be used —
+  // it throws on render. Instead we confirm before leaving via the Back button.
+  const leaveGuard = useCallback(
+    (to: string) => {
+      if (hasUnsavedChanges && !confirm('You have unsaved changes. Leave without saving?')) return
+      navigate(to)
+    },
+    [hasUnsavedChanges, navigate],
+  )
 
   // Warn on page unload/reload when there are unsaved changes.
   useEffect(() => {
@@ -309,7 +315,7 @@ export default function WhiteboardEditorPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-2.5">
         <button
-          onClick={() => navigate('/whiteboards')}
+          onClick={() => leaveGuard('/whiteboards')}
           title="Back to whiteboards"
           className="rounded-lg p-1.5 text-muted hover:bg-surface-hover hover:text-text"
         >
@@ -368,44 +374,6 @@ export default function WhiteboardEditorPage() {
           theme={theme}
         />
       </div>
-
-      {/* Navigation blocker dialog */}
-      {blocker.state === 'blocked' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
-            <h2 className="mb-2 text-lg font-semibold">Unsaved changes</h2>
-            <p className="mb-6 text-sm text-muted">
-              You have unsaved changes. Do you want to save before leaving?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => blocker.reset?.()}
-                className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-surface-hover"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setHasUnsavedChanges(false)
-                  blocker.proceed?.()
-                }}
-                className="rounded-md border border-border px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-              >
-                Leave without saving
-              </button>
-              <button
-                onClick={async () => {
-                  await handleSave()
-                  blocker.proceed?.()
-                }}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
-              >
-                Save and leave
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
