@@ -45,6 +45,7 @@ import ProfileSettings from './pages/settings/ProfileSettings'
 import ConnectClaudeSettings from './pages/settings/ConnectClaudeSettings'
 import ModelsSettings from './pages/settings/ModelsSettings'
 import EmailSettings from './pages/settings/EmailSettings'
+import EmailAccountsSettings from './pages/settings/EmailAccountsSettings'
 import SlackSettings from './pages/settings/SlackSettings'
 import McpSettings from './pages/settings/McpSettings'
 import InviteSettings from './pages/settings/InviteSettings'
@@ -132,6 +133,7 @@ export default function App() {
         <Route path="settings/connect" element={<ConnectClaudeSettings />} />
         <Route path="settings/models" element={<ModelsSettings />} />
         <Route path="settings/email" element={<EmailSettings />} />
+        <Route path="settings/email-accounts" element={<EmailAccountsSettings />} />
         <Route path="settings/slack" element={<SlackSettings />} />
         <Route path="settings/mcp" element={<McpSettings />} />
         <Route path="settings/people" element={<InviteSettings />} />
