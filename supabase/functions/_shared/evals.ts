@@ -18,6 +18,8 @@ import {
   DEFAULT_K,
   evalAssertion,
   MAX_K,
+  summarizeTrace,
+  type ToolCall,
 } from './evals_pure.ts'
 
 // Re-export the pure helpers so existing call sites can keep importing from here.
@@ -26,11 +28,14 @@ export {
   evalAssertion,
   formatEvalRun,
   formatMatrix,
+  formatRunDetail,
+  isReadOnlyBuiltin,
   MAX_K,
   MAX_MODELS,
   parseModels,
+  summarizeTrace,
 } from './evals_pure.ts'
-export type { Assertion, AssertionResult, Case } from './evals_pure.ts'
+export type { Assertion, AssertionResult, AssertionContext, Case, ToolCall } from './evals_pure.ts'
 
 // deno-lint-ignore no-explicit-any
 type DB = any
@@ -105,7 +110,7 @@ export async function executeSuiteRun(
 
   const { data: suite } = await db
     .from('eval_suites')
-    .select('id, name, target_kind, agent_id, rubric, judge_model, collection_ids')
+    .select('id, name, target_kind, agent_id, rubric, judge_model, collection_ids, sandbox_tools')
     .eq('id', run.suite_id)
     .maybeSingle()
   const { data: cases } = await db
@@ -126,6 +131,7 @@ export async function executeSuiteRun(
   // Lazy so this module stays import-side-effect-free for the unit tests.
   const { runOrchestrator } = await import('./orchestrator.ts')
   const { runJudge } = await import('./judge.ts')
+  const sandboxTools = suite.sandbox_tools !== false
 
   // An agent suite runs each question through that agent's prompt + tools.
   let agentSystem: string | null = null
@@ -176,7 +182,7 @@ export async function executeSuiteRun(
           if (assertions.length === 0) {
             aResults = [{ type: 'none', pass: false, detail: 'case has no assertions' }]
           } else {
-            aResults = assertions.map((a) => evalAssertion(a, docs, text))
+            aResults = assertions.map((a) => evalAssertion(a, { docs, text }))
           }
           const ok = aResults.filter((d) => d.pass).length
           score = aResults.length ? ok / aResults.length : 0
@@ -199,6 +205,7 @@ export async function executeSuiteRun(
         let aResults: AssertionResult[] = []
         // deno-lint-ignore no-explicit-any
         let judge: any = null
+        let trace: ToolCall[] = []
         let passed = false
         let score: number | null = null
         try {
@@ -209,24 +216,37 @@ export async function executeSuiteRun(
             model: modelOverride,
             userId,
             collectionIds,
+            captureTrace: true,
+            sandboxTools,
           })
           output = ans.text
+          trace = ans.trace ?? []
           totalCost += ans.cost
 
-          const verdict = await runJudge(db, {
-            question: String(c.input ?? ''),
-            reference: c.expected,
-            output,
-            rubric: suite.rubric,
-            model: suite.judge_model,
-          })
-          totalCost += verdict.cost
-          judge = { pass: verdict.pass, score: verdict.score, reason: verdict.reason }
-
-          aResults = assertions.map((a) => evalAssertion(a, [], output.toLowerCase()))
+          aResults = assertions.map((a) => evalAssertion(a, { text: output.toLowerCase(), trace }))
           const assertionsPass = aResults.every((d) => d.pass)
-          passed = verdict.pass && assertionsPass
-          score = verdict.score
+
+          // Only grade with the judge when there's something to grade against — a
+          // reference answer or a suite rubric. A pure tool-usage case (assertions
+          // only, no reference) passes on its assertions alone.
+          const wantJudge = Boolean((c.expected && c.expected.trim()) || (suite.rubric && suite.rubric.trim()))
+          if (wantJudge) {
+            const verdict = await runJudge(db, {
+              question: String(c.input ?? ''),
+              reference: c.expected,
+              output,
+              rubric: suite.rubric,
+              model: suite.judge_model,
+            })
+            totalCost += verdict.cost
+            judge = { pass: verdict.pass, score: verdict.score, reason: verdict.reason }
+            passed = verdict.pass && assertionsPass
+            score = verdict.score
+          } else {
+            judge = { pass: true, score: 1, reason: 'no reference/rubric — graded on tool assertions only' }
+            passed = assertionsPass && aResults.length > 0
+            score = aResults.length ? aResults.filter((d) => d.pass).length / aResults.length : 0
+          }
         } catch (err) {
           judge = { pass: false, score: 0, reason: err instanceof Error ? err.message : 'run failed' }
           score = 0
@@ -234,7 +254,59 @@ export async function executeSuiteRun(
         if (passed) passedCount++
         await db.from('eval_results').insert({
           run_id: runId, case_id: c.id, case_name: c.name || String(c.input ?? '').slice(0, 60),
-          passed, score, output, detail: { assertions: aResults, judge }, latency_ms: Date.now() - started,
+          passed, score, output, latency_ms: Date.now() - started,
+          detail: { assertions: aResults, judge, tools: trace },
+        })
+      }
+    } else if (suite.target_kind === 'tool') {
+      // Deterministic: no model. Each case input is JSON {"tool","input"}; dispatch
+      // the tool directly (same as run-tool) and grade the result text with the
+      // ordinary text assertions. Tests whether a tool itself is correct.
+      const { runBuiltin } = await import('./builtins.ts')
+      const { runHttpTool } = await import('./http_tool.ts')
+      const { data: toolRows } = await db.from('tools').select('*').eq('is_active', true)
+      // deno-lint-ignore no-explicit-any
+      const toolByName = new Map((toolRows ?? []).map((t: any) => [t.name, t]))
+
+      for (const c of cases as Case[]) {
+        const started = Date.now()
+        const assertions = (Array.isArray(c.assertions) ? c.assertions : []) as Assertion[]
+        let passed = false
+        let score: number | null = null
+        let output = ''
+        let aResults: AssertionResult[] = []
+        let call: ToolCall | null = null
+        try {
+          let spec: { tool?: string; input?: unknown }
+          try { spec = JSON.parse(String(c.input ?? '{}')) } catch { spec = {} }
+          const toolName = String(spec.tool ?? '').trim()
+          const toolInput = (spec.input ?? {}) as Record<string, unknown>
+          if (!toolName) throw new Error('case input must be JSON like {"tool":"name","input":{...}}')
+          // deno-lint-ignore no-explicit-any
+          const row = toolByName.get(toolName) as any
+          if (!row) throw new Error(`no active tool named "${toolName}"`)
+          if (row.kind === 'builtin') output = await runBuiltin(db, toolName, toolInput, userId)
+          else if (row.kind === 'http') output = await runHttpTool(db, row, toolInput)
+          else throw new Error(`tool "${toolName}" (kind ${row.kind}) can't be run directly`)
+          call = { name: toolName, arguments: toolInput, result: String(output).slice(0, 500) }
+          const text = String(output).toLowerCase()
+          if (assertions.length === 0) {
+            aResults = [{ type: 'none', pass: false, detail: 'case has no assertions' }]
+          } else {
+            aResults = assertions.map((a) => evalAssertion(a, { text, trace: [call as ToolCall] }))
+          }
+          const ok = aResults.filter((d) => d.pass).length
+          score = aResults.length ? ok / aResults.length : 0
+          passed = aResults.length > 0 && ok === aResults.length
+        } catch (err) {
+          aResults = [{ type: 'error', pass: false, detail: err instanceof Error ? err.message : 'tool run failed' }]
+          score = 0
+        }
+        if (passed) passedCount++
+        await db.from('eval_results').insert({
+          run_id: runId, case_id: c.id, case_name: c.name || String(c.input ?? '').slice(0, 60),
+          passed, score, output, latency_ms: Date.now() - started,
+          detail: { assertions: aResults, tools: call ? [call] : [] },
         })
       }
     } else {
@@ -297,6 +369,13 @@ export async function getEvalRun(db: DB, runId: string): Promise<any | null> {
   if (!r) return null
   const { data } = await db.from('eval_runs').select('*').eq('id', r).maybeSingle()
   return data ?? null
+}
+
+// The per-case rows for one run (for the MCP detail view — tools called + failures).
+// deno-lint-ignore no-explicit-any
+export async function getResultsForRun(db: DB, runId: string): Promise<any[]> {
+  const { data } = await db.from('eval_results').select('*').eq('run_id', runId).order('created_at', { ascending: true })
+  return data ?? []
 }
 
 // deno-lint-ignore no-explicit-any

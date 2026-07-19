@@ -12,6 +12,7 @@ import { resolveModel } from './models.ts'
 import { runBuiltin } from './builtins.ts'
 import { runHttpTool } from './http_tool.ts'
 import { loadCollectionsContext } from './collections.ts'
+import { isReadOnlyBuiltin, type ToolCall } from './evals_pure.ts'
 import {
   assistantToolCallMsg,
   orComplete,
@@ -86,6 +87,9 @@ export interface OrchestratorResult {
   text: string
   cost: number
   toolsUsed: string[]
+  // The full tool-call trace (name + args + result), populated when opts.captureTrace
+  // is set — this is what tool-usage evals assert against.
+  trace: ToolCall[]
 }
 
 // Answer one question through the full pipeline. `system` (an agent's
@@ -103,6 +107,12 @@ export async function runOrchestrator(
     model?: string | null
     userId?: string | null
     collectionIds?: string[] | null
+    // Record every tool call (name + args + result) into the returned trace.
+    captureTrace?: boolean
+    // Eval safety: execute only read-only tools; capture side-effecting/external
+    // ones without running them (so a repeatable eval can't mutate the workspace
+    // or fire external actions). Only meaningful with captureTrace.
+    sandboxTools?: boolean
   },
 ): Promise<OrchestratorResult> {
   const model = opts.model || (await resolveModel(db, 'orchestrator'))
@@ -117,6 +127,7 @@ export async function runOrchestrator(
   if (webEnabled) tools.push(WEB_SEARCH_TOOL)
   const reasoning = reasoningParam()
   const toolsUsed: string[] = []
+  const trace: ToolCall[] = []
   let cost = 0
   let finalText = ''
 
@@ -138,10 +149,24 @@ export async function runOrchestrator(
         const input = parseToolArgs(call.function.arguments)
         const tool = httpTools.get(name)
         let output: string
-        if (tool) output = await runHttpTool(db, tool, input)
-        else if (builtins.has(name)) output = await runBuiltin(db, name, input, opts.userId ?? null)
-        else output = `Unknown tool: ${name}`
+        let sandboxed = false
+        // In sandbox mode, only genuine read-only builtins actually run; every
+        // side-effecting builtin and every http/mcp/web tool is captured but not
+        // executed, so the assertion can still check the CALL without the effect.
+        if (opts.sandboxTools && !(builtins.has(name) && isReadOnlyBuiltin(name))) {
+          sandboxed = true
+          output = `[eval sandbox] ${name} was called but not executed; its arguments were recorded.`
+        } else if (tool) {
+          output = await runHttpTool(db, tool, input)
+        } else if (builtins.has(name)) {
+          output = await runBuiltin(db, name, input, opts.userId ?? null)
+        } else {
+          output = `Unknown tool: ${name}`
+        }
         toolsUsed.push(name)
+        if (opts.captureTrace) {
+          trace.push({ name, arguments: (input ?? {}) as Record<string, unknown>, result: String(output).slice(0, 500), sandboxed })
+        }
         messages.push(toolResultMsg(call.id, output))
       }
       continue
@@ -149,5 +174,5 @@ export async function runOrchestrator(
     break
   }
 
-  return { text: finalText, cost, toolsUsed }
+  return { text: finalText, cost, toolsUsed, trace }
 }

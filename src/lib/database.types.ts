@@ -1494,6 +1494,7 @@ export interface Database {
           rubric: string
           judge_model: string | null
           collection_ids: string[]
+          sandbox_tools: boolean
           created_by: string | null
           created_at: string
           updated_at: string
@@ -1507,6 +1508,7 @@ export interface Database {
           rubric?: string
           judge_model?: string | null
           collection_ids?: string[]
+          sandbox_tools?: boolean
           created_by?: string | null
           created_at?: string
           updated_at?: string

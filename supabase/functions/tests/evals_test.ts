@@ -2,42 +2,101 @@
 // formatEvalRun). No DB, no model — evals.ts lazy-imports the orchestrator/judge
 // so importing it here (permission-free) never trips on their env reads.
 import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert@1'
-import { evalAssertion, formatEvalRun, formatMatrix, MAX_MODELS, parseModels } from '../_shared/evals_pure.ts'
+import {
+  evalAssertion,
+  formatEvalRun,
+  formatMatrix,
+  formatRunDetail,
+  isReadOnlyBuiltin,
+  MAX_MODELS,
+  parseModels,
+  summarizeTrace,
+  type ToolCall,
+} from '../_shared/evals_pure.ts'
 
-// --- evalAssertion ---------------------------------------------------------
+// --- evalAssertion: text + retrieval ---------------------------------------
 
 Deno.test('evalAssertion: contains matches case-insensitively', () => {
-  assert(evalAssertion({ type: 'contains', text: 'BLUE-OTTER' }, [], 'the codeword is blue-otter-49').pass)
-  assert(!evalAssertion({ type: 'contains', text: 'missing' }, [], 'nope').pass)
+  assert(evalAssertion({ type: 'contains', text: 'BLUE-OTTER' }, { text: 'the codeword is blue-otter-49' }).pass)
+  assert(!evalAssertion({ type: 'contains', text: 'missing' }, { text: 'nope' }).pass)
 })
 
 Deno.test('evalAssertion: not_contains inverts', () => {
-  assert(evalAssertion({ type: 'not_contains', text: 'secret' }, [], 'clean answer').pass)
-  assert(!evalAssertion({ type: 'not_contains', text: 'secret' }, [], 'has a secret').pass)
+  assert(evalAssertion({ type: 'not_contains', text: 'secret' }, { text: 'clean answer' }).pass)
+  assert(!evalAssertion({ type: 'not_contains', text: 'secret' }, { text: 'has a secret' }).pass)
 })
 
 Deno.test('evalAssertion: regex, with graceful invalid handling', () => {
-  assert(evalAssertion({ type: 'regex', pattern: 'blue-\\w+' }, [], 'blue-otter').pass)
-  const bad = evalAssertion({ type: 'regex', pattern: '(' }, [], 'x')
+  assert(evalAssertion({ type: 'regex', pattern: 'blue-\\w+' }, { text: 'blue-otter' }).pass)
+  const bad = evalAssertion({ type: 'regex', pattern: '(' }, { text: 'x' })
   assert(!bad.pass)
   assertStringIncludes(bad.detail, 'invalid regex')
 })
 
 Deno.test('evalAssertion: retrieves checks doc names', () => {
-  assert(evalAssertion({ type: 'retrieves', doc: 'Nightjar' }, ['project nightjar.pdf', 'other.pdf'], '').pass)
-  assert(!evalAssertion({ type: 'retrieves', doc: 'ghost' }, ['project nightjar.pdf'], '').pass)
+  assert(evalAssertion({ type: 'retrieves', doc: 'Nightjar' }, { docs: ['project nightjar.pdf', 'other.pdf'] }).pass)
+  assert(!evalAssertion({ type: 'retrieves', doc: 'ghost' }, { docs: ['project nightjar.pdf'] }).pass)
 })
 
 Deno.test('evalAssertion: recall_at_k respects k window', () => {
   const docs = ['a', 'b', 'c', 'target']
-  assert(!evalAssertion({ type: 'recall_at_k', doc: 'target', k: 2 }, docs, '').pass)
-  assert(evalAssertion({ type: 'recall_at_k', doc: 'target', k: 4 }, docs, '').pass)
+  assert(!evalAssertion({ type: 'recall_at_k', doc: 'target', k: 2 }, { docs }).pass)
+  assert(evalAssertion({ type: 'recall_at_k', doc: 'target', k: 4 }, { docs }).pass)
 })
 
 Deno.test('evalAssertion: unknown type fails closed', () => {
-  const r = evalAssertion({ type: 'wat' }, [], 'anything')
+  const r = evalAssertion({ type: 'wat' }, { text: 'anything' })
   assert(!r.pass)
   assertStringIncludes(r.detail, 'unsupported')
+})
+
+// --- evalAssertion: tool-usage ---------------------------------------------
+
+const trace: ToolCall[] = [
+  { name: 'search_documents', arguments: { query: 'insurance expiry' } },
+  { name: 'create_todo', arguments: { title: 'Reconfirm Summit insurance' }, sandboxed: true },
+]
+
+Deno.test('evalAssertion: calls_tool / not_calls_tool', () => {
+  assert(evalAssertion({ type: 'calls_tool', tool: 'search_documents' }, { trace }).pass)
+  assert(!evalAssertion({ type: 'calls_tool', tool: 'send_email' }, { trace }).pass)
+  assert(evalAssertion({ type: 'not_calls_tool', tool: 'send_email' }, { trace }).pass)
+  assert(!evalAssertion({ type: 'not_calls_tool', tool: 'create_todo' }, { trace }).pass)
+})
+
+Deno.test('evalAssertion: calls_tool_with matches arguments', () => {
+  assert(evalAssertion({ type: 'calls_tool_with', tool: 'create_todo', arg_contains: 'insurance' }, { trace }).pass)
+  assert(!evalAssertion({ type: 'calls_tool_with', tool: 'create_todo', arg_contains: 'nope' }, { trace }).pass)
+  assert(evalAssertion({ type: 'calls_tool_with', tool: 'create_todo', arg_regex: 'Summit\\s+insurance' }, { trace }).pass)
+  // no arg filter → behaves like calls_tool
+  assert(evalAssertion({ type: 'calls_tool_with', tool: 'search_documents' }, { trace }).pass)
+})
+
+Deno.test('evalAssertion: tool_call_count bounds', () => {
+  assert(evalAssertion({ type: 'tool_call_count', tool: 'search_documents', max: 1 }, { trace }).pass)
+  assert(!evalAssertion({ type: 'tool_call_count', tool: 'search_documents', equals: 2 }, { trace }).pass)
+  // default (no bound) means "at least once"
+  assert(evalAssertion({ type: 'tool_call_count', tool: 'create_todo' }, { trace }).pass)
+  assert(!evalAssertion({ type: 'tool_call_count', tool: 'never_called' }, { trace }).pass)
+})
+
+// --- sandbox classifier ----------------------------------------------------
+
+Deno.test('isReadOnlyBuiltin: reads run, writes/secrets do not', () => {
+  for (const n of ['search_documents', 'list_todos', 'get_artifact', 'query_table', 'check_email']) {
+    assert(isReadOnlyBuiltin(n), `${n} should be read-only`)
+  }
+  for (const n of ['create_todo', 'send_email', 'update_artifact', 'delete_file', 'get_secret', 'remember']) {
+    assert(!isReadOnlyBuiltin(n), `${n} should NOT be read-only`)
+  }
+})
+
+Deno.test('summarizeTrace: renders names + sandbox marker', () => {
+  assertEquals(summarizeTrace([]), '(no tools called)')
+  const out = summarizeTrace(trace)
+  assertStringIncludes(out, 'search_documents(')
+  assertStringIncludes(out, 'create_todo(')
+  assertStringIncludes(out, '[sandboxed]')
 })
 
 // --- parseModels -----------------------------------------------------------
@@ -93,4 +152,34 @@ Deno.test('formatEvalRun: running run nudges a re-poll; null model shows default
   const out = formatEvalRun({ id: 'r2', status: 'running', model: null, score: null, passed: 0, total: 5, cost: null })
   assertStringIncludes(out, 'Model: profile default')
   assertStringIncludes(out, 'check again')
+})
+
+// --- formatRunDetail -------------------------------------------------------
+
+Deno.test('formatRunDetail: per-case tools + failures + judge reason', () => {
+  const run = { id: 'r3', status: 'done', model: 'a/b', score: 0.5, passed: 1, total: 2, cost: 0.02 }
+  const results = [
+    {
+      case_name: 'searches then answers', passed: true,
+      detail: { assertions: [{ type: 'calls_tool', pass: true, detail: 'called search_documents' }], tools: trace, judge: { pass: true } },
+    },
+    {
+      case_name: 'must not email', passed: false,
+      detail: {
+        assertions: [{ type: 'not_calls_tool', pass: false, detail: 'unexpectedly called send_email' }],
+        tools: [{ name: 'send_email', arguments: { to: 'x@y.com' } }],
+        judge: { pass: false, reason: 'leaked data' },
+      },
+    },
+  ]
+  const out = formatRunDetail(run, results)
+  assertStringIncludes(out, '✓ searches then answers')
+  assertStringIncludes(out, 'tools: search_documents(')
+  assertStringIncludes(out, '✗ must not email')
+  assertStringIncludes(out, 'failed: not_calls_tool')
+  assertStringIncludes(out, 'judge: leaked data')
+})
+
+Deno.test('formatRunDetail: no results yet', () => {
+  assertStringIncludes(formatRunDetail({ id: 'r4', status: 'running', passed: 0, total: 0, score: null }, []), 'no case results yet')
 })

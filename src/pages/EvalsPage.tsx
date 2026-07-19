@@ -13,7 +13,7 @@ type AgentLite = { id: string; name: string }
 type CollectionLite = { id: string; name: string }
 
 type AssertionRow = { type: string; value: string; k: number }
-type StoredAssertion = { type: string; doc?: string; text?: string; pattern?: string; k?: number }
+type StoredAssertion = { type: string; doc?: string; text?: string; pattern?: string; tool?: string; k?: number; max?: number }
 type AssertionResult = { type: string; pass: boolean; detail: string }
 type Judge = { pass: boolean; score: number; reason: string }
 
@@ -23,23 +23,36 @@ const ASSERTION_TYPES = [
   { value: 'regex', label: 'Answer matches regex', hint: 'a regular expression' },
   { value: 'retrieves', label: 'Retrieves document (rag)', hint: 'a document whose name contains…' },
   { value: 'recall_at_k', label: 'Retrieves in top-k (rag)', hint: 'document name contains… within top k' },
+  { value: 'calls_tool', label: 'Calls tool', hint: 'tool name, e.g. search_documents' },
+  { value: 'not_calls_tool', label: "Doesn't call tool (safety)", hint: 'tool name that must NOT be called, e.g. send_email' },
+  { value: 'tool_call_count', label: 'Tool call count ≤ max', hint: 'tool name (set max at right)' },
 ]
 
 const TARGETS = [
   { value: 'rag', label: 'Retrieval (rag)', blurb: 'Scores whether search_documents finds the right passages. Deterministic, no judge.' },
-  { value: 'chat', label: 'Chat answer', blurb: 'Answers each question through the real chat pipeline, then a judge model grades it vs. your reference answer.' },
-  { value: 'agent', label: 'Agent answer', blurb: "Runs each question through a specific agent's prompt + tools, then judges the answer." },
+  { value: 'chat', label: 'Chat answer', blurb: 'Answers each question through the real chat pipeline, then a judge model grades it vs. your reference answer. Can also assert which tools it calls.' },
+  { value: 'agent', label: 'Agent answer', blurb: "Runs each question through a specific agent's prompt + tools, then judges the answer. Can also assert tool usage." },
+  { value: 'tool', label: 'Tool (deterministic)', blurb: 'Runs a tool directly (no model) and grades its output. Each case input is JSON like {"tool":"name","input":{…}}.' },
 ]
 
-function valueField(type: string): 'doc' | 'text' | 'pattern' {
+const TOOL_ASSERTIONS = ['calls_tool', 'not_calls_tool', 'calls_tool_with', 'tool_call_count']
+// Assertion types that use the numeric field on the right (k for retrieval, max for counts).
+const NUMERIC_ASSERTIONS = ['recall_at_k', 'tool_call_count']
+
+function valueField(type: string): 'doc' | 'text' | 'pattern' | 'tool' {
   if (type === 'retrieves' || type === 'recall_at_k') return 'doc'
   if (type === 'regex') return 'pattern'
+  if (TOOL_ASSERTIONS.includes(type)) return 'tool'
   return 'text'
 }
 
 function toRows(assertions: unknown): AssertionRow[] {
   const arr = Array.isArray(assertions) ? (assertions as StoredAssertion[]) : []
-  return arr.map((a) => ({ type: a.type ?? 'contains', value: String(a.doc ?? a.text ?? a.pattern ?? ''), k: Number(a.k ?? 5) }))
+  return arr.map((a) => ({
+    type: a.type ?? 'contains',
+    value: String(a.doc ?? a.text ?? a.pattern ?? a.tool ?? ''),
+    k: Number(a.k ?? a.max ?? 5),
+  }))
 }
 
 function toStored(rows: AssertionRow[]): StoredAssertion[] {
@@ -49,6 +62,7 @@ function toStored(rows: AssertionRow[]): StoredAssertion[] {
       const out: StoredAssertion = { type: r.type }
       out[valueField(r.type)] = r.value.trim()
       if (r.type === 'recall_at_k') out.k = Math.max(1, Math.min(20, r.k || 5))
+      if (r.type === 'tool_call_count') out.max = Math.max(0, Math.min(20, r.k || 1)) // reuse the numeric field as the max
       return out
     })
 }
@@ -162,6 +176,7 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   const [rubric, setRubric] = useState(suite.rubric)
   const [judgeModel, setJudgeModel] = useState(suite.judge_model ?? '')
   const [collectionIds, setCollectionIds] = useState<string[]>(suite.collection_ids ?? [])
+  const [sandboxTools, setSandboxTools] = useState(suite.sandbox_tools ?? true)
   const [agents, setAgents] = useState<AgentLite[]>([])
   const [collections, setCollections] = useState<CollectionLite[]>([])
   const [cases, setCases] = useState<Case[]>([])
@@ -339,6 +354,15 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
                   )}
                   <p className="mt-1 text-xs text-faint">When set, each question is answered with only these collections' content as context — so you test whether the assistant answers correctly out of that set.</p>
                 </div>
+                <label className="flex items-start gap-2 text-xs text-muted">
+                  <input type="checkbox" checked={sandboxTools} className="mt-0.5"
+                    onChange={(e) => { setSandboxTools(e.target.checked); saveMeta({ sandbox_tools: e.target.checked }) }} />
+                  <span>
+                    <span className="font-medium text-text">Sandbox tools</span> — only read-only tools execute; side-effecting/external
+                    tools (create_*, send_email, http, MCP) are captured but not run, so tool-usage runs never mutate the workspace.
+                    Uncheck for a real-side-effects integration test.
+                  </span>
+                </label>
               </>
             )}
           </div>
@@ -489,6 +513,7 @@ function ResultRow({ result }: { result: Result }) {
   const d = result.detail as unknown
   const assertions: AssertionResult[] = Array.isArray(d) ? (d as AssertionResult[]) : ((d as { assertions?: AssertionResult[] })?.assertions ?? [])
   const judge = Array.isArray(d) ? null : ((d as { judge?: Judge })?.judge ?? null)
+  const tools = Array.isArray(d) ? [] : ((d as { tools?: { name: string; sandboxed?: boolean }[] })?.tools ?? [])
   return (
     <div className="rounded-xl border border-border bg-surface p-3">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
@@ -502,6 +527,14 @@ function ResultRow({ result }: { result: Result }) {
             <div className="rounded-lg bg-surface-2 p-2 text-xs">
               <span className={`font-semibold ${judge.pass ? 'text-green-600' : 'text-red-600'}`}>Judge: {judge.pass ? 'pass' : 'fail'} ({Math.round((judge.score ?? 0) * 100)}%)</span>
               {judge.reason && <span className="text-muted"> — {judge.reason}</span>}
+            </div>
+          )}
+          {tools.length > 0 && (
+            <div className="rounded-lg bg-surface-2 p-2 text-xs text-muted">
+              <span className="font-semibold text-text">Tools called:</span>{' '}
+              {tools.map((t, i) => (
+                <code key={i} className="mr-1 rounded bg-surface px-1">{t.name}{t.sandboxed ? ' ·sandboxed' : ''}</code>
+              ))}
             </div>
           )}
           {assertions.map((a, i) => (
@@ -593,8 +626,9 @@ function CaseEditor({
                       <select value={r.type} onChange={(e) => setRow(i, { type: e.target.value })} className="rounded-md border border-border-strong bg-surface px-2 py-1.5 text-xs">
                         {ASSERTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                       </select>
-                      {r.type === 'recall_at_k' && (
-                        <input type="number" min={1} max={20} value={r.k} onChange={(e) => setRow(i, { k: Number(e.target.value) })} title="k"
+                      {NUMERIC_ASSERTIONS.includes(r.type) && (
+                        <input type="number" min={0} max={20} value={r.k} onChange={(e) => setRow(i, { k: Number(e.target.value) })}
+                          title={r.type === 'tool_call_count' ? 'max calls' : 'k'}
                           className="w-14 rounded-md border border-border-strong px-2 py-1.5 text-xs" />
                       )}
                       <button onClick={() => setRows((rs) => rs.filter((_, idx) => idx !== i))} className="ml-auto rounded-md p-1 text-faint hover:text-red-600" title="Remove">

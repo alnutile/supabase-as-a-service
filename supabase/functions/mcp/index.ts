@@ -29,7 +29,9 @@ import {
 import {
   formatEvalRun,
   formatMatrix,
+  formatRunDetail,
   getEvalRun,
+  getResultsForRun,
   latestRunsForSuite,
   listSuitesText,
   parseModels,
@@ -1024,20 +1026,24 @@ const TOOLS = [
   {
     name: 'create_eval_suite',
     description:
-      'Create an eval suite: a named set of cases run through the real pipeline to measure answer quality and catch regressions when you swap models or edit prompts. Pick a target: "rag" (deterministic — scores whether search_documents retrieves the right passages), "chat" (answers each question through the live assistant, then a judge model grades it vs. your reference answer), or "agent" (same, through a specific agent\'s prompt + tools). For chat/agent you can ground answers in one or more collections, so you test "does the assistant answer correctly out of THIS knowledge set". Returns the suite id; add cases with add_eval_cases, then run_eval. Admin only.',
+      'Create an eval suite: a named set of cases run through the real pipeline to measure quality and catch regressions when you swap models or edit prompts. Pick a target: "rag" (deterministic — scores whether search_documents retrieves the right passages), "chat" (answers each question through the live assistant, then a judge grades it vs. your reference answer), "agent" (same, through a specific agent\'s prompt + tools), or "tool" (deterministic — runs a tool directly, no model, and grades its output; each case input is JSON {"tool","input"}). For chat/agent you can ground answers in collections AND test TOOL USAGE — assert which tools the assistant called (see add_eval_cases). By default chat/agent runs are SANDBOXED: only read-only tools execute; side-effecting/external tools (create_*, send_email, http, MCP) are captured but not run, so a suite is safe to re-run on a schedule/matrix. Set sandbox_tools:false for an integration test that performs real side-effects. Returns the suite id; add cases with add_eval_cases, then run_eval. Admin only.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Suite name.' },
         description: { type: 'string', description: 'Optional description.' },
-        target: { type: 'string', enum: ['rag', 'chat', 'agent'], description: 'What to test (default "chat").' },
+        target: { type: 'string', enum: ['rag', 'chat', 'agent', 'tool'], description: 'What to test (default "chat").' },
         agent: { type: 'string', description: 'For target "agent": the agent name/id to run each case through.' },
-        rubric: { type: 'string', description: 'For chat/agent: how the judge should grade the answer (blank = a sensible default).' },
+        rubric: { type: 'string', description: 'For chat/agent: how the judge should grade the answer (blank = a sensible default; omit entirely for a pure tool-usage case with no reference).' },
         judge_model: { type: 'string', description: 'Optional OpenRouter slug for the judge (blank = the cheap utility profile).' },
         collections: {
           type: 'array',
           items: { type: 'string' },
           description: 'For chat/agent: collection names/ids to inject as grounding context, so answers are graded FROM that knowledge set.',
+        },
+        sandbox_tools: {
+          type: 'boolean',
+          description: 'chat/agent only. Default true: only read-only tools execute; side-effecting/external tools are captured but not run. Set false for a real-side-effects integration test.',
         },
       },
       required: ['name'],
@@ -1046,7 +1052,9 @@ const TOOLS = [
   {
     name: 'add_eval_cases',
     description:
-      'Add one or more cases to a suite in a single call — the fast way to build a dataset (generate the cases from a source doc/collection yourself, then bulk-insert them here). A case is a question (input) plus, for chat/agent suites, a reference answer (expected) the judge grades against; for rag suites, assertions about what should be retrieved. Assertions are objects like {"type":"contains","text":"…"}, {"type":"not_contains","text":"…"}, {"type":"regex","pattern":"…"}, {"type":"retrieves","doc":"…"}, or {"type":"recall_at_k","doc":"…","k":5}. Admin only.',
+      'Add one or more cases to a suite in a single call — the fast way to build a dataset (generate the cases yourself, then bulk-insert). A case is an input plus optional assertions. For chat/agent suites the input is a question and "expected" is the reference answer the judge grades against; for rag, assertions about retrieval; for "tool" suites, the input is JSON {"tool":"name","input":{…}} and assertions grade the tool\'s output. ' +
+      'Assertion types: text — {"type":"contains","text":"…"}, {"type":"not_contains","text":"…"}, {"type":"regex","pattern":"…"}; retrieval — {"type":"retrieves","doc":"…"}, {"type":"recall_at_k","doc":"…","k":5}; ' +
+      'TOOL USAGE (chat/agent) — {"type":"calls_tool","tool":"search_documents"}, {"type":"not_calls_tool","tool":"send_email"} (safety/injection guard), {"type":"calls_tool_with","tool":"create_todo","arg_contains":"insurance"} or with "arg_regex", {"type":"tool_call_count","tool":"search_documents","max":1}. A case with only tool assertions and no expected/rubric passes on the assertions alone (no judge). Admin only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1058,7 +1066,7 @@ const TOOLS = [
             type: 'object',
             properties: {
               name: { type: 'string', description: 'Optional label.' },
-              input: { type: 'string', description: 'The question / query (required).' },
+              input: { type: 'string', description: 'The question/query, or for a "tool" suite JSON {"tool","input"} (required).' },
               expected: { type: 'string', description: 'Reference answer to grade against (chat/agent suites).' },
               assertions: { type: 'array', description: 'Typed assertions about the result (see the tool description).', items: { type: 'object' } },
             },
@@ -2166,7 +2174,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
       const name = String(args.name ?? '').trim()
       if (!name) return text('create_eval_suite needs a name.', true)
-      const target = ['rag', 'chat', 'agent'].includes(String(args.target)) ? String(args.target) : 'chat'
+      const target = ['rag', 'chat', 'agent', 'tool'].includes(String(args.target)) ? String(args.target) : 'chat'
       let agentId: string | null = null
       if (target === 'agent') {
         agentId = await resolveAgent(db, args.agent)
@@ -2189,6 +2197,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
           rubric: String(args.rubric ?? ''),
           judge_model: args.judge_model ? String(args.judge_model) : null,
           collection_ids: collectionIds,
+          sandbox_tools: args.sandbox_tools === false ? false : true,
           created_by: owner,
         })
         .select('id, name')
@@ -2239,7 +2248,10 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (runId) {
         const run = await getEvalRun(db, runId)
         if (!run) return text('No run found yet.', true)
-        return text(formatEvalRun(run))
+        // Per-case detail: pass/fail, the tools each case called, and failures —
+        // this is what makes tool usage measurable over MCP, not just a score.
+        const results = await getResultsForRun(db, runId)
+        return text(formatRunDetail(run, results))
       }
       if (suiteRef) {
         const suite = await resolveSuite(db, suiteRef)

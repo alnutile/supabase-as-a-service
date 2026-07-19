@@ -10,12 +10,36 @@ export const MAX_MODELS = 6
 export type Assertion = Record<string, unknown>
 export type AssertionResult = { type: string; pass: boolean; detail: string }
 
+// One tool invocation captured during a chat/agent run — what the assistant
+// actually called, with what arguments, and whether the eval sandbox stubbed it.
+export type ToolCall = { name: string; arguments: Record<string, unknown>; result?: string; sandboxed?: boolean }
+
+// What an assertion is evaluated against: retrieved doc names (rag), the answer /
+// result text, and the tool-call trace (tool-usage assertions).
+export type AssertionContext = { docs?: string[]; text?: string; trace?: ToolCall[] }
+
 // deno-lint-ignore no-explicit-any
 export type Case = { id: string; name: string; input: string; expected: string | null; assertions: any }
 
-// Evaluate one assertion against text (+ optional retrieved doc names for rag).
-export function evalAssertion(a: Assertion, docs: string[], text: string): AssertionResult {
+// Which builtins are safe to actually EXECUTE inside a sandboxed eval run:
+// pure reads with no data mutation, no external calls, no credential exposure.
+// Classify by prefix so new read-only builtins are covered automatically; the one
+// exception is get_secret (a read, but it returns a raw credential — never run it
+// in an eval). Everything else — writes, http/web/mcp tools — is captured but not
+// executed. Used by runOrchestrator when opts.sandboxTools is set.
+export function isReadOnlyBuiltin(name: string): boolean {
+  if (name === 'get_secret') return false
+  return /^(list_|get_|query_|search_)/.test(name) || name === 'check_email'
+}
+
+// Evaluate one assertion against the context (retrieved docs, answer/result text,
+// and/or the tool-call trace). Pure — the whole point of extracting it here.
+export function evalAssertion(a: Assertion, ctx: AssertionContext): AssertionResult {
   const type = String(a.type ?? '').toLowerCase()
+  const docs = ctx.docs ?? []
+  const text = ctx.text ?? ''
+  const trace = ctx.trace ?? []
+  const callsTo = (tool: string) => trace.filter((c) => c.name.toLowerCase() === tool.toLowerCase())
   switch (type) {
     case 'retrieves':
     case 'recall_at_k': {
@@ -43,9 +67,70 @@ export function evalAssertion(a: Assertion, docs: string[], text: string): Asser
         return { type, pass: false, detail: `invalid regex /${a.pattern}/` }
       }
     }
+    // --- tool-usage assertions (graded against the trace) ---
+    case 'calls_tool': {
+      const tool = String(a.tool ?? '').trim()
+      const hit = tool !== '' && callsTo(tool).length > 0
+      return { type, pass: hit, detail: hit ? `called ${tool}` : `did not call ${tool || '(no tool given)'}` }
+    }
+    case 'not_calls_tool': {
+      const tool = String(a.tool ?? '').trim()
+      const called = tool !== '' && callsTo(tool).length > 0
+      return { type, pass: !called, detail: called ? `unexpectedly called ${tool}` : `did not call ${tool} (as expected)` }
+    }
+    case 'calls_tool_with': {
+      const tool = String(a.tool ?? '').trim()
+      const matches = callsTo(tool)
+      if (tool === '' || matches.length === 0) {
+        return { type, pass: false, detail: `did not call ${tool || '(no tool given)'}` }
+      }
+      const argContains = a.arg_contains != null ? String(a.arg_contains).toLowerCase() : null
+      const argRegex = a.arg_regex != null ? String(a.arg_regex) : null
+      if (argContains == null && argRegex == null) {
+        return { type, pass: true, detail: `called ${tool}` }
+      }
+      const hit = matches.some((c) => {
+        const argStr = JSON.stringify(c.arguments ?? {})
+        if (argContains != null && !argStr.toLowerCase().includes(argContains)) return false
+        if (argRegex != null) {
+          try {
+            if (!new RegExp(argRegex, 'i').test(argStr)) return false
+          } catch {
+            return false
+          }
+        }
+        return true
+      })
+      const want = argContains != null ? `args containing "${a.arg_contains}"` : `args matching /${a.arg_regex}/`
+      return { type, pass: hit, detail: hit ? `called ${tool} with ${want}` : `called ${tool} but not with ${want}` }
+    }
+    case 'tool_call_count': {
+      const tool = String(a.tool ?? '').trim()
+      const n = tool === '' ? 0 : callsTo(tool).length
+      const has = (k: string) => a[k] != null && a[k] !== ''
+      let pass = true
+      const bounds: string[] = []
+      if (has('equals')) { const e = Number(a.equals); pass = pass && n === e; bounds.push(`= ${e}`) }
+      if (has('max')) { const m = Number(a.max); pass = pass && n <= m; bounds.push(`≤ ${m}`) }
+      if (has('min')) { const m = Number(a.min); pass = pass && n >= m; bounds.push(`≥ ${m}`) }
+      if (bounds.length === 0) { pass = n > 0; bounds.push('≥ 1') }
+      return { type, pass, detail: `${tool} called ${n}× (want ${bounds.join(', ')})` }
+    }
     default:
       return { type: type || 'unknown', pass: false, detail: `unsupported assertion type "${a.type}"` }
   }
+}
+
+// Compact one-line render of a tool trace for storing on a result / showing in MCP.
+export function summarizeTrace(trace: ToolCall[]): string {
+  if (!trace.length) return '(no tools called)'
+  return trace
+    .map((c) => {
+      const args = JSON.stringify(c.arguments ?? {})
+      const shortArgs = args.length > 80 ? args.slice(0, 80) + '…' : args
+      return `${c.name}(${shortArgs})${c.sandboxed ? ' [sandboxed]' : ''}`
+    })
+    .join('; ')
 }
 
 // Normalize a models input into a clamped, de-duped list of slugs. Accepts an
@@ -99,4 +184,30 @@ export function formatMatrix(runs: any[]): string {
   })
   if (anyRunning) lines.push('', 'Some runs are still going — poll again for the full comparison.')
   return lines.join('\n')
+}
+
+// Per-case breakdown for one run — the "what actually happened" payload MCP shows
+// when you pass a run_id: each case's pass/fail, the tools it called, the failed
+// assertions, and the judge's reason. This is what makes tool usage MEASURABLE
+// over MCP (not just a headline score). `results` are eval_results rows.
+// deno-lint-ignore no-explicit-any
+export function formatRunDetail(run: any, results: any[]): string {
+  const header = formatEvalRun(run)
+  if (!results.length) return `${header}\n\n(no case results yet)`
+  const lines = results.map((r) => {
+    const mark = r.passed ? '✓' : '✗'
+    const parts = [`${mark} ${r.case_name}`]
+    const detail = r.detail ?? {}
+    // Tools called (chat/agent trace or the tool-target invocation).
+    const tools = Array.isArray(detail.tools) ? (detail.tools as ToolCall[]) : []
+    if (tools.length) parts.push(`    tools: ${summarizeTrace(tools)}`)
+    // Failed assertions.
+    const asserts = Array.isArray(detail.assertions) ? (detail.assertions as AssertionResult[]) : []
+    const failed = asserts.filter((a) => !a.pass)
+    if (failed.length) parts.push(`    failed: ${failed.map((a) => `${a.type} (${a.detail})`).join('; ')}`)
+    // Judge reason on a fail.
+    if (detail.judge && !detail.judge.pass && detail.judge.reason) parts.push(`    judge: ${detail.judge.reason}`)
+    return parts.join('\n')
+  })
+  return `${header}\n\nCases:\n${lines.join('\n')}`
 }
