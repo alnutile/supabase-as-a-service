@@ -1,0 +1,17 @@
+{
+  "name": "@supanet/control-plane",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "SupaNet hosted control plane: provisioning engine + (later) signup backend. See docs/tasks/hosted-control-plane.md",
+  "scripts": {
+    "tenant-zero": "tsx engine/tenant-zero.ts",
+    "test": "tsx --test engine/pipeline.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
