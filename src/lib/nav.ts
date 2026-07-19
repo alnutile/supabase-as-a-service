@@ -154,6 +154,7 @@ export const settingsGroup: NavGroup = {
     { to: '/settings/connect', label: 'Connect Claude', key: 'settings.connect', icon: ApiIcon, alwaysOn: true, keywords: 'settings mcp token claude code' },
     { to: '/settings/models', label: 'Models', key: 'settings.models', icon: SparkleIcon, adminOnly: true, alwaysOn: true, keywords: 'settings openrouter model profile' },
     { to: '/settings/email', label: 'Email', key: 'settings.email', icon: MailIcon, adminOnly: true, alwaysOn: true, keywords: 'settings postmark resend inbound' },
+    { to: '/settings/email-accounts', label: 'Email accounts', key: 'settings.email-accounts', icon: MailIcon, alwaysOn: true, keywords: 'settings imap mailbox gmail pull poll' },
     { to: '/settings/slack', label: 'Slack', key: 'settings.slack', icon: SlackIcon, adminOnly: true, alwaysOn: true, keywords: 'settings bot channel' },
     { to: '/settings/mcp', label: 'External MCP', key: 'settings.mcp', icon: GlobeIcon, adminOnly: true, alwaysOn: true, keywords: 'settings zapier server' },
     { to: '/settings/people', label: 'Invite people', key: 'settings.people', icon: UsersIcon, adminOnly: true, alwaysOn: true, keywords: 'settings invite members allowed emails' },

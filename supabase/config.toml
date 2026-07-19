@@ -94,3 +94,10 @@ verify_jwt = false
 # (mcp_tokens), same auth as run-tool, so it must stay verify_jwt = false.
 [functions.message-inbound]
 verify_jwt = false
+
+# IMAP mailbox poller: ticked by pg_cron (via pg_net) with the same cron secret
+# as the scheduler to poll every due account, and also callable by an owner with
+# a session JWT / mcp_tokens bearer to poll one account on demand ("Poll now").
+# Both auth paths are checked in code, so it must stay verify_jwt = false.
+[functions.imap-poll]
+verify_jwt = false

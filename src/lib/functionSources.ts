@@ -30,6 +30,7 @@ const VERIFY_JWT: Record<string, boolean> = {
   todos: false,
   'event-dispatch': false,
   'message-inbound': false,
+  'imap-poll': false,
   chat: true,
   forge: true,
   loop: true,
