@@ -703,6 +703,61 @@ const TOOLS = [
     },
   },
   {
+    name: 'create_agent_job',
+    description:
+      'Queue a job for a specialized capability worker (OfficeCLI documents or ffmpeg media) instead of doing heavy binary work in-context. Pass `operation` (e.g. office.create_docx, media.extract_frames — the capability is inferred from the prefix), an `input_manifest` array referencing files by file_id/artifact_id/storage_path (NOT contents), `instructions`, and optional operation `parameters`. Returns the job id; poll it with get_agent_job. A Railway/Docker worker runs it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operation: {
+          type: 'string',
+          description:
+            'One of: office.inspect_document, office.render_document, office.create_docx, office.convert_document, media.probe, media.extract_audio, media.extract_frames, media.create_thumbnail, media.transcode, media.clip.',
+        },
+        instructions: { type: 'string', description: 'Natural-language instructions for the worker.' },
+        input_manifest: {
+          type: 'array',
+          description: 'Input references: each {file_id?|artifact_id?|storage_path?, role?, required?}.',
+          items: { type: 'object' },
+        },
+        parameters: { type: 'object', description: 'Operation-specific parameters (e.g. timestamps [0,15], format png).' },
+        priority: { type: 'number', description: '0-100, default 50 (higher runs first).' },
+      },
+      required: ['operation'],
+    },
+  },
+  {
+    name: 'get_agent_job',
+    description:
+      'Check a capability-worker job by id: its status, error (if any), and — when completed — its result manifest of output files/artifacts. Poll after create_agent_job until completed / failed / cancelled / dead_letter.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'The job id returned by create_agent_job.' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'list_agent_jobs',
+    description: 'List your capability-worker jobs, most recent first, with ids and statuses. Optionally filter by capability (office|media) or status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        capability: { type: 'string', enum: ['office', 'media'] },
+        status: { type: 'string' },
+        limit: { type: 'number', description: 'Max rows (default 20, max 100).' },
+      },
+    },
+  },
+  {
+    name: 'cancel_agent_job',
+    description: 'Cancel a queued or in-flight capability-worker job you own (by id). Already-completed jobs are unaffected.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'The job id to cancel.' } },
+      required: ['id'],
+    },
+  },
+  {
     name: 'save_message',
     description:
       'Save a message into the unified inbox — a captured note, a forwarded email, a Slack/WhatsApp message, etc. Optionally file it into a collection (by name; created if missing).',
@@ -1908,6 +1963,10 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'get_card_board':
     case 'add_cards':
     case 'add_card_board_to_collection':
+    case 'create_agent_job':
+    case 'get_agent_job':
+    case 'list_agent_jobs':
+    case 'cancel_agent_job':
       return text(await runBuiltin(db, name, args, owner))
     case 'get_activity': {
       const since = parseSince(args.since)
