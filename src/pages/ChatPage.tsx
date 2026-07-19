@@ -1407,7 +1407,8 @@ export default function ChatPage() {
               </div>
             )}
 
-            <div className="flex items-end gap-2">
+            {/* Action buttons above the input */}
+            <div className="mb-2 flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -1459,6 +1460,10 @@ export default function ChatPage() {
                 className="hidden"
                 onChange={(e) => handleAttach(e.target.files)}
               />
+            </div>
+
+            {/* Input row with textarea and send button */}
+            <div className="flex items-end gap-2">
               <textarea
                 ref={textareaRef}
                 value={input}
