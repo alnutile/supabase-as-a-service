@@ -448,6 +448,34 @@ Deno.serve(async (req: Request) => {
     clientGone = true
   }
 
+  // Keep the streamed connection alive during idle gaps. A long-running turn can
+  // go a minute or more with NO bytes to send — while a slow tool runs (http /
+  // MCP / builtin) or the model "thinks" before its first token. Intermediate
+  // proxies drop an idle SSE connection after ~1–2 min, so the browser's reader
+  // ends early and the typing indicator disappears as if it timed out, even
+  // though the background task is still running and will persist the reply. A
+  // lightweight SSE comment every 15s keeps bytes flowing. Comments (": …") are
+  // ignored by the client SSE parser (it only acts on "data:" lines) and by
+  // orStream, so they never corrupt the delta stream. We enqueue directly (not
+  // via push) so a heartbeat never throws ClientGoneError to unwind the run.
+  const HEARTBEAT_MS = 15_000
+  const encoder = new TextEncoder()
+  let heartbeat: number | undefined
+  const startHeartbeat = () => {
+    heartbeat = setInterval(() => {
+      if (clientGone) return
+      try {
+        controllerRef?.enqueue(encoder.encode(': ping\n\n'))
+      } catch {
+        clientGone = true
+      }
+    }, HEARTBEAT_MS)
+  }
+  const stopHeartbeat = () => {
+    if (heartbeat !== undefined) clearInterval(heartbeat)
+    heartbeat = undefined
+  }
+
   // Materialize :::artifact blocks server-side (insert rows as the caller, swap
   // in share links) and persist the assistant message + touch the conversation.
   // Mirrors ChatPage.materializeArtifacts so the protocol behaves identically
@@ -490,6 +518,7 @@ Deno.serve(async (req: Request) => {
 
   const task = (async () => {
     let full = ''
+    startHeartbeat()
     try {
       for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
         const result = await orStream(
@@ -562,6 +591,7 @@ Deno.serve(async (req: Request) => {
         // client gone — the Activity log above is the durable record
       }
     } finally {
+      stopHeartbeat()
       closeStream()
     }
   })()
