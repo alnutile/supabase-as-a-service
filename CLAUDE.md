@@ -991,7 +991,7 @@ selection — never hardcode a model id:** the model resolves through the
 `model_profiles` table via `resolveModel(db, key)`
 (`supabase/functions/_shared/models.ts`). Features bind to a profile **key**, not
 a model — `orchestrator` (the main brain: chat/agents/webhook/scheduled runs,
-seeded `anthropic/claude-sonnet-4.5`) and `utility` (cheap + fast, seeded
+seeded `openai/gpt-5.6-luna`) and `utility` (cheap + fast, seeded
 `anthropic/claude-haiku-4.5`). Model ids are **OpenRouter slugs**. Admins re-point a
 key in Settings → Models; the DB row is the source of truth and `OPENROUTER_MODEL`
 is only a fallback when the row can't be loaded. Deployed with `verify_jwt: true`.
