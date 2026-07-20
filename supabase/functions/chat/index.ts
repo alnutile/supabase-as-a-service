@@ -35,7 +35,12 @@ import {
 
 const MAX_ATTACH_BYTES = 6_000_000 // ~6MB per file
 
-const MAX_TOOL_TURNS = 8
+// How many model→tool→model round-trips a single reply may take. A genuinely
+// long agentic task (search → read → cross-reference → write) can need more than
+// a handful, and hitting the cap ends the reply mid-work. Kept bounded so a
+// misbehaving loop can't run away; the background task + heartbeat keep the run
+// alive long enough to use them.
+const MAX_TOOL_TURNS = 16
 
 const DEFAULT_SYSTEM = `You are the assistant inside a Supabase-powered intranet. Be warm, concise, and practical.
 
