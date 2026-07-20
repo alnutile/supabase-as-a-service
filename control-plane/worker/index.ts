@@ -103,7 +103,7 @@ async function runJob(job: Job): Promise<void> {
 }
 
 console.log(`SupaNet provisioning worker up — polling every ${POLL_MS}ms`)
-while (true) {
+for (;;) {
   try {
     const { data, error } = await db.rpc('claim_provisioning_job', { p_lease_seconds: LEASE_SECONDS })
     if (error) {

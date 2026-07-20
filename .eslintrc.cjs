@@ -6,7 +6,14 @@ module.exports = {
     'plugin:@typescript-eslint/recommended',
     'plugin:react-hooks/recommended',
   ],
-  ignorePatterns: ['dist', '.eslintrc.cjs', 'supabase/functions'],
+  ignorePatterns: [
+    'dist',
+    '.eslintrc.cjs',
+    'supabase/functions',
+    // Generated build artifact (esbuild bundle of dc-runtime/src/*.ts, marked
+    // "do not edit") — a committed build output like dist/, not source to lint.
+    'control-plane/demo-user-interface/support.js',
+  ],
   parser: '@typescript-eslint/parser',
   plugins: ['react-refresh'],
   rules: {
