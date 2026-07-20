@@ -16,4 +16,8 @@ WORKDIR /app
 COPY . .
 RUN cd control-plane && npm ci
 
-CMD ["npm", "--prefix", "control-plane", "run", "worker"]
+# WORKDIR is control-plane and its package.json "start" runs the worker, so the
+# image CMD and Railway's imposed `npm start` are the same thing (Railway runs
+# npm start from WORKDIR regardless of CMD — learned on first deploy).
+WORKDIR /app/control-plane
+CMD ["npm", "start"]
