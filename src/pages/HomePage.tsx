@@ -623,14 +623,31 @@ function ActivityFeed({ feed, loading }: { feed: ActivityRow[]; loading: boolean
           Nothing yet — activity shows up here as it happens.
         </div>
       ) : (
-        <ol className="space-y-1">
+        <ol className="space-y-1.5">
           {feed.map((ev) => {
             const fam = activityFamily(ev.type)
+            // Map dot color to badge style matching ActivityPage
+            let badgeClass = 'bg-surface-2 text-muted'
+            if (fam.dot === 'bg-red-500') badgeClass = 'bg-red-100 text-red-700'
+            else if (fam.dot === 'bg-emerald-500') badgeClass = 'bg-emerald-100 text-emerald-700'
+            else if (fam.dot === 'bg-primary') badgeClass = 'bg-primary-soft text-primary'
+            else if (fam.dot === 'bg-violet-500') badgeClass = 'bg-violet-100 text-violet-700'
+            else if (fam.dot === 'bg-amber-500') badgeClass = 'bg-amber-100 text-amber-700'
+            else if (fam.dot === 'bg-indigo-500') badgeClass = 'bg-indigo-100 text-indigo-700'
+            else if (fam.dot === 'bg-sky-500') badgeClass = 'bg-sky-100 text-sky-700'
+            else if (fam.dot === 'bg-teal-500') badgeClass = 'bg-teal-100 text-teal-700'
+            else if (fam.dot === 'bg-blue-500') badgeClass = 'bg-blue-100 text-blue-700'
+            else if (fam.dot === 'bg-rose-500') badgeClass = 'bg-rose-100 text-rose-700'
+
             return (
-              <li key={ev.id} className="flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-surface-2">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${fam.dot}`} />
-                <span className="min-w-0 flex-1 truncate text-sm text-text">{ev.summary || fam.label}</span>
-                <span className="shrink-0 text-[12px] font-medium text-faint">{timeAgo(ev.created_at)}</span>
+              <li key={ev.id} className="flex flex-col gap-1.5 rounded-xl px-2 py-2 transition hover:bg-surface-2">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${badgeClass}`}>
+                    {ev.type}
+                  </span>
+                  <span className="shrink-0 ml-auto text-[11px] font-medium text-faint">{timeAgo(ev.created_at)}</span>
+                </div>
+                <span className="min-w-0 truncate text-[13px] text-text">{ev.summary}</span>
               </li>
             )
           })}
