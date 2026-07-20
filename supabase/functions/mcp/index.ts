@@ -49,8 +49,6 @@ function admin() {
   return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 }
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
-
 type DB = ReturnType<typeof admin>
 
 async function isAdmin(db: DB, owner: string): Promise<boolean> {
@@ -76,6 +74,7 @@ const TOOLS = [
         instructions: { type: 'string', description: 'The agent system prompt.' },
         description: { type: 'string' },
         tool_ids: { type: 'array', items: { type: 'string' }, description: 'Tool ids the agent may use.' },
+        collection_ids: { type: 'array', items: { type: 'string' }, description: 'Collection ids the agent uses as context.' },
       },
       required: ['name', 'instructions'],
     },
@@ -1165,27 +1164,8 @@ async function resolveArtifact(
   return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
 }
 
-// Resolve one skill/prompt by id or exact name (case-insensitive) within this
-// owner's READ scope — their own on-demand skills OR any always-on prompt. The
-// write rule (own personal skill, or admin for always-on) is re-checked by the
-// caller; a resolved non-always-on row is therefore guaranteed to be owner-owned.
-async function resolveSkill(
-  db: DB,
-  owner: string,
-  ref: string,
-): Promise<
-  | { id: string; name: string; description: string | null; instructions: string; auto_apply: boolean; is_builtin: boolean; output_mode: string; owner_id: string | null }
-  | null
-> {
-  let q = db
-    .from('skills')
-    .select('id, name, description, instructions, auto_apply, is_builtin, output_mode, owner_id')
-    .or(`owner_id.eq.${owner},auto_apply.eq.true`)
-  q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('name', ref)
-  const { data } = await q.order('updated_at', { ascending: false }).limit(1)
-  // deno-lint-ignore no-explicit-any
-  return (data?.[0] as any) ?? null
-}
+// Skill/prompt resolution + CRUD now live in _shared/builtins.ts and are reached
+// via runBuiltin, so the internal assistant and this MCP server share one path.
 
 // Map artifact id → collection names it belongs to (for the given ids only).
 async function artifactCollectionsMap(db: DB, ids: string[]): Promise<Map<string, string[]>> {
@@ -1422,142 +1402,20 @@ function text(t: string, isError = false) {
 // deno-lint-ignore no-explicit-any
 async function callTool(db: DB, owner: string, name: string, args: any) {
   switch (name) {
-    case 'list_agents': {
-      const { data } = await db.from('agents').select('id, name, description, is_active').order('created_at', { ascending: false })
-      return text((data ?? []).map((a) => `• ${a.name} (${a.id})${a.is_active ? '' : ' [inactive]'} — ${a.description || 'no description'}`).join('\n') || 'No agents yet.')
-    }
-    case 'create_agent': {
-      const { data, error } = await db.from('agents').insert({
-        owner_id: owner,
-        name: args.name,
-        description: args.description ?? '',
-        instructions: args.instructions,
-        tool_ids: Array.isArray(args.tool_ids) ? args.tool_ids : [],
-      }).select('id').single()
-      if (error) return text(`Error: ${error.message}`, true)
-      return text(`Created agent "${args.name}" (id ${data.id}). It's now in the dashboard under Agents.`)
-    }
-    case 'list_tools': {
-      const { data } = await db.from('tools').select('id, name, kind, is_active')
-      return text((data ?? []).map((t) => `• ${t.kind === 'web' ? 'web_browsing' : t.name} (${t.id}, ${t.kind})${t.is_active ? '' : ' [off]'}`).join('\n') || 'No tools.')
-    }
-    case 'create_http_tool': {
-      if (!(await isAdmin(db, owner))) return text('Only admins can create tools.', true)
-      const { data, error } = await db.from('tools').insert({
-        name: args.name,
-        description: args.description,
-        kind: 'http',
-        input_schema: args.input_schema ?? { type: 'object', properties: {} },
-        config: {
-          url: args.url,
-          method: args.method ?? 'POST',
-          ...(args.headers && typeof args.headers === 'object' ? { headers: args.headers } : {}),
-        },
-        is_active: true,
-        created_by: owner,
-      }).select('id').single()
-      if (error) return text(`Error: ${error.message}`, true)
-      return text(`Created tool "${args.name}" (id ${data.id}), enabled.`)
-    }
-    case 'create_skill': {
-      const wantAlwaysOn = args.always_on === true
-      if (wantAlwaysOn && !(await isAdmin(db, owner))) return text('Only admins can create always-on skills.', true)
-      const outputMode = args.output_mode === 'reply' ? 'reply' : 'artifact'
-      const { data, error } = await db.from('skills').insert({
-        owner_id: owner,
-        name: args.name,
-        description: args.description ?? null,
-        instructions: args.instructions,
-        auto_apply: wantAlwaysOn,
-        output_mode: outputMode,
-      }).select('id').single()
-      if (error) return text(`Error: ${error.message}`, true)
-      return text(`Created ${wantAlwaysOn ? 'always-on prompt' : 'on-demand skill'} "${args.name}" (id ${data.id}).`)
-    }
-    case 'list_skills': {
-      const limit = clampLimit(args.limit, 50, 200)
-      let q = db
-        .from('skills')
-        .select('id, name, description, auto_apply, is_builtin, output_mode, owner_id')
-        .or(`owner_id.eq.${owner},auto_apply.eq.true`)
-        .order('auto_apply', { ascending: false })
-        .order('updated_at', { ascending: false })
-        .limit(limit)
-      if (args.always_on === true) q = q.eq('auto_apply', true)
-      else if (args.always_on === false) q = q.eq('auto_apply', false)
-      const query = typeof args.query === 'string' ? args.query.trim() : ''
-      if (query) q = q.or(`name.ilike.%${query}%,description.ilike.%${query}%`)
-      const { data, error } = await q
-      if (error) return text(`Error: ${error.message}`, true)
-      const rows = (data ?? []) as Array<{ id: string; name: string; description: string | null; auto_apply: boolean; is_builtin: boolean }>
-      if (!rows.length) return text('No skills or prompts match. Use create_skill to make one.')
-      return text(
-        rows
-          .map((s) =>
-            `• ${s.name} (${s.id}) [${s.auto_apply ? 'always-on prompt' : 'on-demand skill'}${s.is_builtin ? ', built-in' : ''}]${
-              s.description ? ` — ${s.description}` : ''
-            }`,
-          )
-          .join('\n'),
-      )
-    }
-    case 'get_skill': {
-      const ref = String(args.skill ?? '').trim()
-      if (!ref) return text('get_skill needs a skill id or exact name.', true)
-      const skill = await resolveSkill(db, owner, ref)
-      if (!skill) return text(`No skill or prompt matches "${ref}".`, true)
-      return text([
-        `id: ${skill.id}`,
-        `name: ${skill.name}`,
-        `mode: ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'}${skill.is_builtin ? ' (built-in)' : ''}`,
-        `output_mode: ${skill.output_mode}`,
-        `description: ${skill.description ?? '(none)'}`,
-        `instructions:`,
-        skill.instructions ?? '',
-      ].join('\n'))
-    }
-    case 'update_skill': {
-      const ref = String(args.skill ?? '').trim()
-      if (!ref) return text('update_skill needs a skill id or exact name.', true)
-      const skill = await resolveSkill(db, owner, ref)
-      if (!skill) return text(`No skill or prompt matches "${ref}".`, true)
-      const wantAlwaysOn = typeof args.always_on === 'boolean' ? args.always_on : skill.auto_apply
-      // Always-on prompts (and toggling a skill onto/off always-on) are admin-only;
-      // a resolved non-always-on skill is guaranteed owner-owned by resolveSkill.
-      if ((skill.auto_apply || wantAlwaysOn) && !(await isAdmin(db, owner))) {
-        return text('Only admins can edit or create always-on prompts.', true)
-      }
-      const patch: Record<string, unknown> = {}
-      if (typeof args.name === 'string' && args.name.trim()) patch.name = args.name.trim()
-      if (typeof args.description === 'string') patch.description = args.description
-      if (typeof args.instructions === 'string') patch.instructions = args.instructions
-      if (args.output_mode === 'artifact' || args.output_mode === 'reply') patch.output_mode = args.output_mode
-      if (typeof args.always_on === 'boolean') patch.auto_apply = args.always_on
-      if (!Object.keys(patch).length) return text('Nothing to update — pass name, description, instructions, output_mode, and/or always_on.')
-      const { error } = await db.from('skills').update(patch).eq('id', skill.id)
-      if (error) return text(`Error: ${error.message}`, true)
-      return text(`Updated ${wantAlwaysOn ? 'always-on prompt' : 'on-demand skill'} "${(patch.name as string) ?? skill.name}" (id ${skill.id}).`)
-    }
-    case 'delete_skill': {
-      const ref = String(args.skill ?? '').trim()
-      if (!ref) return text('delete_skill needs a skill id or exact name.', true)
-      const skill = await resolveSkill(db, owner, ref)
-      if (!skill) return text(`No skill or prompt matches "${ref}".`, true)
-      if (skill.is_builtin) return text(`"${skill.name}" is a built-in prompt and can't be deleted (edit it with update_skill instead).`, true)
-      if (skill.auto_apply && !(await isAdmin(db, owner))) return text('Only admins can delete always-on prompts.', true)
-      const { error } = await db.from('skills').delete().eq('id', skill.id)
-      if (error) return text(`Error: ${error.message}`, true)
-      return text(`Deleted ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'} "${skill.name}".`)
-    }
-    case 'create_webhook': {
-      const { data, error } = await db.from('webhooks').insert({
-        owner_id: owner,
-        name: args.name,
-        prompt: args.prompt ?? '',
-      }).select('token').single()
-      if (error) return text(`Error: ${error.message}`, true)
-      return text(`Created webhook "${args.name}". POST payloads to:\n${SUPABASE_URL}/functions/v1/webhook/${data.token}`)
-    }
+    // Build tools (agents / HTTP tools / webhooks / skills) are delegated to the
+    // shared runBuiltin so the internal assistant and this MCP server run one
+    // implementation (admin gates re-checked in code there). See _shared/builtins.ts.
+    case 'list_agents':
+    case 'create_agent':
+    case 'list_tools':
+    case 'create_http_tool':
+    case 'create_webhook':
+    case 'create_skill':
+    case 'list_skills':
+    case 'get_skill':
+    case 'update_skill':
+    case 'delete_skill':
+      return text(await runBuiltin(db, name, args, owner))
     case 'create_artifact': {
       const type = normalizeArtifactType(args.type)
       const { data, error } = await db.from('artifacts').insert({
