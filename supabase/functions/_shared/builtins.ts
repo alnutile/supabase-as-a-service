@@ -201,6 +201,26 @@ export async function runBuiltin(
       return listAgentJobs(db, input, userId)
     case 'cancel_agent_job':
       return cancelAgentJob(db, input, userId)
+    case 'list_agents':
+      return listAgents(db, userId)
+    case 'create_agent':
+      return createAgent(db, input, userId)
+    case 'list_tools':
+      return listTools(db, userId)
+    case 'create_http_tool':
+      return createHttpTool(db, input, userId)
+    case 'create_webhook':
+      return createWebhook(db, input, userId)
+    case 'create_skill':
+      return createSkill(db, input, userId)
+    case 'list_skills':
+      return listSkills(db, input, userId)
+    case 'get_skill':
+      return getSkill(db, input, userId)
+    case 'update_skill':
+      return updateSkill(db, input, userId)
+    case 'delete_skill':
+      return deleteSkill(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -2121,6 +2141,284 @@ async function cancelAgentJob(
   if (error) return `Could not cancel the job: ${error.message}`
   await logActivity(db, 'agent_job.cancelled', `Cancelled job ${id}`, { id }, userId)
   return `Cancelled job ${id}.`
+}
+
+// --- Build tools (agents / tools / webhooks / skills) -----------------------
+// The in-app mirror of the MCP server's "build" actions, so the internal
+// assistant (and the scheduler/webhook/Slack loops) can create and manage
+// agents, HTTP tools, webhooks, and skills — not just an external Claude over
+// MCP. These run with the service role, so the same admin gates the MCP server
+// enforces (HTTP tools + always-on prompts are admin-only) are re-checked here
+// in code. The MCP server delegates to these (via runBuiltin) so both paths
+// share one implementation and never drift.
+
+async function listAgents(db: DB | null, userId: string | null): Promise<string> {
+  if (!db || !userId) return 'Agents are unavailable.'
+  const { data, error } = await db
+    .from('agents')
+    .select('id, name, description, is_active')
+    .order('created_at', { ascending: false })
+  if (error) return `Could not list agents: ${error.message}`
+  const rows = (data ?? []) as Array<{ id: string; name: string; description: string | null; is_active: boolean }>
+  if (!rows.length) return 'No agents yet. Create one with create_agent.'
+  return rows
+    .map((a) => `• ${a.name} (${a.id})${a.is_active ? '' : ' [inactive]'} — ${a.description || 'no description'}`)
+    .join('\n')
+}
+
+async function createAgent(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Agents are unavailable.'
+  const name = String(input?.name ?? '').trim()
+  if (!name) return 'An agent name is required.'
+  const instructions = String(input?.instructions ?? '').trim()
+  if (!instructions) return 'Agent instructions (the system prompt) are required.'
+  const toolIds = Array.isArray(input?.tool_ids) ? (input.tool_ids as unknown[]).map(String) : []
+  const collectionIds = Array.isArray(input?.collection_ids) ? (input.collection_ids as unknown[]).map(String) : []
+  const { data, error } = await db
+    .from('agents')
+    .insert({
+      owner_id: userId,
+      name,
+      description: String(input?.description ?? ''),
+      instructions,
+      tool_ids: toolIds,
+      collection_ids: collectionIds,
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not create the agent: ${error.message}`
+  await logActivity(db, 'agent.created', `Created agent "${name}"`, { id: data.id }, userId)
+  return `Created agent "${name}" (id ${data.id}). It's now in the dashboard under Agents.`
+}
+
+async function listTools(db: DB | null, userId: string | null): Promise<string> {
+  if (!db || !userId) return 'Tools are unavailable.'
+  const { data, error } = await db.from('tools').select('id, name, kind, is_active')
+  if (error) return `Could not list tools: ${error.message}`
+  const rows = (data ?? []) as Array<{ id: string; name: string; kind: string; is_active: boolean }>
+  if (!rows.length) return 'No tools.'
+  return rows
+    .map((t) => `• ${t.kind === 'web' ? 'web_browsing' : t.name} (${t.id}, ${t.kind})${t.is_active ? '' : ' [off]'}`)
+    .join('\n')
+}
+
+async function createHttpTool(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Tools are unavailable.'
+  if (!(await isAdmin(db, userId))) return 'Only admins can create tools.'
+  const name = String(input?.name ?? '').trim()
+  if (!name) return 'A tool name is required.'
+  const url = String(input?.url ?? '').trim()
+  if (!url) return 'The tool needs a config url to POST inputs to.'
+  const headers = input?.headers && typeof input.headers === 'object' ? { headers: input.headers } : {}
+  const { data, error } = await db
+    .from('tools')
+    .insert({
+      name,
+      description: String(input?.description ?? ''),
+      kind: 'http',
+      input_schema: (input?.input_schema as unknown) ?? { type: 'object', properties: {} },
+      config: {
+        url,
+        method: String(input?.method ?? 'POST'),
+        ...headers,
+      },
+      is_active: true,
+      created_by: userId,
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not create the tool: ${error.message}`
+  await logActivity(db, 'tool.created', `Created HTTP tool "${name}"`, { id: data.id }, userId)
+  return `Created tool "${name}" (id ${data.id}), enabled.`
+}
+
+async function createWebhook(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Webhooks are unavailable.'
+  const name = String(input?.name ?? '').trim()
+  if (!name) return 'A webhook name is required.'
+  const { data, error } = await db
+    .from('webhooks')
+    .insert({
+      owner_id: userId,
+      name,
+      prompt: String(input?.prompt ?? ''),
+    })
+    .select('token')
+    .single()
+  if (error) return `Could not create the webhook: ${error.message}`
+  await logActivity(db, 'webhook.created', `Created webhook "${name}"`, {}, userId)
+  const base = Deno.env.get('SUPABASE_URL') ?? ''
+  return `Created webhook "${name}". POST payloads to:\n${base}/functions/v1/webhook/${data.token}`
+}
+
+// Resolve a skill by id or exact name, scoped to the caller's own skills plus
+// any always-on prompt (mirrors the MCP server's resolveSkill).
+async function resolveSkill(
+  db: DB,
+  userId: string,
+  ref: string,
+): Promise<
+  | {
+    id: string
+    name: string
+    description: string | null
+    instructions: string
+    auto_apply: boolean
+    is_builtin: boolean
+    output_mode: string
+    owner_id: string | null
+  }
+  | null
+> {
+  let q = db
+    .from('skills')
+    .select('id, name, description, instructions, auto_apply, is_builtin, output_mode, owner_id')
+    .or(`owner_id.eq.${userId},auto_apply.eq.true`)
+  q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('name', ref)
+  const { data } = await q.order('updated_at', { ascending: false }).limit(1)
+  // deno-lint-ignore no-explicit-any
+  return (data?.[0] as any) ?? null
+}
+
+async function createSkill(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Skills are unavailable.'
+  const name = String(input?.name ?? '').trim()
+  if (!name) return 'A skill name is required.'
+  const instructions = String(input?.instructions ?? '').trim()
+  if (!instructions) return 'Skill instructions are required.'
+  const wantAlwaysOn = input?.always_on === true
+  if (wantAlwaysOn && !(await isAdmin(db, userId))) return 'Only admins can create always-on prompts.'
+  const outputMode = input?.output_mode === 'reply' ? 'reply' : 'artifact'
+  const { data, error } = await db
+    .from('skills')
+    .insert({
+      owner_id: userId,
+      name,
+      description: input?.description != null ? String(input.description) : null,
+      instructions,
+      auto_apply: wantAlwaysOn,
+      output_mode: outputMode,
+    })
+    .select('id')
+    .single()
+  if (error) return `Could not create the skill: ${error.message}`
+  await logActivity(db, 'skill.created', `Created ${wantAlwaysOn ? 'always-on prompt' : 'skill'} "${name}"`, { id: data.id }, userId)
+  return `Created ${wantAlwaysOn ? 'always-on prompt' : 'on-demand skill'} "${name}" (id ${data.id}).`
+}
+
+async function listSkills(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Skills are unavailable.'
+  const limit = clampLimit(input?.limit, 50, 200)
+  let q = db
+    .from('skills')
+    .select('id, name, description, auto_apply, is_builtin, output_mode, owner_id')
+    .or(`owner_id.eq.${userId},auto_apply.eq.true`)
+    .order('auto_apply', { ascending: false })
+    .order('updated_at', { ascending: false })
+    .limit(limit)
+  if (input?.always_on === true) q = q.eq('auto_apply', true)
+  else if (input?.always_on === false) q = q.eq('auto_apply', false)
+  const query = typeof input?.query === 'string' ? input.query.trim() : ''
+  if (query) q = q.or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+  const { data, error } = await q
+  if (error) return `Could not list skills: ${error.message}`
+  const rows = (data ?? []) as Array<{ id: string; name: string; description: string | null; auto_apply: boolean; is_builtin: boolean }>
+  if (!rows.length) return 'No skills or prompts match. Use create_skill to make one.'
+  return rows
+    .map((s) =>
+      `• ${s.name} (${s.id}) [${s.auto_apply ? 'always-on prompt' : 'on-demand skill'}${s.is_builtin ? ', built-in' : ''}]${
+        s.description ? ` — ${s.description}` : ''
+      }`
+    )
+    .join('\n')
+}
+
+async function getSkill(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Skills are unavailable.'
+  const ref = String(input?.skill ?? '').trim()
+  if (!ref) return 'get_skill needs a skill id or exact name.'
+  const skill = await resolveSkill(db, userId, ref)
+  if (!skill) return `No skill or prompt matches "${ref}".`
+  return [
+    `id: ${skill.id}`,
+    `name: ${skill.name}`,
+    `mode: ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'}${skill.is_builtin ? ' (built-in)' : ''}`,
+    `output_mode: ${skill.output_mode}`,
+    `description: ${skill.description ?? '(none)'}`,
+    `instructions:`,
+    skill.instructions ?? '',
+  ].join('\n')
+}
+
+async function updateSkill(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Skills are unavailable.'
+  const ref = String(input?.skill ?? '').trim()
+  if (!ref) return 'update_skill needs a skill id or exact name.'
+  const skill = await resolveSkill(db, userId, ref)
+  if (!skill) return `No skill or prompt matches "${ref}".`
+  const wantAlwaysOn = typeof input?.always_on === 'boolean' ? input.always_on : skill.auto_apply
+  // Always-on prompts (and toggling a skill onto/off always-on) are admin-only;
+  // a resolved non-always-on skill is guaranteed owner-owned by resolveSkill.
+  if ((skill.auto_apply || wantAlwaysOn) && !(await isAdmin(db, userId))) {
+    return 'Only admins can edit or create always-on prompts.'
+  }
+  const patch: Record<string, unknown> = {}
+  if (typeof input?.name === 'string' && input.name.trim()) patch.name = input.name.trim()
+  if (typeof input?.description === 'string') patch.description = input.description
+  if (typeof input?.instructions === 'string') patch.instructions = input.instructions
+  if (input?.output_mode === 'artifact' || input?.output_mode === 'reply') patch.output_mode = input.output_mode
+  if (typeof input?.always_on === 'boolean') patch.auto_apply = input.always_on
+  if (!Object.keys(patch).length) {
+    return 'Nothing to update — pass name, description, instructions, output_mode, and/or always_on.'
+  }
+  const { error } = await db.from('skills').update(patch).eq('id', skill.id)
+  if (error) return `Could not update the skill: ${error.message}`
+  return `Updated ${wantAlwaysOn ? 'always-on prompt' : 'on-demand skill'} "${(patch.name as string) ?? skill.name}" (id ${skill.id}).`
+}
+
+async function deleteSkill(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Skills are unavailable.'
+  const ref = String(input?.skill ?? '').trim()
+  if (!ref) return 'delete_skill needs a skill id or exact name.'
+  const skill = await resolveSkill(db, userId, ref)
+  if (!skill) return `No skill or prompt matches "${ref}".`
+  if (skill.is_builtin) return `"${skill.name}" is a built-in prompt and can't be deleted (edit it with update_skill instead).`
+  if (skill.auto_apply && !(await isAdmin(db, userId))) return 'Only admins can delete always-on prompts.'
+  const { error } = await db.from('skills').delete().eq('id', skill.id)
+  if (error) return `Could not delete the skill: ${error.message}`
+  return `Deleted ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'} "${skill.name}".`
 }
 
 async function isAdmin(db: DB, userId: string): Promise<boolean> {
