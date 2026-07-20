@@ -17,6 +17,12 @@ export interface RunOptions {
   log?: (message: string) => void
 }
 
+// Keys starting with `_` are in-memory transients (never persisted). Steps
+// should avoid them entirely for secrets — this strip is defense in depth.
+function persistable(state: TenantState): TenantState {
+  return Object.fromEntries(Object.entries(state).filter(([k]) => !k.startsWith('_')))
+}
+
 export async function runPipeline(opts: RunOptions): Promise<RunResult> {
   const log = opts.log ?? (() => {})
   const completed = new Set(opts.completed ?? [])
@@ -33,12 +39,12 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
       const out = await step.run({ spec: opts.spec, state, log })
       if (out) Object.assign(state, out)
       steps.push({ name: step.name, status: 'ok', finishedAt: new Date().toISOString() })
-      await opts.persist?.({ state, steps })
+      await opts.persist?.({ state: persistable(state), steps })
       log(`✓ ${step.name}`)
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
       steps.push({ name: step.name, status: 'error', finishedAt: new Date().toISOString(), error })
-      await opts.persist?.({ state, steps })
+      await opts.persist?.({ state: persistable(state), steps })
       log(`✗ ${step.name}: ${error}`)
       return { ok: false, state, steps, failedStep: step.name }
     }

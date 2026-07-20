@@ -1,0 +1,28 @@
+:root {
+  /* Fonts */
+  --font-sans: 'Schibsted Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Surfaces */
+  --color-bg: #FBFBF9;
+  --color-panel: #F6F7F4;
+  --color-panel-alt: #F3F5F0;
+  --color-border: #E6E8E2;
+
+  /* Text */
+  --color-ink: #11221C;
+  --color-muted: #5B665F;
+  --color-faint: #8A938C;
+
+  /* Brand greens */
+  --color-primary: #15795B;
+  --color-bright: #3ECF8E;
+  --color-deep: #0E1F18;
+
+  /* Tints / on-dark */
+  --color-mint-fill: #EAF7F0;
+  --color-mint-border: #C7E7D6;
+  --color-on-dark-green: #7FD7AA;
+  --color-on-dark-text: #EAF2EE;
+  --color-selection: #C7EFD9;
+}

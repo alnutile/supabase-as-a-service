@@ -19,6 +19,10 @@ create table public.tenants (
   name text not null,
   admin_email text not null,
   status tenant_status not null default 'pending_payment',
+  -- Opaque token the signup response hands the browser; the public `status`
+  -- function looks tenants up ONLY by this (never by slug/email), so a
+  -- provisioning page can poll without auth and without enumeration risk.
+  status_token uuid not null unique default gen_random_uuid(),
   -- infra handles (filled in as provisioning completes)
   project_ref text unique,
   railway_service_id text,
@@ -70,3 +74,53 @@ create index cp_events_tenant on public.cp_events (tenant_id, created_at desc);
 alter table public.tenants enable row level security;
 alter table public.provisioning_jobs enable row level security;
 alter table public.cp_events enable row level security;
+
+-- One-time claim with a lease (the agent_jobs pattern): the worker calls this
+-- in a loop; FOR UPDATE SKIP LOCKED makes concurrent workers safe, and a
+-- crashed worker's job becomes reclaimable when its lease expires.
+create or replace function public.claim_provisioning_job(p_lease_seconds int default 900)
+returns setof public.provisioning_jobs
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job public.provisioning_jobs;
+begin
+  select * into v_job
+  from public.provisioning_jobs
+  where status = 'queued'
+     or (status = 'running' and lease_expires_at < now())
+  order by created_at
+  limit 1
+  for update skip locked;
+
+  if v_job.id is null then
+    return;
+  end if;
+
+  update public.provisioning_jobs
+  set status = 'running',
+      attempts = attempts + 1,
+      claimed_at = now(),
+      lease_expires_at = now() + make_interval(secs => p_lease_seconds),
+      updated_at = now()
+  where id = v_job.id
+  returning * into v_job;
+
+  return next v_job;
+end;
+$$;
+revoke execute on function public.claim_provisioning_job(int) from anon, authenticated;
+
+create or replace function public.touch_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+create trigger tenants_touch before update on public.tenants
+  for each row execute function public.touch_updated_at();
+create trigger provisioning_jobs_touch before update on public.provisioning_jobs
+  for each row execute function public.touch_updated_at();

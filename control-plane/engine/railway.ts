@@ -51,8 +51,121 @@ export async function createService(opts: {
   return { serviceId }
 }
 
+// Pin the service's source repo+branch. serviceCreate accepts a branch field
+// but the first build still tracked the repo default branch (observed on tenant
+// zero), so we connect explicitly after create — this is what makes every
+// tenant follow RELEASE_BRANCH.
+export async function connectBranch(opts: {
+  token: string
+  serviceId: string
+  repo: string
+  branch: string
+}): Promise<void> {
+  await gql(
+    opts.token,
+    `mutation ($id: String!, $input: ServiceConnectInput!) {
+       serviceConnect(id: $id, input: $input) { id }
+     }`,
+    { id: opts.serviceId, input: { repo: opts.repo, branch: opts.branch } },
+  )
+}
+
+/** Find a service by name in the project (idempotent re-runs reuse it). */
+export async function findServiceByName(
+  token: string,
+  projectId: string,
+  name: string,
+): Promise<string | undefined> {
+  const data = await gql(
+    token,
+    `query ($id: String!) { project(id: $id) { services { edges { node { id name } } } } }`,
+    { id: projectId },
+  )
+  const nodes: Array<{ id: string; name: string }> =
+    data?.project?.services?.edges?.map((e: any) => e.node) ?? []
+  return nodes.find((n) => n.name === name)?.id
+}
+
+// Enable public networking by generating a *.up.railway.app service domain.
+// An API-created service has NONE by default (observed on tenant zero:
+// serviceDomains was empty, the app was unreachable, and custom-domain cert
+// validation hung forever) — the dashboard's "Generate domain" click is this
+// mutation. Idempotent: returns the existing domain when one is already set.
+export async function ensureServiceDomain(opts: {
+  token: string
+  projectId: string
+  environmentId: string
+  serviceId: string
+}): Promise<{ domain: string }> {
+  const existing = await gql(
+    opts.token,
+    `query ($p: String!, $e: String!, $s: String!) {
+       domains(projectId: $p, environmentId: $e, serviceId: $s) { serviceDomains { domain } }
+     }`,
+    { p: opts.projectId, e: opts.environmentId, s: opts.serviceId },
+  )
+  const have = existing?.domains?.serviceDomains?.[0]?.domain
+  if (have) return { domain: have }
+  const created = await gql(
+    opts.token,
+    `mutation ($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }`,
+    { input: { environmentId: opts.environmentId, serviceId: opts.serviceId } },
+  )
+  const domain = created?.serviceDomainCreate?.domain
+  if (!domain) throw new Error('serviceDomainCreate returned no domain')
+  return { domain }
+}
+
+/** Existing custom domain for a service, if any (idempotent re-runs reuse it). */
+export async function getCustomDomain(opts: {
+  token: string
+  projectId: string
+  environmentId: string
+  serviceId: string
+  domain: string
+}): Promise<
+  | {
+      id: string
+      dnsTarget?: string
+      certificateStatus?: string
+      verified?: boolean
+      verificationDnsHost?: string
+      verificationToken?: string
+    }
+  | undefined
+> {
+  const data = await gql(
+    opts.token,
+    `query ($p: String!, $e: String!, $s: String!) {
+       domains(projectId: $p, environmentId: $e, serviceId: $s) {
+         customDomains { id domain status {
+           certificateStatus verified verificationDnsHost verificationToken
+           dnsRecords { requiredValue }
+         } }
+       }
+     }`,
+    { p: opts.projectId, e: opts.environmentId, s: opts.serviceId },
+  )
+  const hit = (data?.domains?.customDomains ?? []).find((d: any) => d.domain === opts.domain)
+  if (!hit) return undefined
+  return {
+    id: hit.id,
+    dnsTarget: hit.status?.dnsRecords?.[0]?.requiredValue,
+    certificateStatus: hit.status?.certificateStatus,
+    verified: Boolean(hit.status?.verified),
+    // Ownership proof Railway requires as a TXT record (dashboard shows it; the
+    // dnsRecords list does NOT include it — cost us 6 hours on tenant zero):
+    // TXT ‹verificationDnsHost›.‹domain-zone› = ‹verificationToken›
+    verificationDnsHost: hit.status?.verificationDnsHost as string | undefined,
+    verificationToken: hit.status?.verificationToken as string | undefined,
+  }
+}
+
+// Introspected 2026-07: CustomDomainCreateInput requires domain, environmentId,
+// projectId AND serviceId (targetPort optional).
 export async function addCustomDomain(opts: {
   token: string
+  projectId: string
   environmentId: string
   serviceId: string
   domain: string
@@ -64,6 +177,7 @@ export async function addCustomDomain(opts: {
      }`,
     {
       input: {
+        projectId: opts.projectId,
         environmentId: opts.environmentId,
         serviceId: opts.serviceId,
         domain: opts.domain,

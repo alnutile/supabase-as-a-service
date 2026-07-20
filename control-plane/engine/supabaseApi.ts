@@ -22,15 +22,26 @@ export interface DeployFile {
   content: string
 }
 
+// The Management API rate-limits (~60 req/min → 429 ThrottlerException).
+// Every request retries 429s with backoff so callers never see transient
+// throttling; real errors surface immediately.
 async function req(pat: string, method: string, path: string, body?: unknown): Promise<Response> {
-  return fetch(`${API}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${pat}`,
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  const backoffs = [10_000, 20_000, 40_000, 60_000]
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${pat}`,
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+    if (res.status !== 429 || attempt >= backoffs.length) return res
+    const retryAfter = Number(res.headers.get('retry-after'))
+    const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoffs[attempt]
+    await res.body?.cancel().catch(() => {})
+    await new Promise((r) => setTimeout(r, wait))
+  }
 }
 
 async function must(res: Response, what: string): Promise<any> {

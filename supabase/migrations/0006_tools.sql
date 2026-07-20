@@ -50,5 +50,5 @@ select 'web_browsing',
 
 -- Teach the assistant that it has tools and how to help define new ones.
 update public.skills
-set instructions = instructions || E'\n\nTOOLS\nYou may have tools available (e.g. web browsing, plus custom tools an admin added) — use them whenever they help answer or act. If the user wants a capability you don't have, help them define a new tool: propose a snake_case name, a one-line description of when to use it, a JSON Schema for its inputs, and the HTTP endpoint it should POST to. Tell them an admin can add it on the Tools page.'
+set instructions = instructions || E'\n\nTOOLS\nYou may have tools available (e.g. web browsing, plus custom tools an admin added) — use them whenever they help answer or act. If the user wants a capability you don''t have, help them define a new tool: propose a snake_case name, a one-line description of when to use it, a JSON Schema for its inputs, and the HTTP endpoint it should POST to. Tell them an admin can add it on the Tools page.'
 where is_builtin = true;

@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["engine/**/*.ts"]
+  "include": ["engine/**/*.ts", "worker/**/*.ts"]
 }

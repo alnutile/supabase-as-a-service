@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:#FBFBF9; }
+  ::selection{ background:#C7EFD9; color:#0E1F18; }
+  input::placeholder{ color:#A7AEA6; }
+  @keyframes sn-spin{ to{ transform:rotate(360deg); } }
+  @keyframes sn-pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+  @keyframes sn-bar{ 0%{ transform:translateX(-100%); } 100%{ transform:translateX(320%); } }
+</style>
+</helmet>
+
+<div style="min-height:100vh; font-family:'Schibsted Grotesk',sans-serif; color:#11221C; -webkit-font-smoothing:antialiased; background:#FBFBF9; display:flex; flex-direction:column;">
+
+  <!-- top bar -->
+  <header style="display:flex; align-items:center; justify-content:space-between; padding:22px 34px;">
+    <div style="display:flex; align-items:center; gap:11px;">
+      <div style="width:26px; height:26px; border-radius:7px; background:#15795B; display:flex; align-items:center; justify-content:center;">
+        <div style="width:9px; height:9px; border-radius:2px; background:#3ECF8E;"></div>
+      </div>
+      <span style="font-size:18px; font-weight:600; letter-spacing:-0.02em;">SupaNet</span>
+    </div>
+    <!-- demo screen switcher -->
+    <div style="display:flex; align-items:center; gap:4px; background:#F0F2ED; border:1px solid #E6E8E2; border-radius:100px; padding:4px;">
+      <button onClick="{{ goSignup }}" style="{{ tabSignup }}">Sign up</button>
+      <button onClick="{{ goLogin }}" style="{{ tabLogin }}">Log in</button>
+      <button onClick="{{ goSubscribe }}" style="{{ tabSubscribe }}">Subscribe</button>
+      <button onClick="{{ goActive }}" style="{{ tabActive }}">Active</button>
+    </div>
+  </header>
+
+  <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:24px 24px 64px;">
+
+    <!-- ============ SIGN UP ============ -->
+    <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ true }}">
+    <div style="width:100%; max-width:420px;">
+      <div style="text-align:center; margin-bottom:26px;">
+        <h1 style="font-size:30px; font-weight:600; letter-spacing:-0.025em;">Create your workspace</h1>
+        <p style="font-size:15.5px; color:#5B665F; margin-top:8px;">One account for your whole team. Set it up once.</p>
+      </div>
+      <div style="background:#fff; border:1px solid #E6E8E2; border-radius:18px; padding:30px 28px; box-shadow:0 1px 3px rgba(17,34,28,0.04);">
+        <label style="display:block; font-size:13px; font-weight:600; color:#3E4A44; margin-bottom:7px;">Work email</label>
+        <input type="email" placeholder="you@company.com" style="width:100%; font-family:inherit; font-size:15px; color:#11221C; background:#FBFBF9; border:1px solid #E0E3DC; border-radius:10px; padding:12px 14px; outline:none;">
+        <label style="display:block; font-size:13px; font-weight:600; color:#3E4A44; margin:18px 0 7px;">Password</label>
+        <input type="password" placeholder="Create a password" style="width:100%; font-family:inherit; font-size:15px; color:#11221C; background:#FBFBF9; border:1px solid #E0E3DC; border-radius:10px; padding:12px 14px; outline:none;">
+        <button onClick="{{ goSubscribe }}" style="width:100%; margin-top:24px; font-family:inherit; cursor:pointer; border:none; font-size:15.5px; font-weight:600; color:#fff; background:#15795B; padding:14px; border-radius:10px; box-shadow:0 1px 2px rgba(13,60,44,0.25), 0 8px 22px -12px rgba(13,60,44,0.5);">Create account</button>
+        <div style="display:flex; align-items:center; gap:12px; margin:22px 0;">
+          <div style="flex:1; height:1px; background:#EAECE6;"></div>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#A7AEA6;">OR</span>
+          <div style="flex:1; height:1px; background:#EAECE6;"></div>
+        </div>
+        <button style="width:100%; font-family:inherit; cursor:pointer; font-size:14.5px; font-weight:600; color:#11221C; background:#fff; border:1px solid #D9E6DF; padding:12px; border-radius:10px; display:flex; align-items:center; justify-content:center; gap:9px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+          Continue with GitHub
+        </button>
+      </div>
+      <p style="text-align:center; font-size:14px; color:#5B665F; margin-top:20px;">Already have a workspace? <button onClick="{{ goLogin }}" style="font-family:inherit; background:none; border:none; cursor:pointer; font-size:14px; font-weight:600; color:#15795B;">Log in</button></p>
+    </div>
+    </sc-if>
+
+    <!-- ============ LOG IN ============ -->
+    <sc-if value="{{ isLogin }}" hint-placeholder-val="{{ true }}">
+    <div style="width:100%; max-width:420px;">
+      <div style="text-align:center; margin-bottom:26px;">
+        <h1 style="font-size:30px; font-weight:600; letter-spacing:-0.025em;">Welcome back</h1>
+        <p style="font-size:15.5px; color:#5B665F; margin-top:8px;">Sign in to your team's workspace.</p>
+      </div>
+      <div style="background:#fff; border:1px solid #E6E8E2; border-radius:18px; padding:30px 28px; box-shadow:0 1px 3px rgba(17,34,28,0.04);">
+        <label style="display:block; font-size:13px; font-weight:600; color:#3E4A44; margin-bottom:7px;">Work email</label>
+        <input type="email" placeholder="you@company.com" style="width:100%; font-family:inherit; font-size:15px; color:#11221C; background:#FBFBF9; border:1px solid #E0E3DC; border-radius:10px; padding:12px 14px; outline:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin:18px 0 7px;">
+          <label style="font-size:13px; font-weight:600; color:#3E4A44;">Password</label>
+          <span style="font-size:12.5px; font-weight:600; color:#15795B; cursor:pointer;">Forgot?</span>
+        </div>
+        <input type="password" placeholder="Your password" style="width:100%; font-family:inherit; font-size:15px; color:#11221C; background:#FBFBF9; border:1px solid #E0E3DC; border-radius:10px; padding:12px 14px; outline:none;">
+        <button onClick="{{ goActive }}" style="width:100%; margin-top:24px; font-family:inherit; cursor:pointer; border:none; font-size:15.5px; font-weight:600; color:#fff; background:#15795B; padding:14px; border-radius:10px; box-shadow:0 1px 2px rgba(13,60,44,0.25), 0 8px 22px -12px rgba(13,60,44,0.5);">Sign in</button>
+      </div>
+      <p style="text-align:center; font-size:14px; color:#5B665F; margin-top:20px;">New here? <button onClick="{{ goSignup }}" style="font-family:inherit; background:none; border:none; cursor:pointer; font-size:14px; font-weight:600; color:#15795B;">Create a workspace</button></p>
+    </div>
+    </sc-if>
+
+    <!-- ============ SUBSCRIBE / ENVIRONMENT ============ -->
+    <sc-if value="{{ isSubscribe }}" hint-placeholder-val="{{ true }}">
+    <div style="width:100%; max-width:520px;">
+      <div style="text-align:center; margin-bottom:26px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.12em; color:#15795B; font-weight:500;">ONE ENVIRONMENT · ONE TEAM</span>
+        <h1 style="font-size:30px; font-weight:600; letter-spacing:-0.025em; margin-top:12px;">Spin up your workspace</h1>
+        <p style="font-size:15.5px; color:#5B665F; margin-top:8px;">One dedicated environment for your whole company.</p>
+      </div>
+
+      <div style="background:#fff; border:1px solid #E6E8E2; border-radius:20px; overflow:hidden; box-shadow:0 1px 3px rgba(17,34,28,0.05);">
+        <!-- plan header -->
+        <div style="padding:28px 30px; border-bottom:1px solid #EEF0EA; display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+          <div>
+            <div style="display:inline-flex; align-items:center; gap:7px; background:#F3F5F0; border:1px solid #E6E8E2; border-radius:100px; padding:4px 10px; margin-bottom:12px;">
+              <span style="width:6px; height:6px; border-radius:50%; background:#8A938C;"></span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.05em; color:#5B665F;">NOT YET ACTIVE</span>
+            </div>
+            <h2 style="font-size:20px; font-weight:600; letter-spacing:-0.01em;">SupaNet Team</h2>
+            <p style="font-size:14px; color:#8A938C; margin-top:4px;">Unlimited seats · your own database</p>
+          </div>
+          <div style="text-align:right; flex:none;">
+            <div style="display:flex; align-items:baseline; gap:2px; justify-content:flex-end;">
+              <span style="font-size:38px; font-weight:600; letter-spacing:-0.03em;">$49</span>
+            </div>
+            <span style="font-size:13px; color:#8A938C;">per month</span>
+          </div>
+        </div>
+        <!-- included -->
+        <div style="padding:24px 30px; border-bottom:1px solid #EEF0EA;">
+          <sc-for list="{{ included }}" as="feat" hint-placeholder-count="4">
+            <div style="display:flex; align-items:center; gap:11px; padding:6px 0;">
+              <span style="flex:none; width:18px; height:18px; border-radius:50%; background:#EAF7F0; border:1px solid #C7E7D6; display:flex; align-items:center; justify-content:center;">
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#15795B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5"></path></svg>
+              </span>
+              <span style="font-size:14.5px; color:#33413A;">{{ feat }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <!-- billing summary -->
+        <div style="padding:20px 30px; background:#FAFBF8; border-bottom:1px solid #EEF0EA; display:flex; flex-direction:column; gap:9px;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:13.5px; color:#5B665F;">Billed monthly, cancel anytime</span>
+            <span style="font-size:13.5px; font-weight:600;">$49.00 / mo</span>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:13.5px; color:#5B665F;">Due today</span>
+            <span style="font-size:13.5px; font-weight:600;">$49.00</span>
+          </div>
+        </div>
+        <!-- CTA -->
+        <div style="padding:24px 30px;">
+          <button onClick="{{ startSetup }}" style="width:100%; font-family:inherit; cursor:pointer; border:none; font-size:15.5px; font-weight:700; color:#0E1F18; background:#FFC439; padding:14px; border-radius:10px; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 8px 22px -12px rgba(0,0,0,0.4);">
+            Subscribe with <span style="font-style:italic; font-weight:800; letter-spacing:-0.01em;">PayPal</span>
+          </button>
+          <p style="text-align:center; font-size:12.5px; color:#8A938C; margin-top:14px; line-height:1.5;">Secure checkout via PayPal. You'll return here while we provision your environment.</p>
+        </div>
+      </div>
+      <p style="text-align:center; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#A7AEA6; margin-top:18px; letter-spacing:0.03em;">MIT · SELF-HOSTED · NO PER-SEAT FEES</p>
+    </div>
+    </sc-if>
+
+    <!-- ============ SETTING UP ============ -->
+    <sc-if value="{{ isSetup }}" hint-placeholder-val="{{ true }}">
+    <div style="width:100%; max-width:480px;">
+      <div style="background:#0E1F18; border-radius:22px; padding:44px 40px; position:relative; overflow:hidden;">
+        <div style="position:absolute; inset:0; background:radial-gradient(110% 80% at 50% 0%, rgba(62,207,142,0.16), transparent 60%);"></div>
+        <div style="position:relative; text-align:center;">
+          <div style="width:52px; height:52px; margin:0 auto; border-radius:50%; border:3px solid rgba(127,215,170,0.25); border-top-color:#3ECF8E; animation:sn-spin 0.9s linear infinite;"></div>
+          <h1 style="font-size:24px; font-weight:600; color:#EAF2EE; margin-top:24px; letter-spacing:-0.02em;">Setting up your environment</h1>
+          <p style="font-size:14.5px; color:#7FD7AA; margin-top:8px;">This usually takes about a minute. You can keep this tab open.</p>
+        </div>
+        <!-- progress bar -->
+        <div style="position:relative; height:6px; border-radius:100px; background:rgba(255,255,255,0.08); margin-top:28px; overflow:hidden;">
+          <div style="height:100%; width:{{ setupPct }}%; background:linear-gradient(90deg,#15795B,#3ECF8E); border-radius:100px; transition:width 0.5s ease;"></div>
+        </div>
+        <!-- steps -->
+        <div style="position:relative; margin-top:26px; display:flex; flex-direction:column; gap:4px;">
+          <sc-for list="{{ steps }}" as="step" hint-placeholder-count="4">
+            <div style="display:flex; align-items:center; gap:13px; padding:11px 14px; border-radius:12px; background:{{ step.bg }};">
+              <span style="{{ step.iconWrap }}">{{ step.icon }}</span>
+              <span style="font-size:14.5px; font-weight:500; color:{{ step.color }};">{{ step.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <p style="text-align:center; font-size:13px; color:#8A938C; margin-top:18px;">Provisioning your database, security rules, and AI services.</p>
+    </div>
+    </sc-if>
+
+    <!-- ============ ACTIVE ============ -->
+    <sc-if value="{{ isActive }}" hint-placeholder-val="{{ true }}">
+    <div style="width:100%; max-width:560px;">
+      <div style="text-align:center; margin-bottom:26px;">
+        <div style="width:56px; height:56px; margin:0 auto 16px; border-radius:16px; background:#EAF7F0; border:1px solid #C7E7D6; display:flex; align-items:center; justify-content:center;">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#15795B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5 11-12"></path></svg>
+        </div>
+        <h1 style="font-size:30px; font-weight:600; letter-spacing:-0.025em;">Your workspace is live</h1>
+        <p style="font-size:15.5px; color:#5B665F; margin-top:8px;">Everything's provisioned and ready for your team.</p>
+      </div>
+
+      <div style="background:#fff; border:1px solid #E6E8E2; border-radius:20px; overflow:hidden; box-shadow:0 1px 3px rgba(17,34,28,0.05);">
+        <!-- env header -->
+        <div style="padding:26px 30px; border-bottom:1px solid #EEF0EA; display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div>
+            <div style="display:inline-flex; align-items:center; gap:7px; background:#EAF7F0; border:1px solid #C7E7D6; border-radius:100px; padding:4px 11px; margin-bottom:12px;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#3ECF8E; animation:sn-pulse 2s ease-in-out infinite;"></span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.06em; color:#15795B; font-weight:500;">ACTIVE</span>
+            </div>
+            <h2 style="font-size:19px; font-weight:600; letter-spacing:-0.01em;">Production environment</h2>
+            <p style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#5B665F; margin-top:6px;">acme.supanet.app</p>
+          </div>
+          <button style="flex:none; font-family:inherit; cursor:pointer; font-size:14.5px; font-weight:600; color:#fff; background:#15795B; padding:11px 18px; border-radius:10px; border:none;">Open workspace&nbsp;→</button>
+        </div>
+        <!-- subscription details -->
+        <div style="padding:24px 30px; display:grid; grid-template-columns:1fr 1fr; gap:20px 24px;">
+          <div>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.06em; color:#8A938C;">PLAN</span>
+            <p style="font-size:15px; font-weight:600; margin-top:5px;">SupaNet Team</p>
+          </div>
+          <div>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.06em; color:#8A938C;">COST</span>
+            <p style="font-size:15px; font-weight:600; margin-top:5px;">$49.00 <span style="font-weight:400; color:#8A938C;">/ month</span></p>
+          </div>
+          <div>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.06em; color:#8A938C;">NEXT BILLING</span>
+            <p style="font-size:15px; font-weight:600; margin-top:5px;">Aug 19, 2026</p>
+          </div>
+          <div>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.06em; color:#8A938C;">PAYMENT METHOD</span>
+            <p style="font-size:15px; font-weight:600; margin-top:5px; display:flex; align-items:center; gap:6px;"><span style="font-style:italic; font-weight:800; color:#15795B;">PayPal</span></p>
+          </div>
+        </div>
+        <!-- manage strip -->
+        <div style="padding:16px 30px; background:#FAFBF8; border-top:1px solid #EEF0EA; display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-size:13.5px; color:#5B665F;">Manage billing &amp; invoices in PayPal</span>
+          <a href="https://www.paypal.com" target="_blank" rel="noopener" style="font-size:13.5px; font-weight:600; color:#15795B; text-decoration:none;">Manage subscription&nbsp;→</a>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1000, &quot;height&quot;: 780 }
+}">
+class Component extends DCLogic {
+  state = { screen: "signup", setupStage: 0 };
+
+  STEPS = [
+    "Creating your database",
+    "Applying security policies",
+    "Seeding your workspace",
+    "Starting your AI services",
+  ];
+
+  go = (screen) => { clearInterval(this._iv); this.setState({ screen }); };
+  goSignup = () => this.go("signup");
+  goLogin = () => this.go("login");
+  goSubscribe = () => this.go("subscribe");
+  goActive = () => this.go("active");
+
+  startSetup = () => {
+    clearInterval(this._iv);
+    this.setState({ screen: "setup", setupStage: 0 });
+    this._iv = setInterval(() => {
+      this.setState((s) => {
+        const next = s.setupStage + 1;
+        if (next > this.STEPS.length) {
+          clearInterval(this._iv);
+          return { screen: "active", setupStage: next };
+        }
+        return { setupStage: next };
+      });
+    }, 1400);
+  };
+
+  componentWillUnmount() { clearInterval(this._iv); }
+
+  tabStyle(active) {
+    return "font-family:inherit; cursor:pointer; border:none; font-size:12.5px; font-weight:600; padding:6px 13px; border-radius:100px; transition:all .15s; " +
+      (active ? "background:#15795B; color:#fff;" : "background:transparent; color:#5B665F;");
+  }
+
+  renderVals() {
+    const sc = this.state.screen;
+    const stage = this.state.setupStage;
+    const steps = this.STEPS.map((label, i) => {
+      const done = i < stage;
+      const active = i === stage;
+      let icon, iconWrap, bg, color;
+      if (done) {
+        icon = React.createElement("svg", { width: 11, height: 11, viewBox: "0 0 12 12", fill: "none", stroke: "#0E1F18", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round" }, React.createElement("path", { d: "M2.5 6.5l2.5 2.5 4.5-5" }));
+        iconWrap = "flex:none; width:22px; height:22px; border-radius:50%; background:#3ECF8E; display:flex; align-items:center; justify-content:center;";
+        bg = "rgba(62,207,142,0.10)";
+        color = "#EAF2EE";
+      } else if (active) {
+        icon = React.createElement("span", { style: { display: "block", width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(127,215,170,0.35)", borderTopColor: "#3ECF8E", animation: "sn-spin 0.8s linear infinite" } });
+        iconWrap = "flex:none; width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:center;";
+        bg = "rgba(255,255,255,0.05)";
+        color = "#EAF2EE";
+      } else {
+        icon = React.createElement("span", { style: { display: "block", width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.18)" } });
+        iconWrap = "flex:none; width:22px; height:22px; display:flex; align-items:center; justify-content:center;";
+        bg = "transparent";
+        color = "rgba(234,242,238,0.4)";
+      }
+      return { label, icon, iconWrap, bg, color };
+    });
+    const setupPct = Math.min(100, Math.round((stage / this.STEPS.length) * 100));
+
+    return {
+      isSignup: sc === "signup",
+      isLogin: sc === "login",
+      isSubscribe: sc === "subscribe",
+      isSetup: sc === "setup",
+      isActive: sc === "active",
+      goSignup: this.goSignup,
+      goLogin: this.goLogin,
+      goSubscribe: this.goSubscribe,
+      goActive: this.goActive,
+      startSetup: this.startSetup,
+      tabSignup: this.tabStyle(sc === "signup"),
+      tabLogin: this.tabStyle(sc === "login"),
+      tabSubscribe: this.tabStyle(sc === "subscribe" || sc === "setup"),
+      tabActive: this.tabStyle(sc === "active"),
+      included: [
+        "Shared team memory & AI context",
+        "Unlimited seats — no per-seat fees",
+        "Your own database, hosted by you",
+        "Automations & agents, no code required",
+      ],
+      steps,
+      setupPct,
+    };
+  }
+}
+</script>
+</body>
+</html>

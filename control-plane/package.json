@@ -5,13 +5,18 @@
   "type": "module",
   "description": "SupaNet hosted control plane: provisioning engine + (later) signup backend. See docs/tasks/hosted-control-plane.md",
   "scripts": {
+    "preflight": "tsx engine/preflight.ts",
     "tenant-zero": "tsx engine/tenant-zero.ts",
     "test": "tsx --test engine/pipeline.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "worker": "tsx worker/index.ts"
   },
   "devDependencies": {
     "@types/node": "^22.5.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.7"
   }
 }

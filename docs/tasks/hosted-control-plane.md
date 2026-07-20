@@ -141,6 +141,44 @@ can't outspend its subscription.
    Stripe to live mode, the eject flow (project ownership transfer + goodbye email
    with repo link).
 
+## Field notes from tenant zero (2026-07-19, first live run)
+
+The pipeline provisioned a complete working tenant (project `lmkougecicumarafgxhc`,
+service `tenant-zero`, live at its Railway service domain). Everything below was
+discovered live and is now fixed in the engine:
+
+- **Migration 0006 was invalid SQL** for fresh installs (unescaped apostrophe in an
+  E-string) — fixed in the repo; a tokenizer sweep confirmed it was the only one.
+- **Management API is transactional per `database/query` request** — a failed
+  migration leaves no partial state. The engine now appends the version-recording
+  insert to the migration SQL itself, so apply+record commit atomically.
+- **Management API throttles (~60 req/min, 429)** — the client now backs off and
+  retries internally; migrations are paced ~1.2s apart.
+- **`serviceCreate`'s `branch` field does not make the first build track it** — the
+  engine calls `serviceConnect` explicitly to pin the release branch.
+- **An API-created Railway service has NO public networking** — the engine now calls
+  `serviceDomainCreate` (the dashboard's "Generate domain"); without it the app is
+  unreachable and custom-domain certs can never validate.
+- **`CustomDomainCreateInput` requires `projectId`** (introspect the schema; the
+  docs-level examples omit it).
+- **Don't verify via `/rest/v1/` root** — new projects gate it to secret keys
+  ("Secret API key required"); the engine health-checks `/auth/v1/health` instead.
+  New projects ship BOTH legacy JWT keys and `sb_publishable_`/`sb_secret_` keys;
+  both work for auth.
+- **Railway custom domains require an ownership TXT record, and the API hides it.**
+  `VALIDATING_OWNERSHIP` sits forever until `_railway-verify.‹label›` TXT =
+  `railway-verify=…` exists. The dashboard shows this; the API's `dnsRecords` list
+  does NOT — the values live in `status.verificationDnsHost` /
+  `status.verificationToken` (found via introspection). The engine's `wireDns` now
+  sets both the CNAME and the TXT. Cost tenant zero ~6 hours. Related: keep tenant
+  CNAMEs DNS-only (grey-cloud) — Cloudflare-proxying hides Railway's CNAME target
+  from its DNS check. `verify` gates only on the Railway service domain + Supabase
+  health; `verifyCustomDomain` is a separate, patient, individually-resumable step.
+- **Fleet-scale TLS caveat:** Let's Encrypt allows ~50 certificates/week per
+  registered domain — per-tenant certs on `*.supanet.io` cap onboarding at ~50
+  tenants/week. Fine for launch; before scale, plan Cloudflare for SaaS, a wildcard
+  cert, or staggered onboarding.
+
 ## Non-goals (v1)
 
 - Multi-tenant (many companies per Supabase project) — still explicitly rejected.

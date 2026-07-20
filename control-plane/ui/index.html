@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start your workspace — SupaNet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* SupaNet brand tokens — see demo-user-interface/deploy/brand.md */
+  :root{
+    --bg:#FBFBF9; --panel:#F6F7F4; --border:#E6E8E2;
+    --ink:#11221C; --muted:#5B665F; --faint:#8A938C;
+    --green:#15795B; --bright:#3ECF8E; --deep:#0E1F18;
+    --mint:#EAF7F0; --mint-border:#C7E7D6;
+  }
+  *{box-sizing:border-box;margin:0}
+  ::selection{background:#C7EFD9;color:#0E1F18}
+  body{font-family:'Schibsted Grotesk',system-ui,sans-serif;background:var(--bg);color:var(--ink);
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .card{width:100%;max-width:460px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:36px}
+  .eyebrow{color:var(--green);margin-bottom:14px}
+  h1{font-size:26px;font-weight:700;letter-spacing:-.01em;margin-bottom:8px}
+  .sub{color:var(--muted);font-size:15px;line-height:1.5;margin-bottom:26px}
+  label{display:block;font-size:13px;font-weight:600;margin:16px 0 6px}
+  input{width:100%;padding:11px 12px;font:inherit;font-size:15px;border:1px solid var(--border);
+        border-radius:10px;background:var(--bg);color:var(--ink)}
+  input:focus{outline:2px solid var(--bright);outline-offset:0;border-color:transparent}
+  .slugrow{display:flex;align-items:center;gap:8px}
+  .slugrow input{flex:1}
+  .suffix{color:var(--faint);font-size:14px;white-space:nowrap}
+  button{width:100%;margin-top:26px;padding:13px;font:inherit;font-size:15px;font-weight:600;color:#fff;
+         background:var(--green);border:0;border-radius:10px;cursor:pointer}
+  button:hover{filter:brightness(1.06)} button:disabled{opacity:.55;cursor:default}
+  .error{display:none;margin-top:14px;padding:10px 12px;border-radius:10px;background:#FDF2F1;
+         border:1px solid #F0D4D1;color:#8C3B33;font-size:14px}
+  .fine{margin-top:16px;color:var(--faint);font-size:12.5px;line-height:1.5}
+  /* waiting view */
+  .steps{list-style:none;padding:0;margin-top:22px;display:flex;flex-direction:column;gap:0}
+  .step{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--panel);font-size:14.5px;color:var(--faint)}
+  .step:last-child{border-bottom:0}
+  .dot{width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+       border:2px solid var(--border);font-size:12px;color:#fff;transition:all .25s}
+  .step.run{color:var(--ink)} .step.run .dot{border-color:var(--bright);animation:pulse 1.2s ease-in-out infinite}
+  .step.ok{color:var(--muted)} .step.ok .dot{background:var(--bright);border-color:var(--bright)}
+  .step.err .dot{background:#C25048;border-color:#C25048}
+  @keyframes pulse{50%{box-shadow:0 0 0 5px rgba(62,207,142,.18)}}
+  .ready{display:none;text-align:center}
+  .ready .big{font-size:42px;margin:6px 0 14px}
+  .applink{display:inline-block;margin-top:18px;padding:13px 22px;background:var(--deep);color:#EAF2EE;
+           border-radius:10px;text-decoration:none;font-weight:600}
+  .applink span{color:var(--bright)}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="card" id="signupCard">
+  <div class="mono eyebrow">SupaNet Cloud</div>
+  <h1>Start your workspace</h1>
+  <p class="sub">Your company's shared AI hub — private database, your own subdomain, ready in minutes.</p>
+  <form id="form">
+    <label for="name">Workspace name</label>
+    <input id="name" required maxlength="80" placeholder="Acme Co" autocomplete="organization">
+    <label for="slug">Workspace URL</label>
+    <div class="slugrow">
+      <input id="slug" required maxlength="31" pattern="[a-z0-9][a-z0-9-]{1,30}" placeholder="acme" spellcheck="false">
+      <span class="suffix">.supanet.io</span>
+    </div>
+    <label for="email">Your email</label>
+    <input id="email" type="email" required placeholder="you@acme.com" autocomplete="email">
+    <button id="go" type="submit">Create workspace</button>
+    <div class="error" id="err"></div>
+    <p class="fine">The first account to sign in becomes the workspace admin. By continuing you agree to the terms.</p>
+  </form>
+</div>
+
+<div class="card hidden" id="waitCard">
+  <div class="mono eyebrow">Setting up</div>
+  <h1 id="waitTitle">Building your workspace…</h1>
+  <p class="sub">This usually takes a few minutes. You can leave this page — we'll email you when it's ready.</p>
+  <ul class="steps" id="steps"></ul>
+  <div class="error" id="waitErr"></div>
+</div>
+
+<div class="card ready" id="readyCard">
+  <div class="mono eyebrow">Ready</div>
+  <div class="big">🎉</div>
+  <h1>Your workspace is live</h1>
+  <p class="sub" style="margin-top:8px">Sign up with the email you gave us — the first account becomes admin.</p>
+  <a class="applink" id="appLink" href="#"><span>→</span> <span id="appHost"></span></a>
+</div>
+
+<script>
+const API = 'https://zgxiabqfaeifldvqfemh.supabase.co/functions/v1'
+const $ = (id) => document.getElementById(id)
+
+const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 31)
+let slugTouched = false
+$('slug').addEventListener('input', () => { slugTouched = true })
+$('name').addEventListener('input', () => { if (!slugTouched) $('slug').value = slugify($('name').value) })
+
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  $('go').disabled = true; $('err').style.display = 'none'
+  try {
+    const res = await fetch(API + '/signup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ slug: $('slug').value.trim(), name: $('name').value.trim(), email: $('email').value.trim() }),
+    })
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error || 'Signup failed — try again.')
+    localStorage.setItem('supanet_status_token', json.status_token)
+    startWaiting(json.status_token)
+  } catch (err) {
+    $('err').textContent = err.message; $('err').style.display = 'block'; $('go').disabled = false
+  }
+})
+
+function startWaiting(token) {
+  $('signupCard').classList.add('hidden')
+  $('waitCard').classList.remove('hidden')
+  poll(token)
+}
+
+async function poll(token) {
+  try {
+    const res = await fetch(API + '/status?token=' + token)
+    if (res.status === 404) { localStorage.removeItem('supanet_status_token'); location.reload(); return }
+    const s = await res.json()
+    render(s)
+    if (s.status === 'active' && s.app_url) { showReady(s); return }
+    if (s.status === 'failed') {
+      $('waitTitle').textContent = 'We hit a snag'
+      $('waitErr').textContent = 'Provisioning stopped — our team has been notified and will finish your workspace shortly.'
+      $('waitErr').style.display = 'block'
+      setTimeout(() => poll(token), 15000)
+      return
+    }
+  } catch { /* transient — keep polling */ }
+  setTimeout(() => poll(token), 2500)
+}
+
+function render(s) {
+  const ul = $('steps')
+  ul.innerHTML = ''
+  let current = true
+  for (const st of s.steps) {
+    const li = document.createElement('li')
+    let cls = '', mark = ''
+    if (st.status === 'ok') { cls = 'ok'; mark = '✓' }
+    else if (st.status === 'error') { cls = 'err'; mark = '!' }
+    else if (current && s.job_status === 'running') { cls = 'run' }
+    if (st.status !== 'ok') current = false
+    li.className = 'step ' + cls
+    li.innerHTML = '<span class="dot">' + mark + '</span><span>' + st.label + '</span>'
+    ul.appendChild(li)
+  }
+}
+
+function showReady(s) {
+  $('waitCard').classList.add('hidden')
+  $('readyCard').style.display = 'block'
+  $('appLink').href = s.app_url
+  $('appHost').textContent = s.app_url.replace('https://', '')
+  localStorage.removeItem('supanet_status_token')
+}
+
+// A refresh mid-provision resumes the waiting page.
+const saved = localStorage.getItem('supanet_status_token')
+if (saved) startWaiting(saved)
+</script>
+</body>
+</html>

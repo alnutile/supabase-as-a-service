@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail" data-bg-color="#FBFBF9">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#FBFBF9"></rect>
+    <rect x="480" y="300" width="240" height="240" rx="64" fill="#15795B"></rect>
+    <rect x="560" y="380" width="80" height="80" rx="20" fill="#3ECF8E"></rect>
+  </svg>
+</template>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:#FBFBF9; }
+  ::selection{ background:#C7EFD9; color:#0E1F18; }
+</style>
+</helmet>
+
+<div style="background:#FBFBF9; color:#11221C; font-family:'Schibsted Grotesk',sans-serif; -webkit-font-smoothing:antialiased; min-height:100vh; padding-bottom:0;">
+
+  <!-- ===================== TOP NAV ===================== -->
+  <sc-if value="{{ showTopNav }}" hint-placeholder-val="{{ true }}">
+  <header style="max-width:1180px; margin:0 auto; padding:26px 40px; display:flex; align-items:center; justify-content:space-between;">
+    <div style="display:flex; align-items:center; gap:11px;">
+      <div style="width:26px; height:26px; border-radius:7px; background:#15795B; display:flex; align-items:center; justify-content:center;">
+        <div style="width:9px; height:9px; border-radius:2px; background:#3ECF8E;"></div>
+      </div>
+      <span style="font-size:18px; font-weight:600; letter-spacing:-0.02em;">SupaNet</span>
+    </div>
+    <nav style="display:flex; align-items:center; gap:30px;">
+      
+      
+      
+      
+    </nav>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <a href="https://supanet-docs.dailyai.studio" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:8px; font-size:14.5px; color:#11221C; font-weight:600; background:#fff; border:1px solid #D9E6DF; padding:9px 16px; border-radius:8px; text-decoration:none;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.5C6.8 2.7 5.3 2.5 4 2.5c-.6 0-1 .4-1 1v8c0 .6.4 1 1 1 1.3 0 2.8.2 4 1 1.2-.8 2.7-1 4-1 .6 0 1-.4 1-1v-8c0-.6-.4-1-1-1-1.3 0-2.8.2-4 1z"></path><path d="M8 3.5v9"></path></svg>
+        Docs
+      </a>
+      <a href="https://github.com/alnutile/supabase-as-a-service" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:8px; font-size:14.5px; color:#fff; font-weight:600; background:#15795B; padding:9px 16px; border-radius:8px; text-decoration:none;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+        Get started
+      </a>
+    </div>
+  </header>
+  <div style="max-width:1180px; margin:0 auto; padding:0 40px;"><div style="height:1px; background:#E6E8E2;"></div></div>
+  </sc-if>
+
+  <!-- ===================== HERO ===================== -->
+  <section style="max-width: 1180px; margin: 0 auto; padding: 96px 40px 40px; text-align: center">
+    <div style="display:inline-flex; align-items:center; gap:9px; padding:6px 13px 6px 9px; border:1px solid #D9E6DF; background:#fff; border-radius:100px; margin-bottom:30px;">
+      <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#3ECF8E;"></span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.04em; color:#15795B; font-weight:500;">OPEN SOURCE · SELF-HOSTED · MIT</span>
+    </div>
+    <h1 style="font-size:62px; line-height:1.04; font-weight:600; letter-spacing:-0.03em; max-width:880px; margin:0 auto; text-wrap:balance;">
+      Your Business<div>Your AI Context</div><div><span style="color: rgb(21, 121, 91);">hosted, shared and managed by you.</span>
+    </div></h1>
+    <p style="font-size:20px; line-height:1.55; color:#5B665F; max-width:680px; margin:28px auto 0; text-wrap:pretty;">Your business already uses AI like ChatGPT — but it's decentralized and lacks company&nbsp;context.&nbsp;<span style="text-wrap-mode: initial;">SupaNet gives everyone the same context, skills, agents and more.</span></p>
+    <div style="display:flex; align-items:center; justify-content:center; gap:16px; margin-top:38px;">
+      
+      
+    </div>
+    <div style="display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px; margin-top:26px;">
+      <span style="display:inline-flex; align-items:center; gap:7px; font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:500; letter-spacing:0.02em; color:#15795B; background:#EAF7F0; border:1px solid #C7E7D6; padding:7px 13px; border-radius:100px;"><span style="width:6px; height:6px; border-radius:50%; background:#3ECF8E;"></span>No per-seat fees</span>
+      <span style="display:inline-flex; align-items:center; gap:7px; font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:500; letter-spacing:0.02em; color:#15795B; background:#EAF7F0; border:1px solid #C7E7D6; padding:7px 13px; border-radius:100px;"><span style="width:6px; height:6px; border-radius:50%; background:#3ECF8E;"></span>Runs on your own database</span>
+      <span style="display:inline-flex; align-items:center; gap:7px; font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:500; letter-spacing:0.02em; color:#15795B; background:#EAF7F0; border:1px solid #C7E7D6; padding:7px 13px; border-radius:100px;"><span style="width:6px; height:6px; border-radius:50%; background:#3ECF8E;"></span>Use any AI model</span>
+    </div>
+  </section>
+
+  <!-- ===================== FOUNDATION CALLOUT ===================== -->
+  <section style="max-width:1180px; margin:0 auto; padding:0 40px 34px;">
+    <div style="display:flex; align-items:center; gap:24px; background:#0E1F18; border-radius:18px; padding:30px 36px; position:relative; overflow:hidden;">
+      <div style="position:absolute; inset:0; background:radial-gradient(90% 120% at 0% 50%, rgba(62,207,142,0.16), transparent 55%);"></div>
+      <div style="position:relative; flex:none; display:flex; flex-direction:column; gap:5px;">
+        <div style="width:40px; height:11px; border-radius:3px; background:#3ECF8E;"></div>
+        <div style="width:40px; height:11px; border-radius:3px; background:#15795B;"></div>
+        <div style="width:40px; height:11px; border-radius:3px; background:#2E4A40;"></div>
+      </div>
+      <div style="position:relative;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.12em; color:#7FD7AA; font-weight:500;">SITS ON TOP OF YOUR SUPABASE</span>
+        <p style="font-size: 21px; line-height: 1.35; font-weight: 600; color: #EAF2EE; margin-top: 8px; letter-spacing: -0.015em; text-wrap: pretty; position: relative">Get the full power of Supabase — in a UI your whole team will love.</p><p></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SECTION 1 — SHARED BRAIN ===================== -->
+  <section style="max-width:1180px; margin:0 auto; padding:34px 40px 90px;">
+    <div style="background:#fff; border:1px solid #E6E8E2; border-radius:22px; padding:60px 56px; box-shadow:0 1px 3px rgba(17,34,28,0.04);">
+      <div style="text-align:center; max-width:680px; margin:0 auto 52px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px; letter-spacing:0.14em; color:#15795B; font-weight:500;">01 — SHARED &amp; REMEMBERED</span>
+        <h2 style="font-size:38px; line-height:1.1; font-weight:600; letter-spacing:-0.025em; margin-top:16px;">Not a personal chatbot — a shared team brain.</h2>
+        <p style="font-size:18px; line-height:1.55; color:#5B665F; margin-top:16px; text-wrap:pretty;">Everything one person teaches the AI is available to everyone, forever. No re-explaining how your business works.</p>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:36px;">
+        <!-- BEFORE -->
+        <div style="background:#F6F7F4; border:1px solid #E6E8E2; border-radius:16px; padding:36px 30px; text-align:center; min-height:300px; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+          <div style="width:120px; height:78px; border-radius:10px; background:#fff; border:1.5px solid #D2D6CE; position:relative; display:flex; align-items:center; justify-content:center; margin-bottom:6px;">
+            <div style="width:14px; height:14px; border-radius:50%; background:#C2C8BF;"></div>
+          </div>
+          <div style="width:150px; height:7px; border-radius:0 0 6px 6px; background:#D2D6CE;"></div>
+          <p style="font-size:15px; font-weight:600; color:#11221C; margin-top:24px;">ChatGPT / Claude Desktop</p>
+          <p style="font-size:14px; line-height:1.5; color:#8A938C; margin-top:8px; max-width:230px;">Personal. Forgets everything. Re-paste your context every single time.</p>
+        </div>
+
+        <!-- ARROW -->
+        <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#8A938C; letter-spacing:0.1em;">BECOMES</span>
+          <span style="font-size:26px; color:#15795B;">→</span>
+        </div>
+
+        <!-- AFTER -->
+        <div style="background:#EAF7F0; border:1px solid #C7E7D6; border-radius:16px; padding:36px 30px; text-align:center; min-height:300px; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+          <div style="position:relative; width:230px; height:150px;">
+            <svg width="230" height="150" viewBox="0 0 230 150" style="position:absolute; inset:0;">
+              <line x1="115" y1="75" x2="34" y2="28" stroke="#9AD9BB" stroke-width="1.5"></line>
+              <line x1="115" y1="75" x2="196" y2="28" stroke="#9AD9BB" stroke-width="1.5"></line>
+              <line x1="115" y1="75" x2="34" y2="122" stroke="#9AD9BB" stroke-width="1.5"></line>
+              <line x1="115" y1="75" x2="196" y2="122" stroke="#9AD9BB" stroke-width="1.5"></line>
+              <line x1="115" y1="75" x2="115" y2="14" stroke="#9AD9BB" stroke-width="1.5"></line>
+            </svg>
+            <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:54px; height:54px; border-radius:14px; background:#15795B; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 16px -6px rgba(13,60,44,0.5);">
+              <div style="width:14px; height:14px; border-radius:4px; background:#3ECF8E;"></div>
+            </div>
+            <div style="position:absolute; left:34px; top:28px; transform:translate(-50%,-50%); width:26px; height:26px; border-radius:50%; background:#fff; border:1.5px solid #9AD9BB;"></div>
+            <div style="position:absolute; left:196px; top:28px; transform:translate(-50%,-50%); width:26px; height:26px; border-radius:50%; background:#fff; border:1.5px solid #9AD9BB;"></div>
+            <div style="position:absolute; left:34px; top:122px; transform:translate(-50%,-50%); width:26px; height:26px; border-radius:50%; background:#fff; border:1.5px solid #9AD9BB;"></div>
+            <div style="position:absolute; left:196px; top:122px; transform:translate(-50%,-50%); width:26px; height:26px; border-radius:50%; background:#fff; border:1.5px solid #9AD9BB;"></div>
+            <div style="position:absolute; left:115px; top:14px; transform:translate(-50%,-50%); width:26px; height:26px; border-radius:50%; background:#fff; border:1.5px solid #9AD9BB;"></div>
+          </div>
+          <p style="font-size:15px; font-weight:600; color:#11221C; margin-top:22px;">One shared SupaNet workspace</p>
+          <p style="font-size:14px; line-height:1.5; color:#3E7860; margin-top:8px; max-width:250px;">One account, one shared memory of how your business actually works.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SECTION 2 — OWN YOUR DATA ===================== -->
+  <section style="max-width:1180px; margin:0 auto; padding:0 40px 90px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:56px; align-items:center;">
+      <div>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px; letter-spacing:0.14em; color:#15795B; font-weight:500;">02 — OWNERSHIP</span>
+        <h2 style="font-size:38px; line-height:1.1; font-weight:600; letter-spacing:-0.025em; margin-top:16px;">Your data centralized</h2>
+        <p style="font-size:18px; line-height:1.55; color:#5B665F; margin-top:16px; max-width:460px; text-wrap:pretty;">Using Supabase and your SupaNet, you can host it all yourself — or not.</p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px 28px; margin-top:34px; max-width:480px;">
+          <div>
+            <div style="width:30px; height:30px; border-radius:8px; background:#EAF7F0; border:1px solid #C7E7D6; margin-bottom:12px;"></div>
+            <p style="font-size:15.5px; font-weight:600;">Your own database</p>
+            <p style="font-size:14px; line-height:1.5; color:#8A938C; margin-top:4px;">Everything lives on infrastructure you control.</p>
+          </div>
+          <div>
+            <div style="width:30px; height:30px; border-radius:50%; background:#EAF7F0; border:1px solid #C7E7D6; margin-bottom:12px;"></div>
+            <p style="font-size:15.5px; font-weight:600;">Team and Customer Access Controls</p>
+            <p style="font-size:14px; line-height:1.5; color:#8A938C; margin-top:4px;">People only ever see what they're allowed to.</p>
+          </div>
+          <div>
+            <div style="width:30px; height:30px; border-radius:8px; transform:rotate(45deg); background:#EAF7F0; border:1px solid #C7E7D6; margin-bottom:12px;"></div>
+            <p style="font-size:15.5px; font-weight:600;">Evals for your data</p>
+            <p style="font-size:14px; line-height:1.5; color:#8A938C; margin-top:4px;">Know your data is working with your AI and Automations</p>
+          </div>
+          <div>
+            <div style="width:30px; height:30px; border-radius:8px; background:#15795B; margin-bottom:12px; display:flex; align-items:center; justify-content:center;"><div style="width:11px;height:11px;border-radius:3px;background:#3ECF8E;"></div></div>
+            <p style="font-size:15.5px; font-weight:600;">Open source (MIT)</p>
+            <p style="font-size:14px; line-height:1.5; color:#8A938C; margin-top:4px;">Fork it, audit it, keep it. No lock-in, ever.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- shield / vault motif -->
+      <div style="background:#0E1F18; border-radius:22px; padding:56px 40px; min-height:380px; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; overflow:hidden;">
+        <div style="position:absolute; inset:0; background:radial-gradient(120% 80% at 50% 0%, rgba(62,207,142,0.16), transparent 60%);"></div>
+        <div style="position:relative; width:128px; height:148px; background:#15795B; border-radius:64px 64px 22px 22px / 80px 80px 22px 22px; display:flex; align-items:center; justify-content:center; box-shadow:0 20px 50px -16px rgba(0,0,0,0.6);">
+          <div style="width:96px; height:116px; background:#0E1F18; border-radius:48px 48px 16px 16px / 64px 64px 16px 16px; display:flex; align-items:center; justify-content:center;">
+            <div style="width:30px; height:30px; border-radius:50%; background:#3ECF8E;"></div>
+          </div>
+        </div>
+        <p style="position:relative; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.12em; color:#7FD7AA; margin-top:30px;">YOUR DATABASE · YOUR KEYS</p>
+        <p style="position:relative; font-size:16px; color:#EAF2EE; margin-top:10px; text-align:center; max-width:260px; line-height:1.5;">Protected by row-level security, so the AI only ever touches what it should.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SECTION 3 — AUTOMATION ===================== -->
+  <section style="background:#F3F5F0; border-top:1px solid #E6E8E2; border-bottom:1px solid #E6E8E2;">
+    <div style="max-width:1180px; margin:0 auto; padding:84px 40px;">
+      <div style="text-align:center; max-width:700px; margin:0 auto 48px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px; letter-spacing:0.14em; color:#15795B; font-weight:500;">03 — AUTOMATION</span>
+        <h2 style="font-size:38px; line-height:1.1; font-weight:600; letter-spacing:-0.025em; margin-top:16px;">Put the boring work on autopilot — no developer required.</h2>
+        <p style="font-size:18px; line-height:1.55; color:#5B665F; margin-top:16px; text-wrap:pretty;">You build these by describing them in plain English. No code, no engineer, no ticket in someone's backlog.</p>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:24px;">
+        <div style="background:#fff; border:1px solid #E6E8E2; border-radius:16px; padding:30px 28px;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#15795B; letter-spacing:0.06em;">EVERY MORNING</span>
+          <p style="font-size:19px; font-weight:600; line-height:1.3; margin-top:14px; letter-spacing:-0.01em;">Draft the leadership report from the ticket system.</p>
+          <p style="font-size:14.5px; line-height:1.55; color:#8A938C; margin-top:12px;">It's waiting in your inbox before your first coffee.</p>
+        </div>
+        <div style="background:#fff; border:1px solid #E6E8E2; border-radius:16px; padding:30px 28px;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#15795B; letter-spacing:0.06em;">ON EVERY LEAD</span>
+          <p style="font-size:19px; font-weight:600; line-height:1.3; margin-top:14px; letter-spacing:-0.01em;">Summarize the form and draft a reply.</p>
+          <p style="font-size:14.5px; line-height:1.55; color:#8A938C; margin-top:12px;">A ready-to-send response the moment a lead arrives.</p>
+        </div>
+        <div style="background:#fff; border:1px solid #E6E8E2; border-radius:16px; padding:30px 28px;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#15795B; letter-spacing:0.06em;">ON DEMAND</span>
+          <p style="font-size:19px; font-weight:600; line-height:1.3; margin-top:14px; letter-spacing:-0.01em;">Turn a messy RFP into a clean first draft.</p>
+          <p style="font-size:14.5px; line-height:1.55; color:#8A938C; margin-top:12px;">Formatted in your template, ready for a human to polish.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SECTION 4 — STAIRCASE ===================== -->
+  <sc-if value="{{ showStaircase }}" hint-placeholder-val="{{ true }}">
+  <section style="max-width:1180px; margin:0 auto; padding:88px 40px 84px;">
+    <div style="text-align:center; max-width:640px; margin:0 auto 56px;">
+      <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px; letter-spacing:0.14em; color:#15795B; font-weight:500;">04 — DAY ONE</span>
+      <h2 style="font-size:38px; line-height:1.1; font-weight:600; letter-spacing:-0.025em; margin-top:16px;">Up and running in your first week.</h2>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:18px; align-items:stretch;">
+      <div style="background:#fff; border:1px solid #E6E8E2; border-radius:14px; padding:24px 22px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#3ECF8E; font-weight:500;">01</span>
+        <p style="font-size:16.5px; font-weight:600; line-height:1.3; margin-top:10px;">Centralize your meeting notes via a custom API</p>
+      </div>
+      <div style="background:#fff; border:1px solid #E6E8E2; border-radius:14px; padding:24px 22px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#3ECF8E; font-weight:500;">02</span>
+        <p style="font-size:16.5px; font-weight:600; line-height:1.3; margin-top:10px;">Run Evals to prove your AI automations are working with those notes</p>
+      </div>
+      <div style="background:#fff; border:1px solid #E6E8E2; border-radius:14px; padding:24px 22px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#3ECF8E; font-weight:500;">03</span>
+        <p style="font-size:16.5px; font-weight:600; line-height:1.3; margin-top:10px;">Automate weekly meeting reports</p>
+      </div>
+      <div style="background:#15795B; border:1px solid #15795B; border-radius:14px; padding:24px 22px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#3ECF8E; font-weight:500;">04</span>
+        <p style="font-size:16.5px; font-weight:600; line-height:1.3; margin-top:10px; color:#fff;">Start chatting as a team with the context that matters</p>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+
+  <!-- ===================== FOOTER CTA ===================== -->
+  <sc-if value="{{ showFinalCta }}" hint-placeholder-val="{{ true }}">
+  <section style="background:#0E1F18; color:#EAF2EE;">
+    <div style="max-width:1180px; margin:0 auto; padding:80px 40px 72px; text-align:center; position:relative;">
+      <div style="position:absolute; inset:0; background:radial-gradient(100% 70% at 50% 0%, rgba(62,207,142,0.14), transparent 55%);"></div>
+      <h2 style="position:relative; font-size:44px; line-height:1.08; font-weight:600; letter-spacing:-0.03em; max-width:680px; margin:0 auto;">Give your team a hub to share&nbsp;<div>skills, context, agents and more...</div></h2>
+      <div style="position:relative; margin-top:34px; display:flex; justify-content:center;">
+        <button onClick="{{ copyEmail }}" style="font-family:inherit; border:none; cursor:pointer; display:inline-flex; align-items:center; gap:9px; font-size:16px; color:#0E1F18; font-weight:600; background:#3ECF8E; padding:15px 28px; border-radius:9px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#0E1F18" stroke-width="1.6" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect><path d="M10.5 5.5V3.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3.5v5.5A1.5 1.5 0 0 0 3.5 10.5h2"></path></svg>
+          {{ copyLabel }}
+        </button>
+      </div>
+      <p style="position:relative; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#7FD7AA; margin-top:30px; letter-spacing:0.04em;">Open source&nbsp; ·&nbsp; Runs on infrastructure you own&nbsp; ·&nbsp; Use any AI model (OpenRouter)&nbsp; ·&nbsp; No per-seat fees</p>
+    </div>
+  </section>
+  </sc-if>
+
+  <footer style="max-width:1180px; margin:0 auto; padding:26px 40px; display:flex; align-items:center; justify-content:space-between;">
+    <span style="font-size:13.5px; color:#8A938C;">SupaNet — your team's shared AI workspace.</span>
+    <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#8A938C;">MIT · self-hosted</span>
+  </footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;showTopNav&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot; },
+  &quot;showStaircase&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot; },
+  &quot;showFinalCta&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot; }
+}">
+class Component extends DCLogic {
+  state = { copied: false };
+  copyEmail = async () => {
+    const email = "info@dailyai.studio";
+    try {
+      await navigator.clipboard.writeText(email);
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = email; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch (_) {}
+      document.body.removeChild(ta);
+    }
+    this.setState({ copied: true });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ copied: false }), 2000);
+  };
+  renderVals() {
+    return {
+      showTopNav: this.props.showTopNav ?? true,
+      showStaircase: this.props.showStaircase ?? true,
+      showFinalCta: this.props.showFinalCta ?? true,
+      copyEmail: this.copyEmail,
+      copyLabel: this.state.copied ? "Copied info@dailyai.studio" : "Contact info@dailyai.studio for Consulting",
+    };
+  }
+}
+</script>
+</body>
+</html>
