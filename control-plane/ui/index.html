@@ -114,6 +114,11 @@ $('form').addEventListener('submit', async (e) => {
     const json = await res.json()
     if (!res.ok) throw new Error(json.error || 'Signup failed — try again.')
     localStorage.setItem('supanet_status_token', json.status_token)
+    if (json.next === 'payment' && json.checkout_url) {
+      // Payment wall: off to Stripe Checkout; success returns here with ?token=.
+      window.location.href = json.checkout_url
+      return
+    }
     startWaiting(json.status_token)
   } catch (err) {
     $('err').textContent = err.message; $('err').style.display = 'block'; $('go').disabled = false
@@ -169,9 +174,21 @@ function showReady(s) {
   localStorage.removeItem('supanet_status_token')
 }
 
-// A refresh mid-provision resumes the waiting page.
-const saved = localStorage.getItem('supanet_status_token')
-if (saved) startWaiting(saved)
+// Returning from Stripe Checkout (?token=...) or refreshing mid-provision
+// resumes the waiting page; a canceled checkout clears the pending signup.
+const urlParams = new URLSearchParams(window.location.search)
+const urlToken = urlParams.get('token')
+if (urlParams.get('canceled')) {
+  localStorage.removeItem('supanet_status_token')
+  history.replaceState(null, '', '/')
+} else if (urlToken) {
+  localStorage.setItem('supanet_status_token', urlToken)
+  history.replaceState(null, '', '/')
+  startWaiting(urlToken)
+} else {
+  const saved = localStorage.getItem('supanet_status_token')
+  if (saved) startWaiting(saved)
+}
 </script>
 </body>
 </html>
