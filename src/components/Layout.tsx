@@ -212,11 +212,11 @@ export function Layout() {
         >
           <div
             className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] bg-gradient-to-br from-primary to-primary-strong text-white"
-            style={{ boxShadow: '0 4px 12px rgba(99,84,232,.35)' }}
+            style={{ boxShadow: '0 4px 12px rgba(21,121,91,.35)' }}
           >
             <SparkleIcon className="h-[18px] w-[18px]" />
           </div>
-          <span className={`text-[20px] font-extrabold tracking-tight ${railHide}`}>Intranet</span>
+          <span className={`text-[20px] font-extrabold tracking-tight ${railHide}`}>SupaNet</span>
           <button
             className="ml-auto rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text md:hidden"
             onClick={() => setDrawerOpen(false)}
@@ -329,7 +329,7 @@ export function Layout() {
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary-strong text-white">
               <SparkleIcon className="h-3.5 w-3.5" />
             </span>
-            Intranet
+            SupaNet
           </span>
           <button
             onClick={openGlobalSearch}

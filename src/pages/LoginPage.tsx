@@ -59,7 +59,7 @@ export default function LoginPage() {
             ✺
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-text">
-            Welcome to your Intranet
+            Welcome to SupaNet
           </h1>
           <p className="mt-1 text-sm text-muted">
             Sign in to chat with AI, build and share artifacts.

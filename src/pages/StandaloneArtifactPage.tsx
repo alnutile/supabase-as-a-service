@@ -29,7 +29,7 @@ export default function StandaloneArtifactPage() {
         <p className="text-lg font-semibold text-text">This page isn’t available</p>
         <p className="text-sm text-muted">It may be private or the link is incorrect.</p>
         <Link to="/" className="text-sm font-medium text-primary hover:underline">
-          Go to the intranet
+          Go to SupaNet
         </Link>
       </div>
     )

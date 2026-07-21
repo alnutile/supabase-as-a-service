@@ -1076,7 +1076,7 @@ function CollectionChat({ collection, onChanged }: { collection: Collection; onC
         onClick={() => setOpen(true)}
         title={`Chat with "${collection.name}"`}
         className="absolute bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-lg transition hover:bg-primary-strong"
-        style={{ boxShadow: '0 10px 30px rgba(99,84,232,.45)' }}
+        style={{ boxShadow: '0 10px 30px rgba(21,121,91,.45)' }}
       >
         <ChatIcon className="h-6 w-6" />
       </button>
