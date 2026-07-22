@@ -90,8 +90,22 @@ export async function getApiKeys(
   return { anon, serviceRole }
 }
 
+// Transient infra errors surface as 400s whose body carries a socket-level
+// message (seen live: "connect ECONNREFUSED …:5432" on a project that had just
+// turned ACTIVE_HEALTHY). Those retry with backoff; real SQL errors fail fast.
+const TRANSIENT_DB = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|Connection terminated|timeout expired/i
+
 export async function runQuery(pat: string, ref: string, query: string): Promise<unknown> {
-  return must(await req(pat, 'POST', `/projects/${ref}/database/query`, { query }), 'database query')
+  const backoffs = [10_000, 20_000, 30_000, 60_000]
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await must(await req(pat, 'POST', `/projects/${ref}/database/query`, { query }), 'database query')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (attempt >= backoffs.length || !TRANSIENT_DB.test(msg)) throw err
+      await new Promise((r) => setTimeout(r, backoffs[attempt]))
+    }
+  }
 }
 
 export async function setSecrets(
