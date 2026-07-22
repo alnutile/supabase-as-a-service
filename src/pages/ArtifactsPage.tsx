@@ -64,6 +64,23 @@ export default function ArtifactsPage() {
     },
     [setSearchParams],
   )
+  // Filter by visibility (null = all). Backed by the `?visibility=<type>` URL
+  // param so the selection survives navigation.
+  const activeVisibility = searchParams.get('visibility') as 'private' | 'unlisted' | 'public' | null
+  const setActiveVisibility = useCallback(
+    (vis: 'private' | 'unlisted' | 'public' | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (vis) next.set('visibility', vis)
+          else next.delete('visibility')
+          return next
+        },
+        { replace: false },
+      )
+    },
+    [setSearchParams],
+  )
   // Multi-select state for bulk "add to collection".
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
@@ -131,11 +148,18 @@ export default function ArtifactsPage() {
   const activeCollection = collections.find((c) => c.id === activeId) ?? null
 
   const visible = useMemo(() => {
-    const base = searchResults ?? artifacts
-    if (!activeId) return base
-    const set = members[activeId] ?? new Set()
-    return base.filter((a) => set.has(a.id))
-  }, [artifacts, searchResults, members, activeId])
+    let base = searchResults ?? artifacts
+    // Filter by collection if one is selected
+    if (activeId) {
+      const set = members[activeId] ?? new Set()
+      base = base.filter((a) => set.has(a.id))
+    }
+    // Filter by visibility if one is selected
+    if (activeVisibility) {
+      base = base.filter((a) => a.visibility === activeVisibility)
+    }
+    return base
+  }, [artifacts, searchResults, members, activeId, activeVisibility])
 
   // Estimated tokens per collection (content chars ÷ ~4), kept in sync with
   // membership automatically since we already hold every artifact's content.
@@ -383,6 +407,37 @@ export default function ArtifactsPage() {
               )}
             </button>
           ))}
+        </div>
+
+        {/* Visibility filter bar */}
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-faint">Visibility:</span>
+          {(['private', 'unlisted', 'public'] as const).map((vis) => {
+            const Icon = VIS_ICON[vis]
+            const count = artifacts.filter((a) => a.visibility === vis).length
+            return (
+              <button
+                key={vis}
+                onClick={() => setActiveVisibility(activeVisibility === vis ? null : vis)}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                  activeVisibility === vis
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-border text-muted hover:bg-surface-hover'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {vis.charAt(0).toUpperCase() + vis.slice(1)} ({count})
+              </button>
+            )
+          })}
+          {activeVisibility && (
+            <button
+              onClick={() => setActiveVisibility(null)}
+              className="text-xs font-medium text-muted hover:text-text"
+            >
+              Clear
+            </button>
+          )}
         </div>
 
         {/* Active-collection header: chat + manage */}
