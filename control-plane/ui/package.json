@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "serve -s . -l ${PORT:-3000}"
+    "start": "serve . -l ${PORT:-3000}"
   }
 }
