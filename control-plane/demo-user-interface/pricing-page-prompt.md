@@ -39,7 +39,7 @@ every doc you add, not more expensive with every person you add.
    - Bullets: full feature set · your infrastructure · community support.
    - CTA (secondary/outline): "View on GitHub".
 
-2. **SupaNet Cloud — $49/month per workspace** ⭐ featured (mint fill panel,
+2. **SupaNet Cloud — $79/month per workspace** ⭐ featured (mint fill panel,
    primary-green CTA, "Most popular" chip)
    - Everything set up for you in minutes — no servers, no keys, no setup.
    - Bullets: unlimited teammates, one flat price · your own private database
@@ -66,7 +66,7 @@ your infrastructure from day one. (Use on-dark text `#EAF2EE` + on-dark green
 
 ### Small FAQ (3–5 items, accordion or simple stacked)
 
-- *Is it really not per seat?* Yes — invite your whole company; $49 covers the
+- *Is it really not per seat?* Yes — invite your whole company; $79 covers the
   workspace.
 - *What does "fair-use AI included" mean?* A generous monthly allowance of AI
   usage is included; heavy automation users can add usage or bring their own
@@ -81,7 +81,7 @@ your infrastructure from day one. (Use on-dark text `#EAF2EE` + on-dark green
 ## Constraints
 
 - Every "Start your workspace" CTA points to `https://start.supanet.io`.
-- Price displays as `$49` with `/month per workspace` in muted text; add a
+- Price displays as `$79` with `/month per workspace` in muted text; add a
   small `Test mode — launch pricing` chip only if a flag is set (omit by
   default).
 - No fake logos, testimonials, or invented stats. No countdown timers.
