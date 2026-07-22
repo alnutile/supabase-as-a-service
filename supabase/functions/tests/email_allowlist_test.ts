@@ -69,9 +69,12 @@ Deno.test('recipientAllowed - empty/invalid rules', () => {
 
 Deno.test('recipientAllowed - subdomain behavior', () => {
   const allowed = ['@example.com']
-  // Domain suffixes match the literal string, so subdomains need their own rule
+  // A '@domain' rule matches on addr.endsWith('@domain'), so it only matches
+  // that exact domain. A subdomain address ends with '.example.com' (not
+  // '@example.com'), so it does NOT match and needs its own rule — the safe
+  // default for a send-to allowlist.
   assertEquals(recipientAllowed('user@example.com', allowed), true)
-  assertEquals(recipientAllowed('user@sub.example.com', allowed), true) // ends with @example.com
+  assertEquals(recipientAllowed('user@sub.example.com', allowed), false) // ends with .example.com, not @example.com
   assertEquals(recipientAllowed('user@notexample.com', allowed), false)
 })
 
