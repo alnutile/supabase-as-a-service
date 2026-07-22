@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your account — SupaNet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FBFBF9; --panel:#F6F7F4; --border:#E6E8E2;
+    --ink:#11221C; --muted:#5B665F; --faint:#8A938C;
+    --green:#15795B; --bright:#3ECF8E; --deep:#0E1F18;
+    --mint:#EAF7F0; --mint-border:#C7E7D6;
+  }
+  *{box-sizing:border-box;margin:0}
+  ::selection{background:#C7EFD9;color:#0E1F18}
+  body{font-family:'Schibsted Grotesk',system-ui,sans-serif;background:var(--bg);color:var(--ink);
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:48px 24px}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .wrap{width:100%;max-width:560px}
+  .card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:16px}
+  .eyebrow{color:var(--green);margin-bottom:14px}
+  h1{font-size:24px;font-weight:700;letter-spacing:-.01em;margin-bottom:8px}
+  .sub{color:var(--muted);font-size:15px;line-height:1.5;margin-bottom:20px}
+  label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
+  input{width:100%;padding:11px 12px;font:inherit;font-size:15px;border:1px solid var(--border);
+        border-radius:10px;background:var(--bg);color:var(--ink)}
+  input:focus{outline:2px solid var(--bright);outline-offset:0;border-color:transparent}
+  button{padding:11px 18px;font:inherit;font-size:14.5px;font-weight:600;border-radius:10px;cursor:pointer;border:0}
+  .primary{width:100%;margin-top:20px;padding:13px;color:#fff;background:var(--green)}
+  .secondary{background:var(--panel);color:var(--ink);border:1px solid var(--border)}
+  button:hover{filter:brightness(1.04)} button:disabled{opacity:.55;cursor:default}
+  .error{display:none;margin-top:14px;padding:10px 12px;border-radius:10px;background:#FDF2F1;
+         border:1px solid #F0D4D1;color:#8C3B33;font-size:14px}
+  .notice{display:none;margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--mint);
+          border:1px solid var(--mint-border);color:var(--green);font-size:14px}
+  .ws{display:flex;flex-direction:column;gap:10px}
+  .ws-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .ws h2{font-size:18px;font-weight:700}
+  .chip{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+        padding:4px 10px;border-radius:999px;border:1px solid var(--mint-border);background:var(--mint);color:var(--green)}
+  .chip.warn{background:#FDF6EC;border-color:#EEDDBF;color:#8A6A2F}
+  .chip.bad{background:#FDF2F1;border-color:#F0D4D1;color:#8C3B33}
+  .addr{color:var(--muted);font-size:14px}
+  .row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .open{background:var(--deep);color:#EAF2EE;text-decoration:none;padding:11px 18px;border-radius:10px;
+        font-weight:600;font-size:14.5px;display:inline-block}
+  .open span{color:var(--bright)}
+  .foot{color:var(--faint);font-size:12.5px;margin-top:8px}
+  .signout{background:none;border:none;color:var(--faint);font-size:13px;text-decoration:underline;cursor:pointer;padding:4px}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card" id="signin">
+    <div class="mono eyebrow">Your account</div>
+    <h1>Manage your workspace</h1>
+    <p class="sub">Enter the email you signed up with and we'll send you a sign-in link — no password needed.</p>
+    <form id="linkForm">
+      <label for="email">Email</label>
+      <input id="email" type="email" required placeholder="you@acme.com" autocomplete="email">
+      <button class="primary" id="send" type="submit">Email me a sign-in link</button>
+    </form>
+    <div class="notice" id="sent">Check your inbox — the link signs you in right here.</div>
+    <div class="error" id="signinErr"></div>
+  </div>
+
+  <div class="hidden" id="dash">
+    <div class="card">
+      <div class="mono eyebrow">Your account</div>
+      <h1>Your workspaces</h1>
+      <p class="sub" id="who"></p>
+      <div id="list"></div>
+      <p class="foot">Need help? Reply to any email from us and a human answers.</p>
+      <button class="signout" id="signout">Sign out</button>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const SUPABASE_URL = 'https://zgxiabqfaeifldvqfemh.supabase.co'
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpneGlhYnFmYWVpZmxkdnFmZW1oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0NzU3OTgsImV4cCI6MjEwMDA1MTc5OH0.FrzndF3zTRTkFDHKHlqG-FC1KrpLgL9_X8Vpwoyg7Zc'
+const db = createClient(SUPABASE_URL, ANON_KEY)
+const $ = (id) => document.getElementById(id)
+
+const STATUS_CHIP = {
+  active: ['Active', ''],
+  provisioning: ['Setting up', 'warn'],
+  pending_payment: ['Awaiting payment', 'warn'],
+  past_due: ['Payment issue', 'bad'],
+  canceled: ['Canceled', 'bad'],
+  paused: ['Paused', 'warn'],
+  failed: ['Needs attention', 'bad'],
+}
+
+$('linkForm').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  $('send').disabled = true; $('signinErr').style.display = 'none'
+  const { error } = await db.auth.signInWithOtp({
+    email: $('email').value.trim(),
+    options: { emailRedirectTo: window.location.origin + '/account.html' },
+  })
+  if (error) {
+    $('signinErr').textContent = error.message; $('signinErr').style.display = 'block'; $('send').disabled = false
+  } else {
+    $('sent').style.display = 'block'
+  }
+})
+
+async function renderDash(session) {
+  $('signin').classList.add('hidden')
+  $('dash').classList.remove('hidden')
+  $('who').textContent = 'Signed in as ' + session.user.email
+  const { data: tenants, error } = await db
+    .from('tenants')
+    .select('id, slug, name, status, app_url, created_at')
+    .order('created_at', { ascending: false })
+  const list = $('list')
+  list.innerHTML = ''
+  if (error) { list.textContent = 'Could not load workspaces — refresh to retry.'; return }
+  if (!tenants.length) {
+    list.innerHTML = '<p class="sub">No workspaces on this email yet. <a href="/">Start one →</a></p>'
+    return
+  }
+  for (const t of tenants) {
+    const [label, cls] = STATUS_CHIP[t.status] ?? [t.status, '']
+    const card = document.createElement('div')
+    card.className = 'card ws'
+    card.innerHTML = `
+      <div class="ws-head">
+        <h2>${t.name}</h2>
+        <span class="chip ${cls}">${label}</span>
+      </div>
+      <div class="addr">${t.slug}.supanet.io</div>
+      <div class="row">
+        ${t.app_url && t.status === 'active' ? `<a class="open" href="${t.app_url}"><span>→</span> Open workspace</a>` : ''}
+        <button class="secondary" data-billing="${t.id}">Manage billing</button>
+      </div>`
+    list.appendChild(card)
+  }
+  list.querySelectorAll('[data-billing]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      btn.disabled = true
+      try {
+        const { data: { session } } = await db.auth.getSession()
+        const res = await fetch(SUPABASE_URL + '/functions/v1/account', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            apikey: ANON_KEY,
+            Authorization: 'Bearer ' + session.access_token,
+          },
+          body: JSON.stringify({ tenant_id: btn.dataset.billing, action: 'billing_portal' }),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error || 'Could not open billing.')
+        window.location.href = json.url
+      } catch (err) {
+        alert(err.message)
+        btn.disabled = false
+      }
+    }),
+  )
+}
+
+$('signout').addEventListener('click', async () => {
+  await db.auth.signOut()
+  window.location.reload()
+})
+
+const { data: { session } } = await db.auth.getSession()
+if (session) renderDash(session)
+db.auth.onAuthStateChange((_evt, s) => { if (s && $('dash').classList.contains('hidden')) renderDash(s) })
+</script>
+</body>
+</html>
