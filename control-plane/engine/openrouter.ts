@@ -21,7 +21,9 @@ export async function mintTenantKey(opts: {
       Authorization: `Bearer ${opts.provisioningKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ name: opts.name, limit: opts.limitUsd }),
+    // limit_reset monthly makes it a per-month allowance; without it the limit
+    // is LIFETIME and a light user silently loses AI after a couple of months.
+    body: JSON.stringify({ name: opts.name, limit: opts.limitUsd, limit_reset: 'monthly' }),
   })
   const json = (await res.json().catch(() => ({}))) as any
   if (!res.ok) throw new Error(`OpenRouter key mint failed (${res.status}): ${JSON.stringify(json).slice(0, 400)}`)
