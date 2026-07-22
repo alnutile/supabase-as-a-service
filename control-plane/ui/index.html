@@ -37,16 +37,52 @@
   .error{display:none;margin-top:14px;padding:10px 12px;border-radius:10px;background:#FDF2F1;
          border:1px solid #F0D4D1;color:#8C3B33;font-size:14px}
   .fine{margin-top:16px;color:var(--faint);font-size:12.5px;line-height:1.5}
-  /* waiting view */
-  .steps{list-style:none;padding:0;margin-top:22px;display:flex;flex-direction:column;gap:0}
-  .step{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--panel);font-size:14.5px;color:var(--faint)}
-  .step:last-child{border-bottom:0}
+  /* waiting view — dark provisioning card (left) + "what's inside" card (right) */
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .wait-wrap{width:100%;max-width:960px;display:flex;align-items:stretch;gap:24px;flex-wrap:wrap;justify-content:center}
+  .wait-col{flex:1 1 360px;min-width:0;max-width:480px;display:flex;flex-direction:column}
+  .wait-col.right{flex:1 1 330px;max-width:440px}
+  .dark-card{flex:1;background:var(--deep);border-radius:22px;padding:44px 40px;position:relative;overflow:hidden}
+  .dark-card .glow{position:absolute;inset:0;background:radial-gradient(110% 80% at 50% 0%,rgba(62,207,142,.16),transparent 60%)}
+  .dark-card .inner{position:relative}
+  .spinner{width:52px;height:52px;margin:0 auto;border-radius:50%;border:3px solid rgba(127,215,170,.25);
+           border-top-color:var(--bright);animation:spin .9s linear infinite}
+  .dark-card h1{color:#EAF2EE;font-size:24px;text-align:center;margin-top:24px;letter-spacing:-.02em}
+  .dark-card .sub{color:#7FD7AA;font-size:14.5px;text-align:center;margin:8px 0 0}
+  .bar{height:6px;border-radius:100px;background:rgba(255,255,255,.08);margin-top:28px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--green),var(--bright));
+         border-radius:100px;transition:width .5s ease}
+  .steps{list-style:none;padding:0;margin-top:26px;display:flex;flex-direction:column;gap:4px}
+  .step{display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:12px;font-size:14.5px;
+        font-weight:500;color:rgba(234,242,238,.4);transition:background .25s,color .25s}
   .dot{width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
-       border:2px solid var(--border);font-size:12px;color:#fff;transition:all .25s}
-  .step.run{color:var(--ink)} .step.run .dot{border-color:var(--bright);animation:pulse 1.2s ease-in-out infinite}
-  .step.ok{color:var(--muted)} .step.ok .dot{background:var(--bright);border-color:var(--bright)}
-  .step.err .dot{background:#C25048;border-color:#C25048}
-  @keyframes pulse{50%{box-shadow:0 0 0 5px rgba(62,207,142,.18)}}
+       font-size:12px;transition:all .25s}
+  .step.ok{background:rgba(62,207,142,.10);color:#EAF2EE} .step.ok .dot{background:var(--bright);color:var(--deep);font-weight:700}
+  .step.run{background:rgba(255,255,255,.05);color:#EAF2EE} .step.run .dot{background:rgba(255,255,255,.06)}
+  .mini{width:12px;height:12px;border-radius:50%;border:2px solid rgba(127,215,170,.35);
+        border-top-color:var(--bright);animation:spin .8s linear infinite}
+  .pip{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.18)}
+  .step.err{background:rgba(194,80,72,.12);color:#EAF2EE} .step.err .dot{background:#C25048;color:#fff;font-weight:700}
+  #waitErr{background:rgba(194,80,72,.15);border-color:rgba(240,90,80,.35);color:#FFB4AD}
+  .wait-note{text-align:center;font-size:13px;color:var(--faint);margin-top:18px}
+  .inside-card{flex:1;background:#fff;border:1px solid var(--border);border-radius:20px;overflow:hidden;
+               box-shadow:0 1px 3px rgba(17,34,28,.05);display:flex;flex-direction:column}
+  .inside-card .head{padding:20px 26px 4px}
+  .feat-grid{padding:14px 26px 4px;display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+  .feat{display:flex;align-items:center;gap:10px}
+  .feat .tag{flex:none;width:28px;height:28px;border-radius:8px;background:var(--mint);border:1px solid var(--mint-border);
+             display:flex;align-items:center;justify-content:center;color:var(--green);
+             font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}
+  .feat .name{font-size:14px;font-weight:500;color:#33413A}
+  .console-wrap{margin-top:auto;padding:20px 22px 22px}
+  .console{background:var(--deep);border-radius:14px;overflow:hidden}
+  .console .chead{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .console .cdot{width:9px;height:9px;border-radius:50%;background:var(--bright)}
+  .console .clbl{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.1em;color:#7FD7AA}
+  .console .cbody{padding:16px 16px 18px;min-height:104px}
+  .console p{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.6;color:#EAF2EE}
+  .console .cprompt{color:var(--bright)}
+  #caret{color:var(--bright);margin-left:1px} #caret.off{opacity:0}
   .ready{display:none;text-align:center}
   .ready .big{font-size:42px;margin:6px 0 14px}
   .applink{display:inline-block;margin-top:18px;padding:13px 22px;background:var(--deep);color:#EAF2EE;
@@ -78,12 +114,43 @@
   </form>
 </div>
 
-<div class="card hidden" id="waitCard">
-  <div class="mono eyebrow">Setting up</div>
-  <h1 id="waitTitle">Building your workspace…</h1>
-  <p class="sub">This usually takes a few minutes. You can leave this page — we'll email you when it's ready.</p>
-  <ul class="steps" id="steps"></ul>
-  <div class="error" id="waitErr"></div>
+<div class="wait-wrap hidden" id="waitCard">
+  <div class="wait-col">
+    <div class="dark-card">
+      <div class="glow"></div>
+      <div class="inner">
+        <div class="spinner" id="waitSpin"></div>
+        <h1 id="waitTitle">Setting up your environment</h1>
+        <p class="sub">This usually takes a few minutes. You can leave this page — we'll email you when it's ready.</p>
+        <div class="bar"><i id="waitBar"></i></div>
+        <ul class="steps" id="steps"></ul>
+        <div class="error" id="waitErr"></div>
+      </div>
+    </div>
+    <p class="wait-note">Provisioning your database, security rules, and AI services.</p>
+  </div>
+  <div class="wait-col right">
+    <div class="inside-card">
+      <div class="head"><span class="mono" style="color:var(--green);letter-spacing:.12em">While you wait · What's inside</span></div>
+      <div class="feat-grid">
+        <div class="feat"><span class="tag">◳</span><span class="name">Collections</span></div>
+        <div class="feat"><span class="tag">▤</span><span class="name">Files</span></div>
+        <div class="feat"><span class="tag">▦</span><span class="name">Tables</span></div>
+        <div class="feat"><span class="tag">◈</span><span class="name">Artifacts</span></div>
+        <div class="feat"><span class="tag">✓</span><span class="name">To-dos</span></div>
+        <div class="feat"><span class="tag">✦</span><span class="name">Skills</span></div>
+        <div class="feat"><span class="tag">◉</span><span class="name">Agents</span></div>
+        <div class="feat"><span class="tag">↻</span><span class="name">Automations</span></div>
+      </div>
+      <div class="console-wrap">
+        <div class="console">
+          <div class="chead"><span class="cdot"></span><span class="clbl">ASK SUPANET</span></div>
+          <div class="cbody"><p><span class="cprompt">&gt;&nbsp;</span><span id="consoleText"></span><span id="caret">▋</span></p></div>
+        </div>
+        <p class="wait-note" style="font-size:12px;margin-top:14px">One prompt. The whole workflow — no code required.</p>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="card ready" id="readyCard">
@@ -128,9 +195,42 @@ $('form').addEventListener('submit', async (e) => {
   }
 })
 
+// "Ask SupaNet" console: types, holds, then deletes each example prompt on a loop.
+const PROMPTS = [
+  'Make a weekly report on everything marketing shipped.',
+  'Turn these meeting notes into tasks and email the team.',
+  'Build an onboarding workspace from this contract.',
+  'Draft our leadership summary every Monday morning.',
+]
+let typeTimer, caretTimer, promptIdx = 0
+function startConsole() {
+  if (caretTimer) return
+  caretTimer = setInterval(() => $('caret').classList.toggle('off'), 530)
+  let ci = 0, phase = 'typing'
+  const tick = () => {
+    const prompt = PROMPTS[promptIdx % PROMPTS.length]
+    if (phase === 'typing') {
+      ci++
+      $('consoleText').textContent = prompt.slice(0, ci)
+      if (ci >= prompt.length) { phase = 'hold'; typeTimer = setTimeout(tick, 1900) }
+      else typeTimer = setTimeout(tick, 42 + Math.random() * 45)
+    } else if (phase === 'hold') {
+      phase = 'deleting'
+      typeTimer = setTimeout(tick, 220)
+    } else {
+      ci -= 2
+      if (ci <= 0) { ci = 0; promptIdx++; phase = 'typing'; $('consoleText').textContent = ''; typeTimer = setTimeout(tick, 380) }
+      else { $('consoleText').textContent = prompt.slice(0, ci); typeTimer = setTimeout(tick, 18) }
+    }
+  }
+  typeTimer = setTimeout(tick, 500)
+}
+function stopConsole() { clearTimeout(typeTimer); clearInterval(caretTimer); caretTimer = null }
+
 function startWaiting(token) {
   $('signupCard').classList.add('hidden')
   $('waitCard').classList.remove('hidden')
+  startConsole()
   poll(token)
 }
 
@@ -143,6 +243,7 @@ async function poll(token) {
     if (s.status === 'active' && s.app_url) { showReady(s); return }
     if (s.status === 'failed') {
       $('waitTitle').textContent = 'We hit a snag'
+      $('waitSpin').style.animationPlayState = 'paused'
       $('waitErr').textContent = 'Provisioning stopped — our team has been notified and will finish your workspace shortly.'
       $('waitErr').style.display = 'block'
       setTimeout(() => poll(token), 15000)
@@ -155,21 +256,23 @@ async function poll(token) {
 function render(s) {
   const ul = $('steps')
   ul.innerHTML = ''
-  let current = true
+  let current = true, done = 0
   for (const st of s.steps) {
     const li = document.createElement('li')
-    let cls = '', mark = ''
-    if (st.status === 'ok') { cls = 'ok'; mark = '✓' }
+    let cls = '', mark = '<span class="pip"></span>'
+    if (st.status === 'ok') { cls = 'ok'; mark = '✓'; done++ }
     else if (st.status === 'error') { cls = 'err'; mark = '!' }
-    else if (current && s.job_status === 'running') { cls = 'run' }
+    else if (current && s.job_status === 'running') { cls = 'run'; mark = '<span class="mini"></span>' }
     if (st.status !== 'ok') current = false
     li.className = 'step ' + cls
     li.innerHTML = '<span class="dot">' + mark + '</span><span>' + st.label + '</span>'
     ul.appendChild(li)
   }
+  $('waitBar').style.width = (s.steps.length ? Math.round(done / s.steps.length * 100) : 0) + '%'
 }
 
 function showReady(s) {
+  stopConsole()
   $('waitCard').classList.add('hidden')
   $('readyCard').style.display = 'block'
   $('appLink').href = s.app_url
