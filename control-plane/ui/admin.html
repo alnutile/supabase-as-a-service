@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — SupaNet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FBFBF9; --panel:#F6F7F4; --border:#E6E8E2;
+    --ink:#11221C; --muted:#5B665F; --faint:#8A938C;
+    --green:#15795B; --bright:#3ECF8E; --deep:#0E1F18;
+    --mint:#EAF7F0; --mint-border:#C7E7D6; --red:#8C3B33; --red-bg:#FDF2F1; --red-border:#F0D4D1;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font-family:'Schibsted Grotesk',system-ui,sans-serif;background:var(--bg);color:var(--ink);
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:48px 24px}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .wrap{width:100%;max-width:760px}
+  .card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:14px}
+  .eyebrow{color:var(--green);margin-bottom:12px}
+  h1{font-size:23px;font-weight:700;margin-bottom:6px}
+  .sub{color:var(--muted);font-size:14.5px;margin-bottom:16px}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 6px}
+  input{width:100%;padding:10px 12px;font:inherit;font-size:15px;border:1px solid var(--border);border-radius:10px;background:var(--bg)}
+  input:focus{outline:2px solid var(--bright);border-color:transparent}
+  button{padding:9px 14px;font:inherit;font-size:13.5px;font-weight:600;border-radius:9px;cursor:pointer;border:0}
+  .primary{width:100%;margin-top:16px;padding:12px;color:#fff;background:var(--green);font-size:15px}
+  .secondary{background:var(--panel);border:1px solid var(--border);color:var(--ink)}
+  .danger{background:var(--red-bg);border:1px solid var(--red-border);color:var(--red)}
+  button:hover{filter:brightness(1.04)} button:disabled{opacity:.5;cursor:default}
+  .error{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--red-bg);border:1px solid var(--red-border);color:var(--red);font-size:14px}
+  .notice{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--mint);border:1px solid var(--mint-border);color:var(--green);font-size:14px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+  td{padding:10px;border-bottom:1px solid var(--panel);vertical-align:middle}
+  .chip{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid var(--mint-border);background:var(--mint);color:var(--green);white-space:nowrap}
+  .chip.warn{background:#FDF6EC;border-color:#EEDDBF;color:#8A6A2F}
+  .chip.bad{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}
+  .chip.gone{background:var(--panel);border-color:var(--border);color:var(--faint)}
+  .slug a{color:var(--green);text-decoration:none;font-weight:600}
+  .em{color:var(--faint);font-size:12.5px}
+  .err-line{color:var(--red);font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hidden{display:none!important}
+  .refresh{float:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card" id="signin">
+    <div class="mono eyebrow">Admin</div>
+    <h1>SupaNet control</h1>
+    <p class="sub">Sign in with an admin email — magic link, no password.</p>
+    <form id="linkForm">
+      <label for="email">Email</label>
+      <input id="email" type="email" required autocomplete="email">
+      <button class="primary" type="submit" id="send">Email me a sign-in link</button>
+    </form>
+    <div class="notice" id="sent">Check your inbox.</div>
+    <div class="error" id="signinErr"></div>
+  </div>
+
+  <div class="hidden" id="dash">
+    <div class="card">
+      <button class="secondary refresh" id="refresh">Refresh</button>
+      <div class="mono eyebrow">Admin</div>
+      <h1>Tenants</h1>
+      <p class="sub" id="who"></p>
+      <div class="error" id="dashErr"></div>
+      <div class="notice" id="dashOk"></div>
+      <table>
+        <thead><tr><th>Workspace</th><th>Customer</th><th>Status</th><th>Job</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const SUPABASE_URL = 'https://zgxiabqfaeifldvqfemh.supabase.co'
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpneGlhYnFmYWVpZmxkdnFmZW1oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0NzU3OTgsImV4cCI6MjEwMDA1MTc5OH0.FrzndF3zTRTkFDHKHlqG-FC1KrpLgL9_X8Vpwoyg7Zc'
+const db = createClient(SUPABASE_URL, ANON_KEY)
+const $ = (id) => document.getElementById(id)
+
+const CHIP = {
+  active: ['active', ''], provisioning: ['provisioning', 'warn'], pending_payment: ['awaiting payment', 'warn'],
+  past_due: ['past due', 'bad'], canceled: ['canceled', 'bad'], paused: ['paused', 'warn'],
+  failed: ['failed', 'bad'], deleted: ['deleted', 'gone'],
+}
+
+async function api(action, extra = {}) {
+  const { data: { session } } = await db.auth.getSession()
+  const res = await fetch(SUPABASE_URL + '/functions/v1/admin', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', apikey: ANON_KEY, Authorization: 'Bearer ' + session.access_token },
+    body: JSON.stringify({ action, ...extra }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || ('failed: ' + action))
+  return json
+}
+
+$('linkForm').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  $('send').disabled = true; $('signinErr').style.display = 'none'
+  const { error } = await db.auth.signInWithOtp({
+    email: $('email').value.trim(),
+    options: { emailRedirectTo: window.location.origin + '/admin.html' },
+  })
+  if (error) { $('signinErr').textContent = error.message; $('signinErr').style.display = 'block'; $('send').disabled = false }
+  else $('sent').style.display = 'block'
+})
+
+function flash(el, msg) { el.textContent = msg; el.style.display = 'block'; setTimeout(() => (el.style.display = 'none'), 6000) }
+
+async function load() {
+  $('dashErr').style.display = 'none'
+  let data
+  try { data = await api('list') } catch (err) {
+    flash($('dashErr'), err.message)
+    if (/admins only/.test(err.message)) { await db.auth.signOut(); location.reload() }
+    return
+  }
+  const rows = $('rows')
+  rows.innerHTML = ''
+  for (const t of data.tenants) {
+    const [label, cls] = CHIP[t.status] ?? [t.status, '']
+    const j = t.job
+    const tr = document.createElement('tr')
+    tr.innerHTML = `
+      <td class="slug"><a href="${t.app_url ?? '#'}" target="_blank">${t.slug}</a><div class="em">${t.name}</div></td>
+      <td><div class="em">${t.admin_email}</div><div class="em">${new Date(t.created_at).toLocaleDateString()}</div></td>
+      <td><span class="chip ${cls}">${label}</span></td>
+      <td>${j ? `<span class="em">${j.kind ?? 'provision'}: ${j.status}</span>${j.error ? `<div class="err-line" title="${j.error.replaceAll('"', '&quot;')}">${j.error}</div>` : ''}` : '<span class="em">—</span>'}</td>
+      <td style="text-align:right;white-space:nowrap">
+        ${j && j.status === 'error' ? `<button class="secondary" data-retry="${t.id}">Retry</button> ` : ''}
+        ${t.status !== 'deleted' ? `<button class="danger" data-teardown="${t.id}" data-slug="${t.slug}">Remove stack</button>` : ''}
+      </td>`
+    rows.appendChild(tr)
+  }
+  rows.querySelectorAll('[data-retry]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      b.disabled = true
+      try { await api('retry', { tenant_id: b.dataset.retry }); flash($('dashOk'), 'Requeued.'); load() }
+      catch (err) { flash($('dashErr'), err.message); b.disabled = false }
+    }))
+  rows.querySelectorAll('[data-teardown]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const slug = b.dataset.slug
+      const typed = prompt(`This permanently deletes the ENTIRE stack for "${slug}" — Supabase project, app, domain, AI key, subscription.\n\nType the workspace name to confirm:`)
+      if (typed !== slug) return
+      b.disabled = true
+      try { await api('teardown', { tenant_id: b.dataset.teardown, confirm_slug: slug }); flash($('dashOk'), `Teardown queued for ${slug} — the worker removes everything in ~1 min.`); load() }
+      catch (err) { flash($('dashErr'), err.message); b.disabled = false }
+    }))
+}
+
+async function show(session) {
+  $('signin').classList.add('hidden')
+  $('dash').classList.remove('hidden')
+  $('who').textContent = session.user.email
+  load()
+}
+$('refresh').addEventListener('click', load)
+
+const { data: { session } } = await db.auth.getSession()
+if (session) show(session)
+db.auth.onAuthStateChange((_e, s) => { if (s && $('dash').classList.contains('hidden')) show(s) })
+</script>
+</body>
+</html>

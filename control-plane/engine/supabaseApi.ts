@@ -164,6 +164,16 @@ export async function pauseProject(pat: string, ref: string): Promise<void> {
   await must(await req(pat, 'POST', `/projects/${ref}/pause`), 'pause project')
 }
 
+/** Permanently delete a project (teardown). A 404 means already gone — success. */
+export async function deleteProject(pat: string, ref: string): Promise<void> {
+  const res = await req(pat, 'DELETE', `/projects/${ref}`)
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`delete project failed (${res.status}): ${body.slice(0, 300)}`)
+  }
+  await res.body?.cancel().catch(() => {})
+}
+
 export async function restoreProject(pat: string, ref: string): Promise<void> {
   await must(await req(pat, 'POST', `/projects/${ref}/restore`), 'restore project')
 }

@@ -36,6 +36,25 @@ async function upsertRecord(opts: {
   }
 }
 
+/** Remove a record if it exists (teardown; missing record = success). */
+export async function deleteRecord(opts: {
+  token: string
+  zoneId: string
+  type: 'CNAME' | 'TXT'
+  name: string
+}): Promise<void> {
+  const headers = { Authorization: `Bearer ${opts.token}` }
+  const listRes = await fetch(
+    `${CF}/zones/${opts.zoneId}/dns_records?type=${opts.type}&name=${encodeURIComponent(opts.name)}`,
+    { headers },
+  )
+  const list = (await listRes.json().catch(() => ({}))) as any
+  for (const rec of list?.result ?? []) {
+    const res = await fetch(`${CF}/zones/${opts.zoneId}/dns_records/${rec.id}`, { method: 'DELETE', headers })
+    if (!res.ok && res.status !== 404) throw new Error(`Cloudflare delete failed (${res.status}) for ${opts.name}`)
+  }
+}
+
 /** Railway ownership verification: TXT _railway-verify.‹slug› = railway-verify=… */
 export async function upsertTxt(opts: {
   token: string
