@@ -4,12 +4,13 @@ import { supabase } from '../lib/supabase'
 import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { formatBytes, formatDate } from '../lib/util'
-import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon } from '../components/icons'
+import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon, GridIcon, ListIcon, DownloadIcon } from '../components/icons'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 
 type FileRow = Database['public']['Tables']['files']['Row']
 type Doc = Database['public']['Tables']['documents']['Row']
 const BUCKET = 'files'
+type ViewMode = 'list' | 'grid'
 
 export default function FilesPage() {
   const { user } = useAuth()
@@ -20,6 +21,11 @@ export default function FilesPage() {
   const [linkFor, setLinkFor] = useState<{ id: string; url: string } | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const inputRef = useRef<HTMLInputElement>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem('files-view-mode')
+    return (saved === 'grid' || saved === 'list') ? saved : 'list'
+  })
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({})
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -28,6 +34,11 @@ export default function FilesPage() {
       else next.add(id)
       return next
     })
+  }
+
+  function changeViewMode(mode: ViewMode) {
+    setViewMode(mode)
+    localStorage.setItem('files-view-mode', mode)
   }
 
   const [docs, setDocs] = useState<Record<string, Doc>>({})
@@ -39,6 +50,20 @@ export default function FilesPage() {
       .order('created_at', { ascending: false })
     setFiles(data ?? [])
     setLoading(false)
+
+    // Load thumbnails for image files
+    const imageFiles = (data ?? []).filter(f => f.mime_type?.startsWith('image/'))
+    if (imageFiles.length > 0) {
+      const { data: signed } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrls(imageFiles.map(f => f.path), 3600)
+      const thumbs: Record<string, string> = {}
+      imageFiles.forEach((f, i) => {
+        const s = signed?.[i]
+        if (s?.signedUrl) thumbs[f.id] = s.signedUrl
+      })
+      setThumbnails(thumbs)
+    }
   }, [])
 
   const loadDocs = useCallback(async () => {
@@ -134,20 +159,48 @@ export default function FilesPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-text">Files</h1>
-            <p className="mt-1 text-sm text-muted">
-              Private by default. Create a share link, or select files to add them to a collection to chat with.
-            </p>
+        <div className="mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-text">Files</h1>
+              <p className="mt-1 text-sm text-muted">
+                Private by default. Create a share link, or select files to add them to a collection to chat with.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-surface p-1">
+                <button
+                  onClick={() => changeViewMode('list')}
+                  title="List view"
+                  className={`rounded-md p-1.5 transition ${
+                    viewMode === 'list'
+                      ? 'bg-primary text-white'
+                      : 'text-faint hover:bg-surface-hover hover:text-muted'
+                  }`}
+                >
+                  <ListIcon className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => changeViewMode('grid')}
+                  title="Grid view"
+                  className={`rounded-md p-1.5 transition ${
+                    viewMode === 'grid'
+                      ? 'bg-primary text-white'
+                      : 'text-faint hover:bg-surface-hover hover:text-muted'
+                  }`}
+                >
+                  <GridIcon className="h-4 w-4" />
+                </button>
+              </div>
+              <button
+                onClick={() => inputRef.current?.click()}
+                disabled={uploading}
+                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+              >
+                <UploadIcon className="h-4 w-4" /> {uploading ? 'Uploading…' : 'Upload'}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => inputRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
-          >
-            <UploadIcon className="h-4 w-4" /> {uploading ? 'Uploading…' : 'Upload'}
-          </button>
           <input
             ref={inputRef}
             type="file"
@@ -168,7 +221,7 @@ export default function FilesPage() {
             <FileIcon className="mx-auto mb-3 h-8 w-8 text-faint" />
             <p className="text-sm text-muted">No files yet. Upload one to get started.</p>
           </div>
-        ) : (
+        ) : viewMode === 'list' ? (
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
             {files.map((f) => {
               const doc = docs[f.id]
@@ -223,6 +276,26 @@ export default function FilesPage() {
               )
             })}
           </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {files.map((f) => {
+              const doc = docs[f.id]
+              return (
+                <FileCard
+                  key={f.id}
+                  file={f}
+                  doc={doc}
+                  thumbnail={thumbnails[f.id]}
+                  selected={selected.has(f.id)}
+                  onToggleSelect={() => toggleSelect(f.id)}
+                  onDownload={() => download(f)}
+                  onShare={() => share(f)}
+                  onRemove={() => remove(f)}
+                  onSetScope={(scope) => setScope(doc, scope)}
+                />
+              )
+            })}
+          </div>
         )}
 
         {linkFor && (
@@ -237,6 +310,110 @@ export default function FilesPage() {
         selectedIds={[...selected]}
         onClear={() => setSelected(new Set())}
       />
+    </div>
+  )
+}
+
+function FileCard({
+  file,
+  doc,
+  thumbnail,
+  selected,
+  onToggleSelect,
+  onDownload,
+  onShare,
+  onRemove,
+  onSetScope,
+}: {
+  file: FileRow
+  doc?: Doc
+  thumbnail?: string
+  selected: boolean
+  onToggleSelect: () => void
+  onDownload: () => void
+  onShare: () => void
+  onRemove: () => void
+  onSetScope: (scope: string) => void
+}) {
+  const isImage = file.mime_type?.startsWith('image/')
+
+  return (
+    <div
+      className={`group flex flex-col overflow-hidden rounded-xl border bg-surface transition ${
+        selected ? 'border-primary' : 'border-border hover:border-border-strong'
+      }`}
+    >
+      {/* Thumbnail or icon */}
+      <button onClick={onDownload} className="block">
+        {isImage && thumbnail ? (
+          <img
+            src={thumbnail}
+            alt={file.name}
+            loading="lazy"
+            className="h-36 w-full object-cover"
+            onError={(e) => {
+              const img = e.target as HTMLImageElement
+              img.style.display = 'none'
+            }}
+          />
+        ) : (
+          <div className="flex h-36 w-full items-center justify-center bg-surface-2 text-faint">
+            <FileIcon className="h-12 w-12" />
+          </div>
+        )}
+      </button>
+
+      {/* File info */}
+      <div className="flex flex-1 flex-col gap-1.5 px-4 py-3">
+        <button onClick={onDownload} className="text-left">
+          <p className="line-clamp-2 text-sm font-semibold text-text group-hover:text-primary">
+            {file.name}
+          </p>
+        </button>
+        <p className="text-xs text-faint">
+          {formatBytes(file.size_bytes)} · {formatDate(file.created_at)}
+        </p>
+        {file.visibility !== 'private' && (
+          <p className="text-xs text-muted">Link shared</p>
+        )}
+        {doc && <IndexBadge doc={doc} />}
+      </div>
+
+      {/* Footer: scope toggle + actions */}
+      <div className="flex items-center gap-1 border-t border-border px-3 py-2">
+        {doc && <ScopeToggle doc={doc} onChange={onSetScope} />}
+
+        <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
+          <button
+            onClick={onDownload}
+            title="Download"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+          >
+            <DownloadIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onShare}
+            title="Copy 7-day share link"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-primary"
+          >
+            <LinkIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onToggleSelect}
+            title="Select"
+            className={`rounded-md p-1 hover:bg-surface-hover ${selected ? 'text-primary' : 'text-faint hover:text-muted'}`}
+          >
+            <CheckIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onRemove}
+            title="Delete"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-red-600"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
