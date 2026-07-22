@@ -19,7 +19,7 @@ export default function PublicArtifactPage() {
         <p className="text-lg font-semibold text-text">This artifact isn’t available</p>
         <p className="text-sm text-muted">It may be private or the link is incorrect.</p>
         <Link to="/" className="text-sm font-medium text-primary hover:underline">
-          Go to the intranet
+          Go to SupaNet
         </Link>
       </div>
     )
@@ -32,7 +32,7 @@ export default function PublicArtifactPage() {
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-white">
             ✺
           </span>
-          Intranet
+          SupaNet
         </Link>
         {artifact && (
           <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">

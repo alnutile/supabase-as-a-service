@@ -7,22 +7,23 @@
 :root,
 [data-theme='light'] {
   color-scheme: light;
-  --bg: #f6f5f1;
+  /* SupaNet — warm off-white surfaces, near-black-green ink, brand greens */
+  --bg: #fbfbf9;
   --surface: #ffffff;
-  --surface-2: #f1efe9;
-  --surface-hover: #f2f0ea;
-  --border: #e8e4db;
-  --border-strong: #d9d4c8;
-  --text: #221f2b;
-  --muted: #6f6b7c;
-  --faint: #a39fae;
-  --primary: #6354e8;
-  --primary-strong: #5443d8;
-  --primary-soft: #eeebfc;
-  --primary-soft-border: #ddd6fb;
+  --surface-2: #f6f7f4;
+  --surface-hover: #f3f5f0;
+  --border: #e6e8e2;
+  --border-strong: #d7dbd2;
+  --text: #11221c;
+  --muted: #5b665f;
+  --faint: #8a938c;
+  --primary: #15795b;
+  --primary-strong: #0f5e46;
+  --primary-soft: #eaf7f0;
+  --primary-soft-border: #c7e7d6;
   --on-primary: #ffffff;
-  --success: #1f9d6b;
-  --success-soft: #e3f5ec;
+  --success: #15795b;
+  --success-soft: #eaf7f0;
   --warn: #c1820f;
   --warn-soft: #faf0d8;
   --info: #3b74d6;
@@ -31,26 +32,33 @@
 
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg: #141319;
-  --surface: #1d1c25;
-  --surface-2: #26242f;
-  --surface-hover: #2a2834;
-  --border: #2d2b38;
-  --border-strong: #3b3848;
-  --text: #ece9f4;
-  --muted: #a39fb2;
-  --faint: #6f6b80;
-  --primary: #8a7dff;
-  --primary-strong: #9b8fff;
-  --primary-soft: #262338;
-  --primary-soft-border: #3a3360;
-  --on-primary: #ffffff;
-  --success: #3fc78f;
-  --success-soft: #16312a;
+  /* SupaNet on-dark — deep green bands, bright green primary */
+  --bg: #0e1f18;
+  --surface: #14291f;
+  --surface-2: #1a3327;
+  --surface-hover: #1f3a2c;
+  --border: #274435;
+  --border-strong: #35543f;
+  --text: #eaf2ee;
+  --muted: #9fb3a8;
+  --faint: #6f857a;
+  --primary: #3ecf8e;
+  --primary-strong: #5bd9a0;
+  --primary-soft: #123024;
+  --primary-soft-border: #1e4634;
+  --on-primary: #0e1f18;
+  --success: #3ecf8e;
+  --success-soft: #123024;
   --warn: #e0a93a;
   --warn-soft: #352c17;
   --info: #6fa0f0;
-  --info-soft: #1b2740;
+  --info-soft: #16283f;
+}
+
+/* Brand text selection */
+::selection {
+  background: #c7efd9;
+  color: #0e1f18;
 }
 
 html,
@@ -62,7 +70,7 @@ body,
 body {
   @apply bg-bg text-text antialiased;
   margin: 0;
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-family: 'Schibsted Grotesk', system-ui, -apple-system, sans-serif;
   transition: background 0.25s, color 0.25s;
 }
 

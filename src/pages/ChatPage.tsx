@@ -1203,7 +1203,7 @@ export default function ChatPage() {
               <div className="mt-24 flex flex-col items-center text-center">
                 <div
                   className="mb-6 flex h-[74px] w-[74px] items-center justify-center rounded-[22px] bg-gradient-to-br from-primary to-primary-strong text-4xl text-white"
-                  style={{ boxShadow: '0 12px 34px rgba(99,84,232,.40)' }}
+                  style={{ boxShadow: '0 12px 34px rgba(21,121,91,.40)' }}
                 >
                   ✺
                 </div>

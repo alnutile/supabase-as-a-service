@@ -25,28 +25,28 @@ export default {
         success: { DEFAULT: 'var(--success)', soft: 'var(--success-soft)' },
         warn: { DEFAULT: 'var(--warn)', soft: 'var(--warn-soft)' },
         info: { DEFAULT: 'var(--info)', soft: 'var(--info-soft)' },
-        // `brand` kept (repointed to the purple ramp) so any leftover brand-* class
-        // still renders on-palette after the token sweep.
+        // `brand` kept (repointed to the SupaNet green ramp) so any leftover
+        // brand-* class still renders on-palette after the token sweep.
         brand: {
-          50: '#eeebfc',
-          100: '#ddd6fb',
-          200: '#c7bdf7',
-          300: '#a99cf1',
-          400: '#8a7dff',
-          500: '#6354e8',
-          600: '#6354e8',
-          700: '#5443d8',
-          800: '#4636bf',
-          900: '#382c99',
+          50: '#eaf7f0',
+          100: '#c7e7d6',
+          200: '#9bd9ba',
+          300: '#7fd7aa',
+          400: '#3ecf8e',
+          500: '#15795b',
+          600: '#15795b',
+          700: '#0f5e46',
+          800: '#0c4736',
+          900: '#0e1f18',
         },
       },
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ['"Schibsted Grotesk"', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       boxShadow: {
-        soft: '0 1px 2px rgba(34,26,60,.04), 0 6px 18px rgba(34,26,60,.05)',
-        'soft-lg': '0 6px 16px rgba(34,26,60,.07), 0 22px 48px rgba(34,26,60,.10)',
+        soft: '0 1px 2px rgba(14,31,24,.04), 0 6px 18px rgba(14,31,24,.05)',
+        'soft-lg': '0 6px 16px rgba(14,31,24,.07), 0 22px 48px rgba(14,31,24,.10)',
       },
       keyframes: {
         fadeUp: { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'none' } },
