@@ -51,22 +51,39 @@
   .foot{color:var(--faint);font-size:12.5px;margin-top:8px}
   .signout{background:none;border:none;color:var(--faint);font-size:13px;text-decoration:underline;cursor:pointer;padding:4px}
   .hidden{display:none!important}
+  /* magic-link sign-in (auth design) */
+  #signin{max-width:420px;margin:9vh auto 0}
+  .auth-head{text-align:center;margin-bottom:26px}
+  .auth-head h1{font-size:30px;font-weight:600;letter-spacing:-.025em;margin:0}
+  .auth-head .sub{font-size:15.5px;margin:8px 0 0}
+  .auth-card{background:#fff;border:1px solid var(--border);border-radius:18px;padding:30px 28px;
+             box-shadow:0 1px 3px rgba(17,34,28,.04)}
+  .auth-card label{margin:0 0 7px;color:#3E4A44}
+  .auth-card input{border-color:#E0E3DC;padding:12px 14px}
+  .auth-card .primary{margin-top:24px;padding:14px;font-size:15.5px;
+                      box-shadow:0 1px 2px rgba(13,60,44,.25),0 8px 22px -12px rgba(13,60,44,.5)}
+  .auth-foot{text-align:center;font-size:14px;color:var(--muted);margin-top:20px}
+  .auth-foot a{font-weight:600;color:var(--green);text-decoration:none}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <div class="card" id="signin">
-    <div class="mono eyebrow">Your account</div>
-    <h1>Manage your workspace</h1>
-    <p class="sub">Enter the email you signed up with and we'll send you a sign-in link — no password needed.</p>
-    <form id="linkForm">
-      <label for="email">Email</label>
-      <input id="email" type="email" required placeholder="you@acme.com" autocomplete="email">
-      <button class="primary" id="send" type="submit">Email me a sign-in link</button>
-    </form>
-    <div class="notice" id="sent">Check your inbox — the link signs you in right here.</div>
-    <div class="error" id="signinErr"></div>
+  <div id="signin">
+    <div class="auth-head">
+      <h1>Welcome back</h1>
+      <p class="sub">Sign in to your team's workspace.</p>
+    </div>
+    <div class="auth-card">
+      <form id="linkForm">
+        <label for="email">Work email</label>
+        <input id="email" type="email" required placeholder="you@company.com" autocomplete="email">
+        <button class="primary" id="send" type="submit">Email me a sign-in link</button>
+      </form>
+      <div class="notice" id="sent">Check your inbox — the link signs you in right here. No password needed.</div>
+      <div class="error" id="signinErr"></div>
+    </div>
+    <p class="auth-foot">New here? <a href="/">Create a workspace</a></p>
   </div>
 
   <div class="hidden" id="dash">
