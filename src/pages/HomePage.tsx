@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -7,11 +7,7 @@ import { isMac, openGlobalSearch } from '../components/GlobalSearch'
 import { DashboardWidget } from '../components/DashboardWidget'
 import { AddWidgetPanel } from '../components/AddWidgetPanel'
 import type { Database } from '../lib/database.types'
-import {
-  bucketByDay,
-  completionPct,
-  type DayBucket,
-} from '../lib/dashboard'
+import { completionPct } from '../lib/dashboard'
 import {
   ActivityIcon,
   AgentIcon,
@@ -68,10 +64,7 @@ function greetingForNow(): string {
   return hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'
 }
 
-const TREND_DAYS = 14
-
 // ── Data shapes the dashboard renders ──────────────────────────────────────
-type ActivityRow = { id: string; type: string; summary: string; created_at: string }
 type TodoRow = { id: string; title: string; due_date: string | null; done: boolean }
 type WidgetRow = Database['public']['Tables']['dashboard_widgets']['Row']
 type ArtifactRow = Database['public']['Tables']['artifacts']['Row']
@@ -105,7 +98,6 @@ export default function HomePage() {
 
   // Dashboard data
   const [stats, setStats] = useState<Stats | null>(null)
-  const [trendRows, setTrendRows] = useState<ActivityRow[]>([])
   const [todos, setTodos] = useState<TodoRow[]>([])
   const [pinnedArtifacts, setPinnedArtifacts] = useState<ArtifactRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -129,14 +121,10 @@ export default function HomePage() {
       })
   }, [user])
 
-  // Load everything the Overview needs in parallel. Counts use head-only
-  // queries; the trend pulls just timestamps for the last TREND_DAYS.
+  // Load everything the Overview needs in parallel. Counts use head-only queries.
   useEffect(() => {
     if (!user) return
     let alive = true
-    const sinceTrend = new Date()
-    sinceTrend.setDate(sinceTrend.getDate() - (TREND_DAYS - 1))
-    sinceTrend.setHours(0, 0, 0, 0)
     const sinceWeek = new Date()
     sinceWeek.setDate(sinceWeek.getDate() - 7)
 
@@ -147,12 +135,6 @@ export default function HomePage() {
       supabase.from('artifacts').select('id', head),
       supabase.from('files').select('id', head),
       supabase.from('activity_log').select('id', head).gte('created_at', sinceWeek.toISOString()),
-      supabase
-        .from('activity_log')
-        .select('id, type, summary, created_at')
-        .gte('created_at', sinceTrend.toISOString())
-        .order('created_at', { ascending: false })
-        .limit(1000),
       supabase
         .from('todos')
         .select('id, title, due_date, done')
@@ -166,7 +148,7 @@ export default function HomePage() {
         .eq('pinned', true)
         .order('updated_at', { ascending: false })
         .limit(12),
-    ]).then(([oTodos, dTodos, arts, fls, wk, trend, td, pinned]) => {
+    ]).then(([oTodos, dTodos, arts, fls, wk, td, pinned]) => {
       if (!alive) return
       setStats({
         todosOpen: oTodos.count ?? 0,
@@ -175,8 +157,6 @@ export default function HomePage() {
         files: fls.count ?? 0,
         weekEvents: wk.count ?? 0,
       })
-      const rows = (trend.data ?? []) as ActivityRow[]
-      setTrendRows(rows)
       setTodos((td.data ?? []) as TodoRow[])
       setPinnedArtifacts((pinned.data ?? []) as ArtifactRow[])
       setLoading(false)
@@ -186,16 +166,14 @@ export default function HomePage() {
     }
   }, [user])
 
-  // Live activity: prepend new activity rows as they land for trend chart and stats.
+  // Live activity: update stats as new activity rows land.
   useEffect(() => {
     const channel = supabase
       .channel('home_activity')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'activity_log' },
-        (payload) => {
-          const row = payload.new as ActivityRow
-          setTrendRows((prev) => [row, ...prev])
+        () => {
           setStats((prev) => (prev ? { ...prev, weekEvents: prev.weekEvents + 1 } : prev))
         },
       )
@@ -279,7 +257,6 @@ export default function HomePage() {
     await supabase.from('dashboard_widgets').delete().eq('id', id)
   }
 
-  const buckets = useMemo(() => bucketByDay(trendRows, TREND_DAYS), [trendRows])
   const pct = completionPct(stats?.todosDone ?? 0, (stats?.todosOpen ?? 0) + (stats?.todosDone ?? 0))
 
   const cards = CARDS.filter((c) => !c.adminOnly || isAdmin)
@@ -333,7 +310,6 @@ export default function HomePage() {
               loading={loading}
               stats={stats}
               pct={pct}
-              buckets={buckets}
               todos={todos}
               pinnedArtifacts={pinnedArtifacts}
               navigate={navigate}
@@ -361,7 +337,6 @@ function Overview({
   loading,
   stats,
   pct,
-  buckets,
   todos,
   pinnedArtifacts,
   navigate,
@@ -371,7 +346,6 @@ function Overview({
   loading: boolean
   stats: Stats | null
   pct: number
-  buckets: DayBucket[]
   todos: TodoRow[]
   pinnedArtifacts: ArtifactRow[]
   navigate: (to: string) => void
@@ -443,9 +417,6 @@ function Overview({
           footer={<div className="mt-3 text-[11px] font-semibold text-faint">Last 7 days of activity</div>}
         />
       </div>
-
-      {/* Activity trend chart */}
-      <TrendChart buckets={buckets} loading={loading} />
 
       {/* To-dos */}
       <div className="mt-6">
@@ -546,50 +517,6 @@ function StatTile({
       </div>
       {footer}
     </Link>
-  )
-}
-
-function TrendChart({ buckets, loading }: { buckets: DayBucket[]; loading: boolean }) {
-  const max = Math.max(1, ...buckets.map((b) => b.count))
-  const total = buckets.reduce((s, b) => s + b.count, 0)
-  return (
-    <div className="rounded-[18px] border border-border bg-surface p-6 shadow-soft">
-      <div className="mb-5 flex items-end justify-between">
-        <div>
-          <div className="text-[13px] font-bold uppercase tracking-[0.08em] text-faint">Activity</div>
-          <div className="mt-1 text-[15px] font-semibold text-text">Last {buckets.length} days</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[26px] font-extrabold leading-none tracking-tight text-text">{total}</div>
-          <div className="mt-1 text-[11px] font-semibold text-faint">events</div>
-        </div>
-      </div>
-      {loading ? (
-        <div className="h-[120px] animate-pulse rounded-xl bg-surface-2" />
-      ) : (
-        <div className="flex h-[120px] items-end gap-[3px] sm:gap-1.5">
-          {buckets.map((b, i) => {
-            const h = b.count === 0 ? 3 : Math.max(6, Math.round((b.count / max) * 112))
-            const first = i === 0
-            const last = i === buckets.length - 1
-            return (
-              <div key={b.key} className="group relative flex flex-1 flex-col items-center justify-end">
-                <div
-                  title={`${b.count} event${b.count === 1 ? '' : 's'}`}
-                  className={`w-full rounded-t-[5px] transition-all ${
-                    b.count === 0 ? 'bg-surface-2' : 'bg-primary/80 group-hover:bg-primary'
-                  }`}
-                  style={{ height: `${h}px` }}
-                />
-                {(first || last || i === Math.floor(buckets.length / 2)) && (
-                  <span className="mt-1.5 text-[10px] font-medium text-faint">{b.label}</span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
   )
 }
 
