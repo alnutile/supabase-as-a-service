@@ -669,13 +669,22 @@ export function EmailCard() {
             <textarea
               value={recipients}
               onChange={(e) => setRecipients(e.target.value)}
-              rows={2}
+              rows={3}
               placeholder={'@yourcompany.com\nalerts@partner.com'}
               className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
             <span className="mt-1 block text-[11px] text-faint">
               Blank = send anywhere. Use exact addresses or <code>@domain.com</code> suffixes to limit where mail can go.
             </span>
+            {existing && !recipients.trim() && (
+              <div className="mt-2 rounded-lg border border-amber-600/30 bg-amber-500/10 p-2.5">
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-500">⚠️ Security notice</p>
+                <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                  Without an allowlist, agents and webhooks can email <strong>any address</strong>. This is a data
+                  exfiltration risk when combined with untrusted input. Set allowed recipients to limit where mail can go.
+                </p>
+              </div>
+            )}
           </label>
 
           {error && <p className="text-xs text-red-600">{error}</p>}
