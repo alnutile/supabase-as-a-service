@@ -183,3 +183,27 @@ Deno.test('formatRunDetail: per-case tools + failures + judge reason', () => {
 Deno.test('formatRunDetail: no results yet', () => {
   assertStringIncludes(formatRunDetail({ id: 'r4', status: 'running', passed: 0, total: 0, score: null }, []), 'no case results yet')
 })
+
+Deno.test('formatRunDetail: rag A/B shows per-case + aggregate hybrid-vs-vector', () => {
+  const run = { id: 'r5', status: 'done', model: null, score: 1, passed: 2, total: 2, cost: null }
+  const results = [
+    {
+      case_name: 'exact-term lookup', passed: true,
+      detail: {
+        assertions: [{ type: 'recall_at_k', pass: true, detail: '' }],
+        retrieval: { hybrid: { passed: true, score: 1 }, vector: { passed: false, score: 0 } },
+      },
+    },
+    {
+      case_name: 'paraphrase', passed: true,
+      detail: {
+        assertions: [{ type: 'recall_at_k', pass: true, detail: '' }],
+        retrieval: { hybrid: { passed: true, score: 1 }, vector: { passed: true, score: 1 } },
+      },
+    },
+  ]
+  const out = formatRunDetail(run, results)
+  assertStringIncludes(out, 'retrieval: hybrid ✓ · vector ✗')
+  assertStringIncludes(out, 'Retrieval A/B (same cases): hybrid 2/2 vs vector 1/2')
+  assertStringIncludes(out, 'hybrid +1')
+})

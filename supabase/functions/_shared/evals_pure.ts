@@ -194,6 +194,9 @@ export function formatMatrix(runs: any[]): string {
 export function formatRunDetail(run: any, results: any[]): string {
   const header = formatEvalRun(run)
   if (!results.length) return `${header}\n\n(no case results yet)`
+  let hybridPassed = 0
+  let vectorPassed = 0
+  let abCases = 0
   const lines = results.map((r) => {
     const mark = r.passed ? '✓' : '✗'
     const parts = [`${mark} ${r.case_name}`]
@@ -201,6 +204,15 @@ export function formatRunDetail(run: any, results: any[]): string {
     // Tools called (chat/agent trace or the tool-target invocation).
     const tools = Array.isArray(detail.tools) ? (detail.tools as ToolCall[]) : []
     if (tools.length) parts.push(`    tools: ${summarizeTrace(tools)}`)
+    // rag A/B: hybrid (the headline) vs the vector-only baseline on the same case.
+    if (detail.retrieval && detail.retrieval.hybrid && detail.retrieval.vector) {
+      abCases++
+      if (detail.retrieval.hybrid.passed) hybridPassed++
+      if (detail.retrieval.vector.passed) vectorPassed++
+      const h = detail.retrieval.hybrid.passed ? '✓' : '✗'
+      const v = detail.retrieval.vector.passed ? '✓' : '✗'
+      parts.push(`    retrieval: hybrid ${h} · vector ${v}`)
+    }
     // Failed assertions.
     const asserts = Array.isArray(detail.assertions) ? (detail.assertions as AssertionResult[]) : []
     const failed = asserts.filter((a) => !a.pass)
@@ -209,5 +221,9 @@ export function formatRunDetail(run: any, results: any[]): string {
     if (detail.judge && !detail.judge.pass && detail.judge.reason) parts.push(`    judge: ${detail.judge.reason}`)
     return parts.join('\n')
   })
-  return `${header}\n\nCases:\n${lines.join('\n')}`
+  const footer = abCases > 0
+    ? `\n\nRetrieval A/B (same cases): hybrid ${hybridPassed}/${abCases} vs vector ${vectorPassed}/${abCases}` +
+      ` — ${hybridPassed === vectorPassed ? 'tie' : hybridPassed > vectorPassed ? `hybrid +${hybridPassed - vectorPassed}` : `vector +${vectorPassed - hybridPassed}`}`
+    : ''
+  return `${header}\n\nCases:\n${lines.join('\n')}${footer}`
 }

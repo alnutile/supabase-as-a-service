@@ -36,6 +36,7 @@ export {
   summarizeTrace,
 } from './evals_pure.ts'
 export type { Assertion, AssertionResult, AssertionContext, Case, ToolCall } from './evals_pure.ts'
+import { type ChunkHit, hybridChunkSearch } from './retrieval.ts'
 
 // deno-lint-ignore no-explicit-any
 type DB = any
@@ -146,6 +147,11 @@ export async function executeSuiteRun(
 
   let passedCount = 0
   let totalCost = 0
+  // For the `rag` target we score on HYBRID retrieval (mirrors production
+  // search_documents) but also run vector-only on the same cases as a baseline, so
+  // one run is a vector-vs-hybrid A/B. This holds the vector baseline's pass count
+  // for the run summary; stays null for non-rag targets.
+  let ragVectorPassed: number | null = null
 
   try {
     if (suite.target_kind === 'rag') {
@@ -158,6 +164,21 @@ export async function executeSuiteRun(
       k = Math.min(Math.max(1, k), MAX_K)
       // deno-lint-ignore no-explicit-any
       const model = new (globalThis as any).Supabase.ai.Session('gte-small')
+      ragVectorPassed = 0
+
+      // Grade one retrieved chunk set against a case's assertions.
+      const gradeRows = (
+        list: Assertion[],
+        rows: ChunkHit[],
+      ): { assertions: AssertionResult[]; score: number; passed: boolean } => {
+        const docs = rows.map((r) => String(r.document_name ?? '').toLowerCase())
+        const text = rows.map((r) => String(r.content ?? '')).join('\n\n').toLowerCase()
+        const ar: AssertionResult[] = list.length === 0
+          ? [{ type: 'none', pass: false, detail: 'case has no assertions' }]
+          : list.map((a) => evalAssertion(a, { docs, text }))
+        const ok = ar.filter((d) => d.pass).length
+        return { assertions: ar, score: ar.length ? ok / ar.length : 0, passed: ar.length > 0 && ok === ar.length }
+      }
 
       for (const c of cases as Case[]) {
         const started = Date.now()
@@ -166,27 +187,33 @@ export async function executeSuiteRun(
         let score: number | null = null
         let output = ''
         let aResults: AssertionResult[] = []
+        // deno-lint-ignore no-explicit-any
+        let retrievalDetail: Record<string, any> | null = null
         try {
           const embedding = await model.run(String(c.input ?? ''), { mean_pool: true, normalize: true })
-          const { data: matches } = await db.rpc('match_document_chunks', {
-            query_embedding: embedding,
-            match_owner: userId,
-            match_count: k,
+          // Vector-only baseline (the previous behavior) …
+          const { data: vMatches } = await db.rpc('match_document_chunks', {
+            query_embedding: embedding, match_owner: userId, match_count: k,
           })
-          const rows = (matches ?? []) as Array<{ content: string; document_name?: string }>
-          const docs = rows.map((r) => String(r.document_name ?? '').toLowerCase())
-          const text = rows.map((r) => String(r.content ?? '')).join('\n\n').toLowerCase()
-          output = rows
+          const vRows = (vMatches ?? []) as ChunkHit[]
+          // … and hybrid (vector + keyword + RRF), the SAME retrieval search_documents uses.
+          const hRows = await hybridChunkSearch(db, {
+            embedding, queryText: String(c.input ?? ''), ownerId: userId, top: k, pool: Math.max(k * 4, 24),
+          })
+          const vector = gradeRows(assertions, vRows)
+          const hybrid = gradeRows(assertions, hRows)
+          // Headline scores on hybrid; vector is recorded as the baseline.
+          aResults = hybrid.assertions
+          score = hybrid.score
+          passed = hybrid.passed
+          output = hRows
             .map((r, i) => `[${i + 1}] (${r.document_name ?? 'document'}) ${String(r.content ?? '').slice(0, 200)}`)
             .join('\n')
-          if (assertions.length === 0) {
-            aResults = [{ type: 'none', pass: false, detail: 'case has no assertions' }]
-          } else {
-            aResults = assertions.map((a) => evalAssertion(a, { docs, text }))
+          retrievalDetail = {
+            hybrid: { passed: hybrid.passed, score: hybrid.score },
+            vector: { passed: vector.passed, score: vector.score, assertions: vector.assertions },
           }
-          const ok = aResults.filter((d) => d.pass).length
-          score = aResults.length ? ok / aResults.length : 0
-          passed = aResults.length > 0 && ok === aResults.length
+          if (vector.passed) ragVectorPassed++
         } catch (err) {
           aResults = [{ type: 'error', pass: false, detail: err instanceof Error ? err.message : 'retrieval failed' }]
           score = 0
@@ -194,7 +221,9 @@ export async function executeSuiteRun(
         if (passed) passedCount++
         await db.from('eval_results').insert({
           run_id: runId, case_id: c.id, case_name: c.name || String(c.input ?? '').slice(0, 60),
-          passed, score, output, detail: { assertions: aResults }, latency_ms: Date.now() - started,
+          passed, score, output,
+          detail: retrievalDetail ? { assertions: aResults, retrieval: retrievalDetail } : { assertions: aResults },
+          latency_ms: Date.now() - started,
         })
       }
     } else if (suite.target_kind === 'chat' || suite.target_kind === 'agent') {
@@ -319,10 +348,18 @@ export async function executeSuiteRun(
       cost: totalCost || null, finished_at: new Date().toISOString(),
     }).eq('id', runId)
 
+    // For rag runs the headline is hybrid; append the vector baseline so the A/B
+    // reads at a glance ("hybrid 8/10 vs vector 5/10").
+    const abSuffix = ragVectorPassed !== null
+      ? ` — hybrid ${passedCount}/${cases.length} vs vector ${ragVectorPassed}/${cases.length}`
+      : ''
     await db.from('activity_log').insert({
       type: 'eval.run',
-      summary: `Ran eval "${suite.name}": ${passedCount}/${cases.length} passed (${Math.round(finalScore * 100)}%)${modelOverride ? ` [${modelOverride}]` : ''}`,
-      detail: { suite_id: suite.id, run_id: runId, score: finalScore, model: modelOverride, cost: totalCost },
+      summary: `Ran eval "${suite.name}": ${passedCount}/${cases.length} passed (${Math.round(finalScore * 100)}%)${modelOverride ? ` [${modelOverride}]` : ''}${abSuffix}`,
+      detail: {
+        suite_id: suite.id, run_id: runId, score: finalScore, model: modelOverride, cost: totalCost,
+        ...(ragVectorPassed !== null ? { retrieval_ab: { hybrid_passed: passedCount, vector_passed: ragVectorPassed, total: cases.length } } : {}),
+      },
       actor_id: userId,
     })
 
