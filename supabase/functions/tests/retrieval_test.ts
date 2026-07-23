@@ -2,7 +2,7 @@
 // (semantic) and full-text (keyword) rankings behind hybrid `search_documents`.
 // Kept pure so the ranking math is verified without a DB.
 import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert@1'
-import { hybridChunkSearch, reciprocalRankFusion, RRF_K } from '../_shared/retrieval.ts'
+import { citationLabel, hybridChunkSearch, reciprocalRankFusion, RRF_K } from '../_shared/retrieval.ts'
 
 Deno.test('reciprocalRankFusion: empty input → empty output', () => {
   assertEquals(reciprocalRankFusion([]), [])
@@ -54,34 +54,48 @@ Deno.test('reciprocalRankFusion: smaller k sharpens top-rank dominance', () => {
   assertEquals(sharpRatio > flatRatio, true)
 })
 
-// A fake db.rpc that returns canned rows per RPC name, and records the args it saw.
-function fakeDb(vector: unknown[], keyword: unknown[]) {
+// A fake db.rpc for the single search_chunks_hybrid RPC: returns the given candidate
+// rows (each carrying vec_rank / kw_rank) and records the call.
+function fakeDb(rows: unknown[]) {
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = []
   const db = {
     rpc(fn: string, args: Record<string, unknown>) {
       calls.push({ fn, args })
-      return Promise.resolve({ data: fn === 'match_chunks_vector' ? vector : keyword })
+      return Promise.resolve({ data: rows })
     },
   }
   return { db, calls }
 }
 
-Deno.test('hybridChunkSearch: fuses both RPCs, dedupes, respects top', async () => {
-  const { db, calls } = fakeDb(
-    [{ id: 'a', content: 'A', document_name: 'd1' }, { id: 'x', content: 'X', document_name: 'd2' }],
-    [{ id: 'x', content: 'X', document_name: 'd2' }, { id: 'c', content: 'C', document_name: 'd3' }],
-  )
-  const hits = await hybridChunkSearch(db, { embedding: [0.1], queryText: 'x', ownerId: 'u1', top: 2 })
-  // 'x' is in both lists → highest fused score → first; result deduped to `top`.
-  assertEquals(hits[0].id, 'x')
-  assertEquals(hits.length, 2)
-  // both RPCs were called with the owner + a candidate pool ≥ top
-  assertEquals(calls.map((c) => c.fn).sort(), ['match_chunks_keyword', 'match_chunks_vector'])
-  assertEquals(calls.every((c) => c.args.match_owner === 'u1'), true)
+Deno.test('hybridChunkSearch: fuses both rankings, dedupes, returns hits + vector baseline', async () => {
+  // 'x' is 2nd by vector but 1st by keyword (in both lists) → should top the fusion.
+  const { db, calls } = fakeDb([
+    { id: 'a', content: 'A', document_name: 'd1', vec_rank: 1, kw_rank: null },
+    { id: 'x', content: 'X', document_name: 'd2', vec_rank: 2, kw_rank: 1 },
+    { id: 'c', content: 'C', document_name: 'd3', vec_rank: null, kw_rank: 2 },
+  ])
+  const { hits, vector } = await hybridChunkSearch(db, { embedding: [0.1], queryText: 'x', ownerId: 'u1', top: 2 })
+  assertEquals(hits[0].id, 'x') // fused winner (appears in both lists)
+  assertEquals(hits.length, 2) // capped at top
+  assertEquals(vector.map((h) => h.id), ['a', 'x']) // vector-only order, top-k
+  // exactly ONE round trip, to the consolidated RPC, scoped to the owner
+  assertEquals(calls.length, 1)
+  assertEquals(calls[0].fn, 'search_chunks_hybrid')
+  assertEquals(calls[0].args.match_owner, 'u1')
 })
 
-Deno.test('hybridChunkSearch: keyword empty → degrades to vector order', async () => {
-  const { db } = fakeDb([{ id: 'a', content: 'A' }, { id: 'b', content: 'B' }], [])
-  const hits = await hybridChunkSearch(db, { embedding: [0.1], queryText: '', ownerId: 'u1', top: 5 })
+Deno.test('hybridChunkSearch: no keyword hits → hits degrade to vector order', async () => {
+  const { db } = fakeDb([
+    { id: 'a', content: 'A', vec_rank: 1, kw_rank: null },
+    { id: 'b', content: 'B', vec_rank: 2, kw_rank: null },
+  ])
+  const { hits, vector } = await hybridChunkSearch(db, { embedding: [0.1], queryText: '', ownerId: 'u1', top: 5 })
   assertEquals(hits.map((h) => h.id), ['a', 'b'])
+  assertEquals(vector.map((h) => h.id), ['a', 'b'])
+})
+
+Deno.test('citationLabel: name plus recency when a valid date is present', () => {
+  assertEquals(citationLabel({ document_name: 'PII Program.pdf', document_updated_at: '2026-06-15T00:00:00Z' }), 'PII Program.pdf · updated 2026-06')
+  assertEquals(citationLabel({ document_name: 'Guide.pdf' }), 'Guide.pdf')
+  assertEquals(citationLabel({ document_name: '', document_updated_at: 'garbage' }), 'document')
 })

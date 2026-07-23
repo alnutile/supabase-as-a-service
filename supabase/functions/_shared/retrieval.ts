@@ -42,15 +42,40 @@ export interface ChunkHit {
   content: string
   document_id?: string
   document_name?: string
+  document_updated_at?: string // for citation recency / staleness ("think" mode)
+}
+
+// Source label for a citation, including recency when known, so the assistant can
+// cite the document AND judge staleness ("think" mode — cite + gap analysis). E.g.
+// "PII Security Program.pdf · updated 2026-06". Pure → unit-tested.
+export function citationLabel(hit: { document_name?: string; document_updated_at?: string }): string {
+  const name = (hit.document_name ?? '').trim() || 'document'
+  const ym = String(hit.document_updated_at ?? '').slice(0, 7) // YYYY-MM
+  return /^\d{4}-\d{2}$/.test(ym) ? `${name} · updated ${ym}` : name
+}
+
+// One candidate row from search_chunks_hybrid: a chunk plus its rank in the
+// vector list and/or the keyword list (null = absent from that list).
+interface HybridRow extends ChunkHit {
+  vec_rank: number | null
+  kw_rank: number | null
+}
+
+export interface HybridResult {
+  hits: ChunkHit[] // fused (vector + keyword via RRF) — what we actually serve
+  vector: ChunkHit[] // vector-only top-k, for the rag eval's A/B baseline
 }
 
 // The DB side of hybrid retrieval, in ONE place so `search_documents` (the live
 // chat/agent surface) and the `rag` eval target run the exact same retrieval and
-// can't drift. Runs the vector (match_chunks_vector) and keyword
-// (match_chunks_keyword) RPCs in parallel over a candidate `pool` per signal,
-// fuses their rankings with RRF, and returns the `top` deduped chunks. Both RPCs
-// are RLS-scoped (workspace ∪ caller's private) and service-role only. `db` is
-// injected (no import), so this stays trivially testable with a fake rpc.
+// can't drift. A SINGLE RPC (search_chunks_hybrid) returns the candidate pool with
+// each chunk's vector-rank and keyword-rank; we fuse those two orderings with RRF
+// here. One round trip (not two) keeps the per-call cost low — which matters in the
+// rag eval loop, where each case runs this and a too-chatty loop tips the edge
+// worker over its budget. Returns both the fused hits AND the vector-only top-k so
+// the eval can score hybrid-vs-vector without a second retrieval. The RPC is
+// RLS-scoped (workspace ∪ caller's private) and service-role only. `db` is injected
+// (no import), so this stays trivially testable with a fake rpc.
 export async function hybridChunkSearch(
   // Supabase's rpc() returns an awaitable query builder (a PromiseLike), not a
   // Promise — typing it PromiseLike keeps this accepting the real client and a
@@ -58,17 +83,27 @@ export async function hybridChunkSearch(
   db: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown }> },
   // ownerId may be null (match_owner is a nullable uuid → workspace-only scope).
   opts: { embedding: unknown; queryText: string; ownerId: string | null; top?: number; pool?: number },
-): Promise<ChunkHit[]> {
+): Promise<HybridResult> {
   const top = Math.max(1, opts.top ?? 6)
   const pool = Math.max(opts.pool ?? 24, top)
-  const [vecRes, kwRes] = await Promise.all([
-    db.rpc('match_chunks_vector', { query_embedding: opts.embedding, match_owner: opts.ownerId, match_count: pool }),
-    db.rpc('match_chunks_keyword', { query_text: opts.queryText, match_owner: opts.ownerId, match_count: pool }),
-  ])
-  const vec = (vecRes?.data ?? []) as ChunkHit[]
-  const kw = (kwRes?.data ?? []) as ChunkHit[]
-  const byId = new Map<string, ChunkHit>()
-  for (const r of [...vec, ...kw]) if (r && !byId.has(r.id)) byId.set(r.id, r)
-  const fused = reciprocalRankFusion([vec.map((r) => r.id), kw.map((r) => r.id)])
-  return fused.slice(0, top).map((f) => byId.get(f.id)).filter((r): r is ChunkHit => !!r)
+  const res = await db.rpc('search_chunks_hybrid', {
+    query_embedding: opts.embedding,
+    query_text: opts.queryText,
+    match_owner: opts.ownerId,
+    match_count: pool,
+  })
+  const rows = (res?.data ?? []) as HybridRow[]
+  const byId = new Map<string, HybridRow>()
+  for (const r of rows) if (r && !byId.has(r.id)) byId.set(r.id, r)
+  const vecOrder = rows.filter((r) => r.vec_rank != null).sort((a, b) => a.vec_rank! - b.vec_rank!)
+  const kwOrder = rows.filter((r) => r.kw_rank != null).sort((a, b) => a.kw_rank! - b.kw_rank!)
+  const fused = reciprocalRankFusion([vecOrder.map((r) => r.id), kwOrder.map((r) => r.id)])
+  const pick = (ids: { id: string }[] | string[]) =>
+    (ids as Array<{ id: string } | string>)
+      .map((x) => byId.get(typeof x === 'string' ? x : x.id))
+      .filter((r): r is HybridRow => !!r)
+  return {
+    hits: pick(fused).slice(0, top),
+    vector: pick(vecOrder.map((r) => r.id)).slice(0, top),
+  }
 }
