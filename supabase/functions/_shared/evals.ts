@@ -191,13 +191,12 @@ export async function executeSuiteRun(
         let retrievalDetail: Record<string, any> | null = null
         try {
           const embedding = await model.run(String(c.input ?? ''), { mean_pool: true, normalize: true })
-          // Vector-only baseline (the previous behavior) …
-          const { data: vMatches } = await db.rpc('match_document_chunks', {
-            query_embedding: embedding, match_owner: userId, match_count: k,
-          })
-          const vRows = (vMatches ?? []) as ChunkHit[]
-          // … and hybrid (vector + keyword + RRF), the SAME retrieval search_documents uses.
-          const hRows = await hybridChunkSearch(db, {
+          // ONE retrieval call returns both the fused (hybrid) hits and the
+          // vector-only top-k baseline — so the A/B costs a single round trip
+          // (the previous separate match_document_chunks call is gone; that
+          // per-case chattiness was tipping the edge worker over its budget on
+          // larger suites).
+          const { hits: hRows, vector: vRows } = await hybridChunkSearch(db, {
             embedding, queryText: String(c.input ?? ''), ownerId: userId, top: k, pool: Math.max(k * 4, 24),
           })
           const vector = gradeRows(assertions, vRows)
