@@ -20,6 +20,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from './artifacts.ts'
 import { ingestText } from './knowledge.ts'
+import { reciprocalRankFusion } from './retrieval.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
 import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
@@ -380,26 +381,41 @@ async function logActivity(
   }
 }
 
-// search_documents: embed the query with the free in-edge gte-small model and
-// run a pgvector match over the workspace's shared knowledge plus the caller's
-// own private documents (RLS-scoped via match_document_chunks, service-role only).
+// search_documents: HYBRID retrieval over the workspace's shared knowledge plus
+// the caller's own private documents (both RLS-scoped in the RPCs, service-role
+// only). We embed the query with the free in-edge gte-small model and run a
+// pgvector semantic search AND a Postgres full-text keyword search in parallel,
+// then fuse the two rankings with reciprocal-rank fusion (_shared/retrieval.ts).
+// Keyword catches exact terms/names/IDs that vector similarity misses; vector
+// catches paraphrases keyword misses. If the keyword query is empty or that RPC
+// yields nothing, fusion degrades gracefully to the vector list alone.
 async function searchDocuments(
   db: DB | null,
   input: Record<string, unknown>,
   userId: string | null,
 ): Promise<string> {
   if (!db || !userId) return 'Document search is unavailable.'
+  const query = String(input?.query ?? '').trim()
+  if (!query) return 'No matching passages found in the documents.'
   try {
     // deno-lint-ignore no-explicit-any
     const model = new (globalThis as any).Supabase.ai.Session('gte-small')
-    const embedding = await model.run(String(input?.query ?? ''), { mean_pool: true, normalize: true })
-    const { data } = await db.rpc('match_document_chunks', {
-      query_embedding: embedding,
-      match_owner: userId,
-      match_count: 6,
-    })
-    if (!data || data.length === 0) return 'No matching passages found in the documents.'
-    return (data as Array<{ content: string; document_name?: string }>)
+    const embedding = await model.run(query, { mean_pool: true, normalize: true })
+    const POOL = 24 // candidate pool per signal; fusion re-ranks, then we take TOP
+    const TOP = 6
+    const [vecRes, kwRes] = await Promise.all([
+      db.rpc('match_chunks_vector', { query_embedding: embedding, match_owner: userId, match_count: POOL }),
+      db.rpc('match_chunks_keyword', { query_text: query, match_owner: userId, match_count: POOL }),
+    ])
+    type Row = { id: string; content: string; document_name?: string }
+    const vec = (vecRes.data ?? []) as Row[]
+    const kw = (kwRes.data ?? []) as Row[]
+    const byId = new Map<string, Row>()
+    for (const r of [...vec, ...kw]) if (!byId.has(r.id)) byId.set(r.id, r)
+    const fused = reciprocalRankFusion([vec.map((r) => r.id), kw.map((r) => r.id)])
+    const top = fused.slice(0, TOP).map((f) => byId.get(f.id)).filter((r): r is Row => !!r)
+    if (top.length === 0) return 'No matching passages found in the documents.'
+    return top
       .map((d, i) => `[${i + 1}] (${d.document_name ?? 'document'}) ${d.content}`)
       .join('\n\n---\n\n')
   } catch (err) {
