@@ -71,8 +71,33 @@ Deno.serve(async (req) => {
   await db.from('cp_events').insert({ tenant_id: tenant.id, type: 'signup', detail: { slug, email } })
 
   if (paymentRequired) {
-    // TODO(slice 3): create a Stripe Checkout session and return its URL.
-    return json({ status_token: tenant.status_token, next: 'payment' })
+    // Stripe Checkout: provisioning starts only when the stripe-webhook sees
+    // checkout.session.completed. success_url carries the status token so the
+    // waiting page resumes after redirect.
+    const site = Deno.env.get('SIGNUP_SITE_URL') ?? 'https://start.supanet.io'
+    const params = new URLSearchParams()
+    params.set('mode', 'subscription')
+    params.set('line_items[0][price]', Deno.env.get('STRIPE_PRICE_ID')!)
+    params.set('line_items[0][quantity]', '1')
+    params.set('customer_email', email)
+    params.set('metadata[tenant_id]', tenant.id)
+    params.set('subscription_data[metadata][tenant_id]', tenant.id)
+    params.set('success_url', `${site}/?token=${tenant.status_token}`)
+    params.set('cancel_url', `${site}/?canceled=1`)
+    const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${Deno.env.get('STRIPE_SECRET_KEY')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params,
+    })
+    const session = await res.json()
+    if (!res.ok) {
+      console.error('checkout session failed', session?.error?.message)
+      return json({ error: 'Could not start checkout. Try again.' }, 500)
+    }
+    return json({ status_token: tenant.status_token, next: 'payment', checkout_url: session.url })
   }
 
   const { error: jobErr } = await db.from('provisioning_jobs').insert({ tenant_id: tenant.id })

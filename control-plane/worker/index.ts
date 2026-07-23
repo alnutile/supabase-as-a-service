@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireEnv, env } from '../engine/env.ts'
 import { runPipeline } from '../engine/pipeline.ts'
 import { buildSteps } from '../engine/steps.ts'
+import { buildTeardownSteps } from '../engine/teardown.ts'
 import type { StepRecord, TenantState } from '../engine/types.ts'
 
 const db = createClient(requireEnv('CONTROL_PLANE_SUPABASE_URL'), requireEnv('CONTROL_PLANE_SERVICE_ROLE_KEY'))
@@ -27,12 +28,61 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 interface Job {
   id: string
   tenant_id: string
+  kind?: 'provision' | 'teardown'
   steps: StepRecord[]
   state: TenantState
 }
 
 async function event(tenantId: string, type: string, detail: Record<string, unknown> = {}) {
   await db.from('cp_events').insert({ tenant_id: tenantId, type, detail })
+}
+
+async function runTeardown(job: Job): Promise<void> {
+  const { data: tenant } = await db
+    .from('tenants')
+    .select('id, slug, name, admin_email, project_ref, railway_service_id, openrouter_key_hash, stripe_subscription_id')
+    .eq('id', job.tenant_id)
+    .single()
+  if (!tenant) {
+    await db.from('provisioning_jobs').update({ status: 'error', error: 'tenant row missing' }).eq('id', job.id)
+    return
+  }
+  console.log(`▶ TEARDOWN job ${job.id} → tenant "${tenant.slug}"`)
+  await event(tenant.id, 'teardown.started', { job_id: job.id })
+
+  const priorOk = (job.steps ?? []).filter((s) => s.status === 'ok')
+  const result = await runPipeline({
+    spec: { slug: tenant.slug, name: tenant.name, adminEmail: tenant.admin_email },
+    steps: buildTeardownSteps(),
+    completed: priorOk.map((s) => s.name),
+    initialState: {
+      ...(job.state ?? {}),
+      projectRef: tenant.project_ref ?? undefined,
+      railwayServiceId: tenant.railway_service_id ?? undefined,
+      openrouterKeyHash: tenant.openrouter_key_hash ?? undefined,
+      stripeSubscriptionId: tenant.stripe_subscription_id ?? undefined,
+    },
+    log: (m) => console.log(`  [teardown:${tenant.slug}] ${m}`),
+    persist: async ({ state, steps }) => {
+      const merged = [...priorOk.filter((p) => !steps.some((n) => n.name === p.name)), ...steps]
+      await db.from('provisioning_jobs').update({ state, steps: merged }).eq('id', job.id)
+    },
+  })
+
+  if (result.ok) {
+    await db.from('provisioning_jobs').update({ status: 'ok', error: null }).eq('id', job.id)
+    await db.from('tenants').update({ status: 'deleted', app_url: null }).eq('id', tenant.id)
+    await event(tenant.id, 'teardown.completed', {})
+    console.log(`✓ tenant "${tenant.slug}" stack removed`)
+  } else {
+    const failed = result.steps.at(-1)
+    await db
+      .from('provisioning_jobs')
+      .update({ status: 'error', error: `${result.failedStep}: ${failed?.error ?? 'unknown'}` })
+      .eq('id', job.id)
+    await event(tenant.id, 'teardown.failed', { step: result.failedStep, error: failed?.error })
+    console.error(`✗ teardown "${tenant.slug}" failed at ${result.failedStep}: ${failed?.error}`)
+  }
 }
 
 async function runJob(job: Job): Promise<void> {
@@ -103,7 +153,7 @@ async function runJob(job: Job): Promise<void> {
 }
 
 console.log(`SupaNet provisioning worker up — polling every ${POLL_MS}ms`)
-while (true) {
+for (;;) {
   try {
     const { data, error } = await db.rpc('claim_provisioning_job', { p_lease_seconds: LEASE_SECONDS })
     if (error) {
@@ -111,7 +161,8 @@ while (true) {
     } else {
       const job = (Array.isArray(data) ? data[0] : data) as Job | undefined
       if (job) {
-        await runJob(job)
+        const heartbeatWrap = job.kind === 'teardown' ? runTeardown : runJob
+        await heartbeatWrap(job)
         continue // check for the next job immediately
       }
     }

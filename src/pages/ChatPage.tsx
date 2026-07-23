@@ -120,6 +120,18 @@ export default function ChatPage() {
   // fetch — a dropped SSE alone can't tell Stop apart from navigating away.
   // Null for skill runs (client-side, no background to cancel).
   const activeRunRef = useRef<{ conversationId: string; runId: string } | null>(null)
+  // A persisted run's SSE stream can drop before the saved reply arrives (a long
+  // job outliving the connection). The background task is still running and will
+  // write the message, so we keep the typing indicator up and let Realtime clear
+  // it. This is a safety timer so the dots can't hang forever if the reply never
+  // lands (e.g. the worker was killed): after it fires we clear the placeholder.
+  const persistWaitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearPersistWait = useCallback(() => {
+    if (persistWaitRef.current) {
+      clearTimeout(persistWaitRef.current)
+      persistWaitRef.current = null
+    }
+  }, [])
 
   // Stop the current model run. The stream rejects with an AbortError, which
   // submit()/runSkill() treat as a normal stop (no error banner, partial text
@@ -445,6 +457,12 @@ export default function ChatPage() {
           if (seen.current.has(row.id)) return
           seen.current.add(row.id)
           setMessages((prev) => [...prev, row])
+          // A persisted run whose SSE stream dropped surfaces its reply here.
+          // Retire the typing indicator (and its safety timer) now that it landed.
+          if (row.role === 'assistant') {
+            clearPersistWait()
+            setStreaming(null)
+          }
         },
       )
       .subscribe()
@@ -452,8 +470,9 @@ export default function ChatPage() {
     return () => {
       active = false
       supabase.removeChannel(channel)
+      clearPersistWait()
     }
-  }, [conversationId])
+  }, [conversationId, clearPersistWait])
 
   // --- Auto-scroll to bottom on new content ---
   useEffect(() => {
@@ -651,6 +670,11 @@ export default function ChatPage() {
       // Per-send id so Stop can cancel the specific background run.
       const runId = crypto.randomUUID()
       activeRunRef.current = { conversationId: convId, runId }
+      clearPersistWait()
+      // Did the saved reply arrive over this SSE connection? If not (the stream
+      // dropped mid-run), the server is still finishing in the background — we
+      // keep the dots and let Realtime deliver the message instead of blanking.
+      let replyLanded = false
       setStreaming('')
       await streamChat(
         history,
@@ -691,17 +715,31 @@ export default function ChatPage() {
                 setMessages((prev) => [...prev, row])
               }
               // The saved reply replaced the live stream — drop the placeholder.
+              replyLanded = true
               setStreaming(null)
             },
             signal: controller.signal,
           }
         })(),
       )
-      setStreaming(null)
+      if (replyLanded) {
+        setStreaming(null)
+      } else {
+        // The SSE stream ended without the saved reply — a long run outlived the
+        // connection. The background task is still finishing and will write the
+        // assistant message; keep the dots up and let the Realtime `messages`
+        // subscription clear them when it lands. A safety timer clears the
+        // placeholder if it never does (e.g. the worker was killed).
+        persistWaitRef.current = setTimeout(() => {
+          setStreaming(null)
+          persistWaitRef.current = null
+        }, 180_000)
+      }
       // The assistant reply + any artifacts were written server-side; just
       // refresh the list so this conversation floats up with its new updated_at.
       loadConversations()
     } catch (err) {
+      clearPersistWait()
       setStreaming(null)
       // The user hit Stop — cancel quietly (no error banner). The user message
       // stays; the partial reply is dropped.
@@ -1165,7 +1203,7 @@ export default function ChatPage() {
               <div className="mt-24 flex flex-col items-center text-center">
                 <div
                   className="mb-6 flex h-[74px] w-[74px] items-center justify-center rounded-[22px] bg-gradient-to-br from-primary to-primary-strong text-4xl text-white"
-                  style={{ boxShadow: '0 12px 34px rgba(99,84,232,.40)' }}
+                  style={{ boxShadow: '0 12px 34px rgba(21,121,91,.40)' }}
                 >
                   ✺
                 </div>

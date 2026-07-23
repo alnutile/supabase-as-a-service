@@ -40,11 +40,23 @@ export function buildSteps(): Step[] {
     },
     {
       name: 'waitForHealthy',
-      run: async ({ state }) => {
+      run: async ({ state, log }) => {
         const ref = state.projectRef!
-        await waitFor('project ACTIVE_HEALTHY', async () => (await sb.projectStatus(pat, ref)) === 'ACTIVE_HEALTHY', {
-          timeoutMs: 10 * 60_000,
-        })
+        // A just-created project can 404 on GET for a short window (eventual
+        // consistency — bit the first live customer signup). Any lookup error
+        // during the wait means "not ready yet", never "failed".
+        await waitFor(
+          'project ACTIVE_HEALTHY',
+          async () => {
+            try {
+              return (await sb.projectStatus(pat, ref)) === 'ACTIVE_HEALTHY'
+            } catch (err) {
+              log(`project not queryable yet (${(err as Error).message.slice(0, 80)}) — waiting`)
+              return false
+            }
+          },
+          { timeoutMs: 10 * 60_000 },
+        )
       },
     },
     {

@@ -12,7 +12,7 @@ type ProfileKey = 'orchestrator' | 'utility'
 // fallback so older deployments don't hard-break, but note it must now be an
 // OpenRouter slug, not a bare Anthropic model id.
 const FALLBACK: Record<ProfileKey, string> = {
-  orchestrator: Deno.env.get('OPENROUTER_MODEL') ?? Deno.env.get('ANTHROPIC_MODEL') ?? 'anthropic/claude-sonnet-4.5',
+  orchestrator: Deno.env.get('OPENROUTER_MODEL') ?? Deno.env.get('ANTHROPIC_MODEL') ?? 'openai/gpt-5.6-luna',
   utility: 'anthropic/claude-haiku-4.5',
 }
 

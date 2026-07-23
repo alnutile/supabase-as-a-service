@@ -315,14 +315,18 @@ function CollectionDashboard({
           id: String(x.id),
           label: String(x.title),
           meta: `${x.done ? 'done' : 'open'}${x.due_date ? ` · due ${x.due_date}` : ''}`,
-        })),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
       artifact: pluck(a.data, 'artifacts').map((x) => ({
         id: String(x.id),
         label: String(x.title),
         meta: `${x.type} · ${formatDate(String(x.updated_at))}`,
-      })),
-      file: pluck(f.data, 'files').map((x) => ({ id: String(x.id), label: String(x.name), meta: formatBytes(Number(x.size_bytes ?? 0)) })),
-      table: pluck(u.data, 'user_tables').map((x) => ({ id: String(x.id), label: String(x.name), meta: `updated ${formatDate(String(x.updated_at))}` })),
+      }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+      file: pluck(f.data, 'files').map((x) => ({ id: String(x.id), label: String(x.name), meta: formatBytes(Number(x.size_bytes ?? 0)) }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+      table: pluck(u.data, 'user_tables').map((x) => ({ id: String(x.id), label: String(x.name), meta: `updated ${formatDate(String(x.updated_at))}` }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
       link: pluck(l.data, 'links').map((x) => {
         let host = String(x.url)
         try {
@@ -331,22 +335,26 @@ function CollectionDashboard({
           // keep the raw url
         }
         return { id: String(x.id), label: String(x.title) || host, meta: host }
-      }),
+      })
+        .sort((a, b) => a.label.localeCompare(b.label)),
       term: pluck(tr.data, 'terminology').map((x) => ({
         id: String(x.id),
         label: String(x.term),
         meta: String(x.definition).substring(0, 80) + (String(x.definition).length > 80 ? '...' : ''),
-      })),
+      }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
       agent: pluck(g.data, 'agents').map((x) => ({
         id: String(x.id),
         label: String(x.name),
         meta: x.description ? String(x.description) : undefined,
-      })),
+      }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
       whiteboard: pluck(w.data, 'whiteboards').map((x) => ({
         id: String(x.id),
         label: String(x.title),
         meta: `updated ${formatDate(String(x.updated_at))}`,
-      })),
+      }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
     })
   }, [collection.id])
 
@@ -637,7 +645,7 @@ function Card({
     setAdding(next)
     if (next) onExpand() // adding to a collapsed card should show the picker
     if (!next || candidates) return
-    const { data } = await supabase.from(cfg.base as 'artifacts').select(`id, ${cfg.label}`).limit(200)
+    const { data } = await supabase.from(cfg.base as 'artifacts').select(`id, ${cfg.label}`).order(cfg.label, { ascending: true }).limit(200)
     setCandidates(((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), label: String(r[cfg.label]) })))
   }
 
@@ -1076,7 +1084,7 @@ function CollectionChat({ collection, onChanged }: { collection: Collection; onC
         onClick={() => setOpen(true)}
         title={`Chat with "${collection.name}"`}
         className="absolute bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-lg transition hover:bg-primary-strong"
-        style={{ boxShadow: '0 10px 30px rgba(99,84,232,.45)' }}
+        style={{ boxShadow: '0 10px 30px rgba(21,121,91,.45)' }}
       >
         <ChatIcon className="h-6 w-6" />
       </button>

@@ -9,7 +9,8 @@
     "tenant-zero": "tsx engine/tenant-zero.ts",
     "test": "tsx --test engine/pipeline.test.ts",
     "typecheck": "tsc --noEmit",
-    "worker": "tsx worker/index.ts"
+    "worker": "tsx worker/index.ts",
+    "start": "tsx worker/index.ts"
   },
   "devDependencies": {
     "@types/node": "^22.5.0",

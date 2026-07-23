@@ -8,4 +8,6 @@ RUN npm install -g serve@14
 WORKDIR /app
 COPY control-plane/ui/ .
 
-CMD ["sh", "-c", "serve -s . -l ${PORT:-3000}"]
+# `serve` is installed globally above; package.json's start script uses it, so
+# both the image CMD and a platform-imposed `npm start` land in the same place.
+CMD ["npm", "start"]

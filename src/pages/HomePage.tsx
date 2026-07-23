@@ -8,10 +8,8 @@ import { DashboardWidget } from '../components/DashboardWidget'
 import { AddWidgetPanel } from '../components/AddWidgetPanel'
 import type { Database } from '../lib/database.types'
 import {
-  activityFamily,
   bucketByDay,
   completionPct,
-  timeAgo,
   type DayBucket,
 } from '../lib/dashboard'
 import {
@@ -108,7 +106,6 @@ export default function HomePage() {
   // Dashboard data
   const [stats, setStats] = useState<Stats | null>(null)
   const [trendRows, setTrendRows] = useState<ActivityRow[]>([])
-  const [feed, setFeed] = useState<ActivityRow[]>([])
   const [todos, setTodos] = useState<TodoRow[]>([])
   const [pinnedArtifacts, setPinnedArtifacts] = useState<ArtifactRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -180,7 +177,6 @@ export default function HomePage() {
       })
       const rows = (trend.data ?? []) as ActivityRow[]
       setTrendRows(rows)
-      setFeed(rows.slice(0, 7))
       setTodos((td.data ?? []) as TodoRow[])
       setPinnedArtifacts((pinned.data ?? []) as ArtifactRow[])
       setLoading(false)
@@ -190,7 +186,7 @@ export default function HomePage() {
     }
   }, [user])
 
-  // Live feed: prepend new activity rows as they land (mirrors ActivityPage).
+  // Live activity: prepend new activity rows as they land for trend chart and stats.
   useEffect(() => {
     const channel = supabase
       .channel('home_activity')
@@ -199,7 +195,6 @@ export default function HomePage() {
         { event: 'INSERT', schema: 'public', table: 'activity_log' },
         (payload) => {
           const row = payload.new as ActivityRow
-          setFeed((prev) => (prev.some((r) => r.id === row.id) ? prev : [row, ...prev].slice(0, 7)))
           setTrendRows((prev) => [row, ...prev])
           setStats((prev) => (prev ? { ...prev, weekEvents: prev.weekEvents + 1 } : prev))
         },
@@ -339,7 +334,6 @@ export default function HomePage() {
               stats={stats}
               pct={pct}
               buckets={buckets}
-              feed={feed}
               todos={todos}
               pinnedArtifacts={pinnedArtifacts}
               navigate={navigate}
@@ -368,7 +362,6 @@ function Overview({
   stats,
   pct,
   buckets,
-  feed,
   todos,
   pinnedArtifacts,
   navigate,
@@ -379,7 +372,6 @@ function Overview({
   stats: Stats | null
   pct: number
   buckets: DayBucket[]
-  feed: ActivityRow[]
   todos: TodoRow[]
   pinnedArtifacts: ArtifactRow[]
   navigate: (to: string) => void
@@ -455,9 +447,8 @@ function Overview({
       {/* Activity trend chart */}
       <TrendChart buckets={buckets} loading={loading} />
 
-      {/* Feed + to-dos */}
-      <div className="mt-6 grid grid-cols-1 gap-[18px] lg:grid-cols-2">
-        <ActivityFeed feed={feed} loading={loading} />
+      {/* To-dos */}
+      <div className="mt-6">
         <TodoList todos={todos} loading={loading} onComplete={onComplete} />
       </div>
     </>
@@ -597,44 +588,6 @@ function TrendChart({ buckets, loading }: { buckets: DayBucket[]; loading: boole
             )
           })}
         </div>
-      )}
-    </div>
-  )
-}
-
-function ActivityFeed({ feed, loading }: { feed: ActivityRow[]; loading: boolean }) {
-  return (
-    <div className="rounded-[18px] border border-border bg-surface p-6 shadow-soft">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-[15px] font-bold tracking-tight text-text">Recent activity</h2>
-        <Link to="/activity" className="flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">
-          View all <ArrowRightIcon className="h-3.5 w-3.5" />
-        </Link>
-      </div>
-      {loading ? (
-        <div className="space-y-3">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-9 animate-pulse rounded-lg bg-surface-2" />
-          ))}
-        </div>
-      ) : feed.length === 0 ? (
-        <div className="py-8 text-center text-sm text-faint">
-          <ActivityIcon className="mx-auto mb-2 h-7 w-7 opacity-60" />
-          Nothing yet — activity shows up here as it happens.
-        </div>
-      ) : (
-        <ol className="space-y-1">
-          {feed.map((ev) => {
-            const fam = activityFamily(ev.type)
-            return (
-              <li key={ev.id} className="flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-surface-2">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${fam.dot}`} />
-                <span className="min-w-0 flex-1 truncate text-sm text-text">{ev.summary || fam.label}</span>
-                <span className="shrink-0 text-[12px] font-medium text-faint">{timeAgo(ev.created_at)}</span>
-              </li>
-            )
-          })}
-        </ol>
       )}
     </div>
   )
