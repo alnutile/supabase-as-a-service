@@ -2,7 +2,7 @@
 // (semantic) and full-text (keyword) rankings behind hybrid `search_documents`.
 // Kept pure so the ranking math is verified without a DB.
 import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert@1'
-import { reciprocalRankFusion, RRF_K } from '../_shared/retrieval.ts'
+import { hybridChunkSearch, reciprocalRankFusion, RRF_K } from '../_shared/retrieval.ts'
 
 Deno.test('reciprocalRankFusion: empty input → empty output', () => {
   assertEquals(reciprocalRankFusion([]), [])
@@ -52,4 +52,36 @@ Deno.test('reciprocalRankFusion: smaller k sharpens top-rank dominance', () => {
   const sharpRatio = sharp[0].score / sharp[1].score
   const flatRatio = flat[0].score / flat[1].score
   assertEquals(sharpRatio > flatRatio, true)
+})
+
+// A fake db.rpc that returns canned rows per RPC name, and records the args it saw.
+function fakeDb(vector: unknown[], keyword: unknown[]) {
+  const calls: Array<{ fn: string; args: Record<string, unknown> }> = []
+  const db = {
+    rpc(fn: string, args: Record<string, unknown>) {
+      calls.push({ fn, args })
+      return Promise.resolve({ data: fn === 'match_chunks_vector' ? vector : keyword })
+    },
+  }
+  return { db, calls }
+}
+
+Deno.test('hybridChunkSearch: fuses both RPCs, dedupes, respects top', async () => {
+  const { db, calls } = fakeDb(
+    [{ id: 'a', content: 'A', document_name: 'd1' }, { id: 'x', content: 'X', document_name: 'd2' }],
+    [{ id: 'x', content: 'X', document_name: 'd2' }, { id: 'c', content: 'C', document_name: 'd3' }],
+  )
+  const hits = await hybridChunkSearch(db, { embedding: [0.1], queryText: 'x', ownerId: 'u1', top: 2 })
+  // 'x' is in both lists → highest fused score → first; result deduped to `top`.
+  assertEquals(hits[0].id, 'x')
+  assertEquals(hits.length, 2)
+  // both RPCs were called with the owner + a candidate pool ≥ top
+  assertEquals(calls.map((c) => c.fn).sort(), ['match_chunks_keyword', 'match_chunks_vector'])
+  assertEquals(calls.every((c) => c.args.match_owner === 'u1'), true)
+})
+
+Deno.test('hybridChunkSearch: keyword empty → degrades to vector order', async () => {
+  const { db } = fakeDb([{ id: 'a', content: 'A' }, { id: 'b', content: 'B' }], [])
+  const hits = await hybridChunkSearch(db, { embedding: [0.1], queryText: '', ownerId: 'u1', top: 5 })
+  assertEquals(hits.map((h) => h.id), ['a', 'b'])
 })
