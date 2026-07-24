@@ -9,6 +9,7 @@ import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
+import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
@@ -79,7 +80,7 @@ function scheduledRunGuidance(ownerEmail: string | null): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(db: any, agent: { instructions: string; tool_ids: string[]; collection_ids?: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null) {
+async function runAgent(db: any, agent: { instructions: string; tool_ids: string[]; collection_ids?: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null, timezone: string) {
   const { tools, httpTools, builtins, mcpRouter, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   // Inject the agent's bound collections (artifacts/files/to-dos) as context.
   const collCtx = await loadCollectionsContext(db, agent.collection_ids ?? [], ownerId, model)
@@ -87,6 +88,7 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
   // should know their defaults/preferences just like their chat does.
   const memCtx = await loadUserMemories(db, ownerId)
   const system = [
+    currentTimeSection(timezone, new Date()),
     agent.instructions || 'You are a scheduled agent. Do the task described.',
     collCtx,
     memCtx,
@@ -155,6 +157,7 @@ Deno.serve(async (req: Request) => {
 
   if (!orApiKey()) return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), { status: 500 })
   const model = await resolveModel(db, 'orchestrator')
+  const workspaceTz = await resolveWorkspaceTimezone(db)
   let ran = 0
 
   for (const s of due ?? []) {
@@ -197,7 +200,12 @@ Deno.serve(async (req: Request) => {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, collection_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
         const { data: owner } = await db.from('profiles').select('email').eq('id', s.owner_id).maybeSingle()
-        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id)
+        // Which clock the agent is told is "now": a schedule that deliberately
+        // picked a non-UTC zone uses it; otherwise (the default, indistinguishable
+        // from an untouched 'UTC') fall back to the workspace timezone, so setting
+        // the workspace zone fixes the "wrong UTC" for every existing schedule.
+        const runTz = s.timezone && s.timezone !== 'UTC' ? s.timezone : workspaceTz
+        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id, runTz)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,
