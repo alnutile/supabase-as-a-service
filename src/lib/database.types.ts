@@ -1838,7 +1838,11 @@ export interface Database {
       }
       list_workspace_members: {
         Args: Record<PropertyKey, never>
-        Returns: { id: string; email: string | null; display_name: string | null }[]
+        Returns: { id: string; email: string | null; display_name: string | null; is_admin: boolean }[]
+      }
+      promote_to_admin: {
+        Args: { target_user_id: string }
+        Returns: undefined
       }
       collections_combined_chars: {
         Args: { p_ids: string[] }
