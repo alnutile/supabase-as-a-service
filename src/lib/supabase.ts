@@ -64,3 +64,6 @@ export const runToolUrl = `${supabaseUrl}/functions/v1/run-tool`
 
 /** Slack Events API endpoint — paste into the Slack app's Event Subscriptions. */
 export const slackEventsUrl = `${supabaseUrl}/functions/v1/slack-events`
+
+/** Transcribe audio to text using OpenAI Whisper API. */
+export const transcribeFunctionUrl = () => `${supabaseUrl}/functions/v1/transcribe`
