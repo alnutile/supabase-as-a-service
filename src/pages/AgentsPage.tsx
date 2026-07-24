@@ -4,6 +4,7 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
+import { CRON_EXAMPLES, describeCron, isValidCron, localTimezone, nextCronRuns } from '../lib/cron'
 import { allToolsSelected as allSelected, toggleAllTools } from '../lib/agentTools'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import { AgentIcon, ChatIcon, CheckIcon, CloseIcon, CollectionIcon, PlayIcon, PlusIcon, SearchIcon, SkillIcon, TrashIcon } from '../components/icons'
@@ -21,6 +22,26 @@ const INTERVALS = [
   { label: 'Weekly', minutes: 10080 },
 ]
 const intervalLabel = (m: number) => INTERVALS.find((i) => i.minutes === m)?.label ?? `Every ${m} min`
+
+// A schedule is either a fixed interval or a cron expression — label it accordingly.
+const scheduleLabel = (s: Schedule) =>
+  s.cron_expr ? describeCron(s.cron_expr) ?? s.cron_expr : intervalLabel(s.interval_minutes)
+
+// Short human date in a specific timezone, for the "next runs" preview.
+const fmtInTz = (d: Date, tz: string) => {
+  try {
+    return d.toLocaleString('en-US', {
+      timeZone: tz || 'UTC',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    return d.toISOString()
+  }
+}
 
 export default function AgentsPage() {
   const { user } = useAuth()
@@ -389,7 +410,11 @@ function AgentEditor({
   const [isActive, setIsActive] = useState(agent.is_active)
   const [saving, setSaving] = useState(false)
   const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [schedMode, setSchedMode] = useState<'preset' | 'cron'>('preset')
   const [newInterval, setNewInterval] = useState(1440)
+  const [newCron, setNewCron] = useState('')
+  const [newTimezone, setNewTimezone] = useState(localTimezone())
+  const [showCronHelp, setShowCronHelp] = useState(false)
   const [newInput, setNewInput] = useState('')
 
   // --- "/" skill autocomplete in the instructions field ---
@@ -453,13 +478,28 @@ function AgentEditor({
   }, [loadSchedules])
 
   async function addSchedule() {
-    await supabase.from('schedules').insert({
-      owner_id: user!.id,
-      agent_id: agent.id,
-      input: newInput,
-      interval_minutes: newInterval,
-      next_run_at: new Date(Date.now() + newInterval * 60_000).toISOString(),
-    })
+    if (schedMode === 'cron') {
+      const expr = newCron.trim()
+      const runs = nextCronRuns(expr, newTimezone, 1)
+      if (!isValidCron(expr) || !runs.length) return
+      await supabase.from('schedules').insert({
+        owner_id: user!.id,
+        agent_id: agent.id,
+        input: newInput,
+        cron_expr: expr,
+        timezone: newTimezone || 'UTC',
+        next_run_at: runs[0].toISOString(),
+      })
+      setNewCron('')
+    } else {
+      await supabase.from('schedules').insert({
+        owner_id: user!.id,
+        agent_id: agent.id,
+        input: newInput,
+        interval_minutes: newInterval,
+        next_run_at: new Date(Date.now() + newInterval * 60_000).toISOString(),
+      })
+    }
     setNewInput('')
     loadSchedules()
   }
@@ -659,7 +699,8 @@ function AgentEditor({
           <div>
             <span className="block text-xs font-medium text-muted">Schedules</span>
             <p className="mb-2 mt-0.5 text-xs text-faint">
-              Run this agent on its own, on a repeat — pick how often, then Add. Each run uses the agent's
+              Run this agent on its own, on a repeat — pick a preset interval, or switch to <b>Cron</b> for
+              exact times like the 15th of the month or the last day of the month. Each run uses the agent's
               own instructions above; the optional note just adds extra direction for that run. Each run
               shows up in Activity.
             </p>
@@ -674,7 +715,13 @@ function AgentEditor({
                     title={s.is_active ? 'Active — tap to pause' : 'Paused — tap to activate'}
                     className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.is_active ? 'bg-emerald-500' : 'bg-border-strong'}`}
                   />
-                  <span className="shrink-0 font-medium text-muted">{intervalLabel(s.interval_minutes)}</span>
+                  <span
+                    className="shrink-0 font-medium text-muted"
+                    title={s.cron_expr ? `${s.cron_expr} · ${s.timezone}` : undefined}
+                  >
+                    {scheduleLabel(s)}
+                    {s.cron_expr && <span className="ml-1 font-normal text-faint">({s.timezone})</span>}
+                  </span>
                   <span className="min-w-0 flex-1 truncate text-muted">{s.input || '(no input)'}</span>
                   <button onClick={() => removeSchedule(s.id)} className="text-faint hover:text-red-600">
                     <TrashIcon className="h-3.5 w-3.5" />
@@ -682,30 +729,141 @@ function AgentEditor({
                 </div>
               ))}
             </div>
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <select
-                value={newInterval}
-                onChange={(e) => setNewInterval(Number(e.target.value))}
-                className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs sm:w-auto"
-              >
-                {INTERVALS.map((i) => (
-                  <option key={i.minutes} value={i.minutes}>
-                    {i.label}
-                  </option>
+            <div className="mt-2 space-y-2">
+              {/* Preset / Cron mode toggle */}
+              <div className="inline-flex rounded-lg border border-border-strong p-0.5 text-xs">
+                {(['preset', 'cron'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setSchedMode(m)}
+                    className={`rounded-md px-2.5 py-1 font-medium capitalize ${
+                      schedMode === m ? 'bg-primary text-white' : 'text-muted hover:bg-surface-hover'
+                    }`}
+                  >
+                    {m}
+                  </button>
                 ))}
-              </select>
-              <input
-                value={newInput}
-                onChange={(e) => setNewInput(e.target.value)}
-                placeholder="Optional — extra direction for this run (defaults to the agent's instructions)"
-                className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs outline-none focus:border-primary sm:flex-1"
-              />
-              <button
-                onClick={addSchedule}
-                className="w-full rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50 sm:w-auto"
-              >
-                Add schedule
-              </button>
+              </div>
+
+              {schedMode === 'preset' ? (
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <select
+                    value={newInterval}
+                    onChange={(e) => setNewInterval(Number(e.target.value))}
+                    className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs sm:w-auto"
+                  >
+                    {INTERVALS.map((i) => (
+                      <option key={i.minutes} value={i.minutes}>
+                        {i.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={newInput}
+                    onChange={(e) => setNewInput(e.target.value)}
+                    placeholder="Optional — extra direction for this run (defaults to the agent's instructions)"
+                    className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs outline-none focus:border-primary sm:flex-1"
+                  />
+                  <button
+                    onClick={addSchedule}
+                    className="w-full rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50 sm:w-auto"
+                  >
+                    Add schedule
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      value={newCron}
+                      onChange={(e) => setNewCron(e.target.value)}
+                      placeholder="0 9 15 * *"
+                      spellCheck={false}
+                      className="w-full rounded-lg border border-border-strong px-2 py-1.5 font-mono text-xs outline-none focus:border-primary sm:flex-1"
+                    />
+                    <input
+                      value={newTimezone}
+                      onChange={(e) => setNewTimezone(e.target.value)}
+                      placeholder="Timezone (IANA)"
+                      spellCheck={false}
+                      title="IANA timezone, e.g. America/New_York"
+                      className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs outline-none focus:border-primary sm:w-48"
+                    />
+                  </div>
+
+                  {/* Live validation + next-runs preview */}
+                  {newCron.trim() &&
+                    (isValidCron(newCron) ? (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <div className="font-medium">{describeCron(newCron)}</div>
+                        {nextCronRuns(newCron, newTimezone, 3).length > 0 && (
+                          <div className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
+                            Next: {nextCronRuns(newCron, newTimezone, 3).map((d) => fmtInTz(d, newTimezone)).join(' · ')}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                        Not a valid 5-field cron expression.
+                      </div>
+                    ))}
+
+                  <input
+                    value={newInput}
+                    onChange={(e) => setNewInput(e.target.value)}
+                    placeholder="Optional — extra direction for this run (defaults to the agent's instructions)"
+                    className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs outline-none focus:border-primary"
+                  />
+
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setShowCronHelp((v) => !v)}
+                      className="text-xs font-medium text-muted hover:text-text"
+                    >
+                      {showCronHelp ? 'Hide' : 'Cron'} syntax
+                    </button>
+                    <button
+                      onClick={addSchedule}
+                      disabled={!isValidCron(newCron)}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      Add schedule
+                    </button>
+                  </div>
+
+                  {showCronHelp && (
+                    <div className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
+                      <p className="mb-1.5">
+                        Five fields, space-separated. <code>*</code> means “every”. Ranges (<code>1-5</code>),
+                        lists (<code>1,15</code>) and steps (<code>*/2</code>) work. <code>L</code> in the day
+                        field means the last day of the month.
+                      </p>
+                      <pre className="mb-2 overflow-x-auto font-mono text-[11px] leading-tight text-faint">
+{`┌───────── minute (0-59)
+│ ┌─────── hour (0-23)
+│ │ ┌───── day of month (1-31, or L)
+│ │ │ ┌─── month (1-12)
+│ │ │ │ ┌─ day of week (0-6, Sun=0)
+│ │ │ │ │
+* * * * *`}
+                      </pre>
+                      <div className="flex flex-wrap gap-1">
+                        {CRON_EXAMPLES.map((ex) => (
+                          <button
+                            key={ex.expr}
+                            onClick={() => setNewCron(ex.expr)}
+                            title={ex.expr}
+                            className="rounded-md border border-border-strong bg-surface px-1.5 py-0.5 hover:border-primary"
+                          >
+                            <span className="font-mono">{ex.expr}</span>
+                            <span className="ml-1 text-faint">— {ex.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

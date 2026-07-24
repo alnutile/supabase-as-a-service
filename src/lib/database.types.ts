@@ -1149,6 +1149,8 @@ export interface Database {
           agent_id: string
           input: string
           interval_minutes: number
+          cron_expr: string | null
+          timezone: string
           is_active: boolean
           last_run_at: string | null
           next_run_at: string
@@ -1160,6 +1162,8 @@ export interface Database {
           agent_id: string
           input?: string
           interval_minutes?: number
+          cron_expr?: string | null
+          timezone?: string
           is_active?: boolean
           last_run_at?: string | null
           next_run_at?: string

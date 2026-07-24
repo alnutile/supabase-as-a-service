@@ -3,6 +3,7 @@
 // pg_cron; runs any agents whose schedule is due, over the schedule's input.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
+import { nextCronRun } from '../_shared/cron.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
@@ -147,7 +148,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: due } = await db
     .from('schedules')
-    .select('id, owner_id, agent_id, input, interval_minutes')
+    .select('id, owner_id, agent_id, input, interval_minutes, cron_expr, timezone')
     .eq('is_active', true)
     .lte('next_run_at', new Date().toISOString())
     .limit(20)
@@ -157,11 +158,34 @@ Deno.serve(async (req: Request) => {
   let ran = 0
 
   for (const s of due ?? []) {
+    // Compute the next fire time. A `cron_expr` OWNS the cadence (evaluated in the
+    // schedule's timezone); otherwise fall back to the fixed interval. If a cron
+    // expression can't yield a future run (invalid, or e.g. a since-deleted date),
+    // deactivate the row and log it so it doesn't get re-selected every tick.
+    const now = new Date()
+    let next: string
+    if (s.cron_expr) {
+      const nextRun = nextCronRun(s.cron_expr, s.timezone ?? 'UTC', now)
+      if (!nextRun) {
+        await db
+          .from('schedules')
+          .update({ is_active: false, last_run_at: now.toISOString() })
+          .eq('id', s.id)
+        await db.from('activity_log').insert({
+          type: 'schedule.error',
+          summary: 'Schedule paused: invalid cron expression',
+          detail: { schedule_id: s.id, cron_expr: s.cron_expr, timezone: s.timezone ?? 'UTC' },
+          actor_id: s.owner_id,
+        })
+        continue
+      }
+      next = nextRun.toISOString()
+    } else {
+      next = new Date(now.getTime() + s.interval_minutes * 60_000).toISOString()
+    }
     // Claim the row before running: advance next_run_at only if it is still due.
     // A concurrent tick (runs often outlast the 1-minute cron interval) loses the
     // conditional update and skips, so a schedule can never double-fire.
-    const now = new Date()
-    const next = new Date(now.getTime() + s.interval_minutes * 60_000).toISOString()
     const { data: claimed } = await db
       .from('schedules')
       .update({ last_run_at: now.toISOString(), next_run_at: next })

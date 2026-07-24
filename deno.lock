@@ -1,8 +1,10 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@1": "1.0.19",
-    "jsr:@std/internal@^1.0.12": "1.0.14"
+    "jsr:@std/internal@^1.0.12": "1.0.14",
+    "npm:croner@8.1.2": "8.1.2"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -13,6 +15,11 @@
     },
     "@std/internal@1.0.14": {
       "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    }
+  },
+  "npm": {
+    "croner@8.1.2": {
+      "integrity": "sha512-ypfPFcAXHuAZRCzo3vJL6ltENzniTjwe/qsLleH1V2/7SRDjgvRQyrLmumFTLmjFax4IuSxfGXEn79fozXcJog=="
     }
   },
   "workspace": {
@@ -31,6 +38,8 @@
         "npm:@typescript-eslint/parser@^8.5.0",
         "npm:@vitejs/plugin-react@^4.3.1",
         "npm:autoprefixer@^10.4.20",
+        "npm:croner@^8.1.2",
+        "npm:cronstrue@^2.59.0",
         "npm:eslint-plugin-react-hooks@^4.6.2",
         "npm:eslint-plugin-react-refresh@~0.4.11",
         "npm:eslint@^8.57.0",
