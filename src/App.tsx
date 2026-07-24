@@ -18,6 +18,7 @@ import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
 import MemoryPage from './pages/MemoryPage'
+import MeetingNotesPage from './pages/MeetingNotesPage'
 import TerminologyPage from './pages/TerminologyPage'
 import InboxPage from './pages/InboxPage'
 import EventsPage from './pages/EventsPage'
@@ -106,6 +107,7 @@ export default function App() {
         <Route path="todos/:todoId" element={<TodosPage />} />
         <Route path="links" element={<LinksPage />} />
         <Route path="memory" element={<MemoryPage />} />
+        <Route path="meeting-notes" element={<MeetingNotesPage />} />
         <Route path="terminology" element={<TerminologyPage />} />
         <Route path="terminology/:termId" element={<TerminologyPage />} />
         <Route path="skills" element={<SkillsPage />} />
