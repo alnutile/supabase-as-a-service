@@ -22,6 +22,10 @@
       "integrity": "sha512-ypfPFcAXHuAZRCzo3vJL6ltENzniTjwe/qsLleH1V2/7SRDjgvRQyrLmumFTLmjFax4IuSxfGXEn79fozXcJog=="
     }
   },
+  "remote": {
+    "https://esm.sh/croner@8.1.2": "de4aef12b445623463a5a2b06ac43b64fc30e25a09369110424fe66297cbfc66",
+    "https://esm.sh/croner@8.1.2/denonext/croner.mjs": "32e69829ffc0c790a69527568d1af4a806de0832f8f86470e50239ea23aaac36"
+  },
   "workspace": {
     "packageJson": {
       "dependencies": [

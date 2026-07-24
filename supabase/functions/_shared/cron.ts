@@ -6,7 +6,12 @@
 // croner, so the croner extensions work too — notably `L` (last day of month),
 // which is how "run on the last day of the month" is expressed. Evaluation is in
 // an IANA `timezone` so "9am on the 15th" means 9am *there*, not UTC.
-import { Cron } from 'npm:croner@8.1.2'
+// URL import (not `npm:`) on purpose: the deno test job runs with the repo's
+// package.json present but no node_modules, which puts Deno in byonm mode where
+// `npm:` specifiers demand an installed node_modules. A remote URL import bypasses
+// that and resolves from Deno's global cache in CI. (The browser mirror
+// src/lib/cron.ts imports the same croner from node_modules via Vite.)
+import { Cron } from 'https://esm.sh/croner@8.1.2'
 
 // Number of cron fields we accept. We deliberately require the classic 5 (no
 // seconds field) so the UI's "* * * * *" documentation matches reality — the
