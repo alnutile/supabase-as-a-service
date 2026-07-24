@@ -439,6 +439,20 @@ function AgentEditor({
       .then(({ data }) => setCollections(data ?? []))
   }, [])
 
+  // Default a new schedule's timezone to the workspace timezone (Settings →
+  // Timezone) rather than this browser's, so schedules created from any device
+  // fire on the team's clock. Falls back to the browser zone until it loads.
+  useEffect(() => {
+    supabase
+      .from('workspace_settings')
+      .select('value')
+      .eq('key', 'timezone')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) setNewTimezone(data.value)
+      })
+  }, [])
+
   function detectSlash(el: HTMLTextAreaElement) {
     const before = el.value.slice(0, el.selectionStart)
     const m = before.match(/(?:^|\s)\/(\w*)$/)

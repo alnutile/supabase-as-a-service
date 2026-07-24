@@ -10,6 +10,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import { validatePayload } from '../_shared/validate.ts'
 import {
@@ -222,6 +223,11 @@ Deno.serve(async (req: Request) => {
         }
       }
     }
+
+    // Prepend the workspace-local date/time so the agent reasons in the team's
+    // timezone (e.g. "is this event from today?") instead of assuming UTC.
+    const timezone = await resolveWorkspaceTimezone(db)
+    systemPrompt = `${currentTimeSection(timezone, new Date())}\n\n---\n\n${systemPrompt}`
 
     if (webEnabled) tools.push(WEB_SEARCH_TOOL)
     const reasoning = reasoningParam()

@@ -812,6 +812,22 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['feature_flags']['Insert']>
         Relationships: []
       }
+      workspace_settings: {
+        Row: {
+          key: string
+          value: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          key: string
+          value: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['workspace_settings']['Insert']>
+        Relationships: []
+      }
       webhooks: {
         Row: {
           id: string

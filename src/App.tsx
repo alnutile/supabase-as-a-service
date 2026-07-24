@@ -45,6 +45,7 @@ import FeaturesPage from './pages/FeaturesPage'
 import ProfileSettings from './pages/settings/ProfileSettings'
 import ConnectClaudeSettings from './pages/settings/ConnectClaudeSettings'
 import ModelsSettings from './pages/settings/ModelsSettings'
+import TimezoneSettings from './pages/settings/TimezoneSettings'
 import EmailSettings from './pages/settings/EmailSettings'
 import SlackSettings from './pages/settings/SlackSettings'
 import McpSettings from './pages/settings/McpSettings'
@@ -133,6 +134,7 @@ export default function App() {
         <Route path="settings/profile" element={<ProfileSettings />} />
         <Route path="settings/connect" element={<ConnectClaudeSettings />} />
         <Route path="settings/models" element={<ModelsSettings />} />
+        <Route path="settings/timezone" element={<TimezoneSettings />} />
         <Route path="settings/email" element={<EmailSettings />} />
         <Route path="settings/slack" element={<SlackSettings />} />
         <Route path="settings/mcp" element={<McpSettings />} />

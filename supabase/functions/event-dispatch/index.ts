@@ -24,6 +24,7 @@ import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { matchListener, substituteEvent, describeEvent, type EventRow, type ListenerRow } from '../_shared/events.ts'
+import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import {
   assistantToolCallMsg,
   orApiKey,
@@ -115,8 +116,10 @@ async function runAgentAction(db: DB, event: EventRow, listener: Listener, model
   const { data: owner } = await db.from('profiles').select('email').eq('id', listener.owner_id).maybeSingle()
   const { tools, httpTools, builtins, mcpRouter, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   const collCtx = await loadCollectionsContext(db, agent.collection_ids ?? [], listener.owner_id, model)
+  const timezone = await resolveWorkspaceTimezone(db)
   const extra = String(listener.action_config.instructions ?? '')
   const system = [
+    currentTimeSection(timezone, new Date()),
     agent.instructions || 'You are an event-triggered agent. Handle the event described.',
     collCtx,
     [

@@ -20,6 +20,7 @@
 // usage accounting) so a loop run behaves like any other orchestrator run.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
+import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import { runJudge } from '../_shared/judge.ts'
@@ -112,8 +113,9 @@ async function loadAgentTools(db: DB, restrictIds: string[]) {
   return { tools, httpTools, builtins, webEnabled }
 }
 
-function buildSystem(instructions: string, goal: string): string {
+function buildSystem(instructions: string, goal: string, timeSection: string): string {
   return [
+    timeSection,
     instructions?.trim() || 'You are a capable agent working toward a goal.',
     `# Your goal\n${goal}`,
     `# How this loop works
@@ -382,6 +384,7 @@ const WALL_CLOCK_MS = Number(Deno.env.get('LOOP_MAX_WALL_MS') ?? 130_000)
 async function runLoop(db: DB, { loop, agent, feedbackTool, userId, runId }: RunParams) {
   const startedAt = Date.now()
   const model = await resolveModel(db, 'orchestrator')
+  const timezone = await resolveWorkspaceTimezone(db)
   const { tools, httpTools, builtins, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   if (webEnabled) tools.push(WEB_SEARCH_TOOL)
 
@@ -390,7 +393,7 @@ async function runLoop(db: DB, { loop, agent, feedbackTool, userId, runId }: Run
   const target = loop.target_score == null ? null : Number(loop.target_score)
 
   const messages: ORMessage[] = [
-    systemMsg(buildSystem(agent.instructions ?? '', loop.goal ?? '')),
+    systemMsg(buildSystem(agent.instructions ?? '', loop.goal ?? '', currentTimeSection(timezone, new Date()))),
     { role: 'user', content: 'Produce your first candidate for the goal now.' },
   ]
 

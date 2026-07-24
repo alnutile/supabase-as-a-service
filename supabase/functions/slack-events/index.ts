@@ -20,6 +20,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   buildParticipationSystem,
@@ -336,6 +337,11 @@ async function respondToMessage(
 
     const collCtx = await loadCollectionsContext(db, collectionIds, binding.owner_id, MODEL)
     if (collCtx) systemPrompt += `\n\n---\n\n${collCtx}`
+
+    // Prepend the workspace-local date/time so the bot answers "what's today?"
+    // style questions in the team's timezone rather than UTC.
+    const timezone = await resolveWorkspaceTimezone(db)
+    systemPrompt = `${currentTimeSection(timezone, new Date())}\n\n---\n\n${systemPrompt}`
 
     // Conversational context: the thread's replies (or the channel's last few
     // messages) plus who is asking, so follow-up mentions read naturally.
