@@ -697,6 +697,8 @@ export interface Database {
           bucket: string
           path: string
           name: string
+          title: string | null
+          description: string | null
           mime_type: string | null
           size_bytes: number | null
           visibility: Visibility
@@ -711,6 +713,8 @@ export interface Database {
           bucket?: string
           path: string
           name: string
+          title?: string | null
+          description?: string | null
           mime_type?: string | null
           size_bytes?: number | null
           visibility?: Visibility
