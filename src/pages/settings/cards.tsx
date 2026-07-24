@@ -855,6 +855,7 @@ export function InvitePeople() {
       </div>
     </section>
     <InviteLinks />
+    <AdminManagement />
     </>
   )
 }
@@ -983,6 +984,108 @@ export function InviteLinks() {
           ))
         )}
       </div>
+    </section>
+  )
+}
+
+// Admin Management — promote trusted members to admin as a recovery path.
+// Addresses the "single admin" security finding.
+export function AdminManagement() {
+  const [members, setMembers] = useState<{ id: string; email: string | null; display_name: string | null; is_admin: boolean }[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.rpc('list_workspace_members')
+    if (err) {
+      setError(err.message)
+      return
+    }
+    setMembers(data ?? [])
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function promote(userId: string, displayName: string | null, email: string | null) {
+    const name = displayName || email || 'this user'
+    if (!confirm(`Promote ${name} to admin? They will have full administrative access.`)) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setSuccess(null)
+    const { error: promoteErr } = await supabase.rpc('promote_to_admin', { target_user_id: userId })
+    setBusy(false)
+    if (promoteErr) {
+      setError(promoteErr.message)
+      return
+    }
+    setSuccess(`${name} is now an admin.`)
+    setTimeout(() => setSuccess(null), 3000)
+    load()
+  }
+
+  const adminCount = members.filter(m => m.is_admin).length
+  const nonAdmins = members.filter(m => !m.is_admin)
+
+  return (
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Admin management</h2>
+      <p className="mt-1 text-sm text-muted">
+        Promote a trusted member to admin as a recovery path. Admins have full access to governance
+        surfaces (tools, guardrails, secrets, this dashboard).
+      </p>
+
+      {adminCount === 1 && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <strong>Single admin:</strong> If you lose access to this account, nobody can manage the
+          workspace. Promote a second admin as a recovery path.
+        </div>
+      )}
+
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {success && <p className="mt-2 text-sm text-emerald-600">{success}</p>}
+
+      <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-lg border border-border">
+        {members.length === 0 ? (
+          <p className="px-3 py-4 text-center text-sm text-faint">No members yet.</p>
+        ) : (
+          members.map((m) => (
+            <div key={m.id} className="flex items-center gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm text-text">
+                  {m.display_name || m.email || 'Unknown user'}
+                </div>
+                {m.display_name && m.email && (
+                  <div className="truncate text-xs text-faint">{m.email}</div>
+                )}
+              </div>
+              {m.is_admin ? (
+                <span className="rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary">
+                  Admin
+                </span>
+              ) : (
+                <button
+                  onClick={() => promote(m.id, m.display_name, m.email)}
+                  disabled={busy}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+                >
+                  Promote to admin
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {nonAdmins.length === 0 && adminCount > 1 && (
+        <p className="mt-3 text-sm text-muted">
+          All workspace members are admins. Invite more people to promote additional admins.
+        </p>
+      )}
     </section>
   )
 }
