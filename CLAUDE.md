@@ -881,6 +881,17 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   repo variable. **Each migration filename must have a unique, contiguous numeric prefix**
   (`0040_…` after `0039_…`): `db push` derives the version from the prefix, so two files sharing
   a number (e.g. two `0032_*.sql`) collide and the push is rejected. Always use the next free number.
+  `src/lib/migrations.test.ts` guards this (unique prefixes) — but it only catches collisions once
+  BOTH files are on `main`, so a duplicate can slip in via a rebase (your `0086` + a `0086` that
+  landed while you were working); re-check the next free number right before pushing, not just when
+  you create the file. **Changing a function's return type needs a DROP first:** Postgres rejects
+  `create or replace function` when the `returns`/OUT signature changes (`SQLSTATE 42P13
+  "cannot change return type of existing function"`), which aborts the whole `db push`. When a
+  migration widens an existing function (e.g. adding a column to a `returns table (...)`), prepend
+  `drop function if exists public.fn(argtypes);`. A migration that fails this way **never records as
+  applied**, so its objects are missing in prod (e.g. a later `promote_to_admin` in the same file is
+  never created) until fixed — and because it never applied, editing the file in place to add the
+  DROP is the correct, safe fix.
 - **In-app function deploys (edge functions don't ride `main` by default):** pushing to `main`
   redeploys the **frontend** (Railway), but the Supabase
   **edge functions** otherwise only update via a `functions deploy`. Two things close this gap:
