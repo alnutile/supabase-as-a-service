@@ -1,7 +1,12 @@
 -- Promote members to admin as a recovery path.
 -- Addresses the "single admin" finding from the Security dashboard.
 
--- 1. Update list_workspace_members to include is_admin status
+-- 1. Update list_workspace_members to include is_admin status.
+-- The 0053 version returns (id, email, display_name); adding is_admin CHANGES the
+-- return type, and Postgres rejects `create or replace` on a return-type change
+-- (SQLSTATE 42P13) — so drop it first. Safe: it's an RPC called from the client,
+-- not referenced by other DB objects.
+drop function if exists public.list_workspace_members();
 create or replace function public.list_workspace_members()
   returns table (id uuid, email text, display_name text, is_admin boolean)
   language sql
