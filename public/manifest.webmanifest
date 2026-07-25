@@ -1,0 +1,26 @@
+{
+  "name": "SupaNet",
+  "short_name": "SupaNet",
+  "description": "Your team's Supabase-powered intranet: AI chat, shareable artifacts, files, planner, and realtime updates.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#15795b",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
