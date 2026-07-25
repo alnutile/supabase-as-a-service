@@ -84,6 +84,8 @@ export default function ListenersPage() {
   const [collections, setCollections] = useState<NamedRow[]>([])
   const [tableEvents, setTableEvents] = useState<{ value: string; label: string }[]>([])
   const [seenEvents, setSeenEvents] = useState<string[]>([])
+  const [cronStatus, setCronStatus] = useState<{ name: string; scheduled: boolean }[] | null>(null)
+  const [schedulingCron, setSchedulingCron] = useState(false)
   const [saving, setSaving] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
 
@@ -123,6 +125,15 @@ export default function ListenersPage() {
       .then(({ data }) => {
         setSeenEvents(Array.from(new Set(((data ?? []) as { type: string }[]).map((r) => r.type))))
       })
+    // Automation health: is the background dispatcher (and scheduler) cron actually
+    // scheduled? The RPC is admin-gated, so it errors for non-admins → banner stays
+    // hidden. This is what makes a missing cron *visible* instead of a silent "my
+    // listener never runs".
+    supabase.rpc('automation_cron_status').then(({ data, error }) => {
+      if (!error && Array.isArray(data)) {
+        setCronStatus(data as unknown as { name: string; scheduled: boolean }[])
+      }
+    })
   }, [load])
 
   const loadRuns = useCallback(async (id: string) => {
@@ -186,6 +197,21 @@ export default function ListenersPage() {
     if (draft?.id === id) setDraft(null)
     load()
   }
+
+  // One-click reschedule of the missing cron(s). Normally CI does this on deploy;
+  // this is the visible admin backstop. Runs the RPC against this project's own URL.
+  const scheduleCron = async () => {
+    setSchedulingCron(true)
+    const base = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? ''
+    await supabase.rpc('setup_automation_cron', { p_base_url: base })
+    const { data, error } = await supabase.rpc('automation_cron_status')
+    if (!error && Array.isArray(data)) {
+      setCronStatus(data as unknown as { name: string; scheduled: boolean }[])
+    }
+    setSchedulingCron(false)
+  }
+
+  const missingCron = (cronStatus ?? []).filter((j) => !j.scheduled)
 
   // The Event dropdown = curated + your event-source tables + anything actually
   // seen on the bus. `knownValues` decides whether the current draft is a listed
@@ -255,6 +281,24 @@ export default function ListenersPage() {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {missingCron.length > 0 && (
+            <div className="m-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+              <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                Automations aren’t running
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-200/90">
+                The background dispatcher isn’t scheduled, so listeners won’t fire. This is normally
+                set up automatically on deploy — click to schedule it now.
+              </p>
+              <button
+                onClick={scheduleCron}
+                disabled={schedulingCron}
+                className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {schedulingCron ? 'Scheduling…' : 'Schedule it now'}
+              </button>
+            </div>
+          )}
           {loading ? (
             <p className="p-4 text-sm text-faint">Loading…</p>
           ) : listeners.length === 0 ? (

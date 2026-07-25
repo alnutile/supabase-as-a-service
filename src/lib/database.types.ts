@@ -1912,6 +1912,14 @@ export interface Database {
         Args: { p_table_id: string }
         Returns: Json
       }
+      setup_automation_cron: {
+        Args: { p_base_url: string }
+        Returns: Json
+      }
+      automation_cron_status: {
+        Args: Record<string, never>
+        Returns: Json
+      }
       set_artifact_password: {
         Args: { p_id: string; p_password: string | null }
         Returns: undefined
