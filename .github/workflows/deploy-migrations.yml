@@ -75,3 +75,42 @@ jobs:
       # skipped file wedges the whole workflow.
       - name: Push migrations
         run: supabase db push --include-all
+
+      # Schedule the out-of-band cron jobs (event dispatcher + agent scheduler)
+      # that a shared migration can't hardcode (the command embeds this project's
+      # own URL). This is the one deploy step a fresh tenant otherwise had to run
+      # by hand — without it, events emit but nothing dispatches them and no
+      # listener ever fires. Idempotent: setup_automation_cron just reschedules,
+      # so it's safe to re-run every deploy. No extra secret — we fetch the
+      # service_role key at runtime with the access token we already have, then
+      # call the RPC over HTTPS (no direct-DB/pooler connection to fight). Best
+      # effort: a transient failure warns but never reds the migration deploy —
+      # the in-app "Automation health" check is the visible backstop.
+      - name: Schedule automation cron
+        run: |
+          set -uo pipefail
+          BASE="https://$SUPABASE_PROJECT_REF.supabase.co"
+          KEYS=$(curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys") || true
+          SERVICE_KEY=$(printf '%s' "$KEYS" | jq -r '.[] | select(.name=="service_role") | .api_key' | head -n1)
+          if [ -z "$SERVICE_KEY" ] || [ "$SERVICE_KEY" = "null" ]; then
+            echo "::warning::Could not fetch the service_role key; skipping cron scheduling. Schedule it from the in-app Automation health check."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            RESP=$(curl -sS -w '\n%{http_code}' -X POST \
+              "$BASE/rest/v1/rpc/setup_automation_cron" \
+              -H "apikey: $SERVICE_KEY" \
+              -H "Authorization: Bearer $SERVICE_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"p_base_url\":\"$BASE\"}") || true
+            CODE=$(printf '%s' "$RESP" | tail -n1)
+            BODY=$(printf '%s' "$RESP" | sed '$d')
+            if [ "$CODE" = "200" ]; then
+              echo "Scheduled automation cron: $BODY"
+              exit 0
+            fi
+            echo "Attempt $attempt failed (HTTP $CODE): $BODY"
+            sleep $((attempt * 3))
+          done
+          echo "::warning::Automation cron scheduling did not confirm after retries. Schedule it from the in-app Automation health check."
