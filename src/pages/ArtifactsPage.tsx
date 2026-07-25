@@ -334,6 +334,22 @@ export default function ArtifactsPage() {
       .eq('id', id)
   }
 
+  async function deleteSelected() {
+    if (!selectedIds.length) return
+    const count = selectedIds.length
+    const noun = count === 1 ? 'artifact' : 'artifacts'
+    if (!confirm(`Delete ${count} ${noun}? This cannot be undone.`)) return
+
+    // Delete from database
+    await supabase.from('artifacts').delete().in('id', selectedIds)
+
+    // Update local state
+    setArtifacts((prev) => prev.filter((a) => !selected.has(a.id)))
+
+    // Clear selection
+    clearSelection()
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-8">
@@ -637,6 +653,12 @@ export default function ArtifactsPage() {
               className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text transition hover:bg-surface-hover"
             >
               <DownloadIcon className="h-4 w-4" /> Download as MD
+            </button>
+            <button
+              onClick={deleteSelected}
+              className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-surface px-3 py-1.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+            >
+              <TrashIcon className="h-4 w-4" /> Delete
             </button>
             <button
               onClick={clearSelection}
