@@ -82,6 +82,8 @@ export default function ListenersPage() {
   const [agents, setAgents] = useState<NamedRow[]>([])
   const [tools, setTools] = useState<NamedRow[]>([])
   const [collections, setCollections] = useState<NamedRow[]>([])
+  const [tableEvents, setTableEvents] = useState<{ value: string; label: string }[]>([])
+  const [seenEvents, setSeenEvents] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
 
@@ -97,6 +99,30 @@ export default function ListenersPage() {
     supabase.from('agents').select('id, name').eq('is_active', true).order('name').then(({ data }) => setAgents((data as NamedRow[]) ?? []))
     supabase.from('tools').select('id, name').eq('is_active', true).order('name').then(({ data }) => setTools((data as NamedRow[]) ?? []))
     supabase.from('collections').select('id, name').order('name').then(({ data }) => setCollections((data as NamedRow[]) ?? []))
+    // Event-source tables: each contributes its frozen event_type so it's pickable
+    // even before the first event fires.
+    supabase
+      .from('user_tables')
+      .select('name, settings')
+      .order('name')
+      .then(({ data }) => {
+        const evs: { value: string; label: string }[] = []
+        for (const t of (data ?? []) as { name: string; settings: Json }[]) {
+          const s = (t.settings ?? {}) as { emit_events?: boolean; event_type?: string }
+          if (s.emit_events && s.event_type) evs.push({ value: s.event_type, label: `Table: ${t.name}` })
+        }
+        setTableEvents(evs)
+      })
+    // Any event types that have actually fired (own or workspace), so custom/one-off
+    // sources show up in the list too.
+    supabase
+      .from('events')
+      .select('type')
+      .order('created_at', { ascending: false })
+      .limit(1000)
+      .then(({ data }) => {
+        setSeenEvents(Array.from(new Set(((data ?? []) as { type: string }[]).map((r) => r.type))))
+      })
   }, [load])
 
   const loadRuns = useCallback(async (id: string) => {
@@ -160,6 +186,20 @@ export default function ListenersPage() {
     if (draft?.id === id) setDraft(null)
     load()
   }
+
+  // The Event dropdown = curated + your event-source tables + anything actually
+  // seen on the bus. `knownValues` decides whether the current draft is a listed
+  // option or a hand-typed custom one.
+  const curatedValues = new Set(EVENT_TYPES.map((t) => t.value))
+  const tableValues = new Set(tableEvents.map((t) => t.value))
+  const extraSeen = seenEvents
+    .filter((t) => !curatedValues.has(t) && !tableValues.has(t))
+    .map((t) => ({ value: t, label: t }))
+  const knownValues = new Set<string>([
+    ...curatedValues,
+    ...tableValues,
+    ...extraSeen.map((e) => e.value),
+  ])
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
@@ -287,22 +327,42 @@ export default function ListenersPage() {
                 <label className="block">
                   <span className="text-sm font-medium text-text">Event</span>
                   <select
-                    value={EVENT_TYPES.some((t) => t.value === draft.event_type) ? draft.event_type : '__custom'}
+                    value={knownValues.has(draft.event_type) ? draft.event_type : '__custom'}
                     onChange={(e) => e.target.value !== '__custom' && patch({ event_type: e.target.value })}
                     className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text"
                   >
-                    {EVENT_TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label} ({t.value})
-                      </option>
-                    ))}
+                    <optgroup label="Common">
+                      {EVENT_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label} ({t.value})
+                        </option>
+                      ))}
+                    </optgroup>
+                    {tableEvents.length > 0 && (
+                      <optgroup label="Your tables">
+                        {tableEvents.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label} ({t.value})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {extraSeen.length > 0 && (
+                      <optgroup label="Seen recently">
+                        {extraSeen.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.value}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                     <option value="__custom">Custom…</option>
                   </select>
-                  {!EVENT_TYPES.some((t) => t.value === draft.event_type) && (
+                  {!knownValues.has(draft.event_type) && (
                     <input
                       value={draft.event_type}
                       onChange={(e) => patch({ event_type: e.target.value })}
-                      placeholder="e.g. artifact.updated or file.*"
+                      placeholder="e.g. artifact.updated or table.logs_ab12cd"
                       className="mt-2 w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-text"
                     />
                   )}
