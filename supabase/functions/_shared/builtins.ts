@@ -20,7 +20,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from './artifacts.ts'
 import { ingestText } from './knowledge.ts'
-import { hybridChunkSearch } from './retrieval.ts'
+import { citationLabel, hybridChunkSearch } from './retrieval.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
 import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
@@ -401,10 +401,14 @@ async function searchDocuments(
     // deno-lint-ignore no-explicit-any
     const model = new (globalThis as any).Supabase.ai.Session('gte-small')
     const embedding = await model.run(query, { mean_pool: true, normalize: true })
-    const hits = await hybridChunkSearch(db, { embedding, queryText: query, ownerId: userId, top: 6, pool: 24 })
-    if (hits.length === 0) return 'No matching passages found in the documents.'
+    const { hits } = await hybridChunkSearch(db, { embedding, queryText: query, ownerId: userId, top: 6, pool: 24 })
+    if (hits.length === 0) {
+      // Explicit gap signal ("think" mode): tell the model the KB is silent here so
+      // it states that rather than inventing an answer.
+      return 'No passages in the knowledge base match this query. The knowledge base appears to have nothing indexed on this topic — say so instead of guessing.'
+    }
     return hits
-      .map((d, i) => `[${i + 1}] (${d.document_name ?? 'document'}) ${d.content}`)
+      .map((d, i) => `[${i + 1}] (${citationLabel(d)}) ${d.content}`)
       .join('\n\n---\n\n')
   } catch (err) {
     return `Document search failed: ${err instanceof Error ? err.message : 'error'}`

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { formatBytes, formatDate } from '../lib/util'
-import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon, GridIcon, ListIcon, DownloadIcon } from '../components/icons'
+import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon, GridIcon, ListIcon, DownloadIcon, PencilIcon } from '../components/icons'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 
 type FileRow = Database['public']['Tables']['files']['Row']
@@ -156,6 +156,14 @@ export default function FilesPage() {
     load()
   }
 
+  async function updateFileMetadata(id: string, title: string | null, description: string | null) {
+    await supabase
+      .from('files')
+      .update({ title, description })
+      .eq('id', id)
+    load()
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-8">
@@ -243,19 +251,16 @@ export default function FilesPage() {
                   <CheckIcon className="h-3.5 w-3.5" />
                 </button>
                 <FileIcon className="h-5 w-5 shrink-0 text-faint" />
-                <button
-                  onClick={() => download(f)}
-                  className="min-w-0 flex-1 text-left"
-                  title="Download"
-                >
-                  <p className="truncate text-sm font-medium text-text hover:text-primary">
-                    {f.name}
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <EditableFileMetadata
+                    file={f}
+                    onUpdate={(title, description) => updateFileMetadata(f.id, title, description)}
+                  />
                   <p className="text-xs text-faint">
                     {formatBytes(f.size_bytes)} · {formatDate(f.created_at)}
                     {f.visibility !== 'private' && ' · link shared'}
                   </p>
-                </button>
+                </div>
                 {doc && <ScopeToggle doc={doc} onChange={(scope) => setScope(doc, scope)} />}
                 <IndexBadge doc={doc} />
                 <button
@@ -292,6 +297,7 @@ export default function FilesPage() {
                   onShare={() => share(f)}
                   onRemove={() => remove(f)}
                   onSetScope={(scope) => setScope(doc, scope)}
+                  onUpdateMetadata={(title, description) => updateFileMetadata(f.id, title, description)}
                 />
               )
             })}
@@ -314,6 +320,94 @@ export default function FilesPage() {
   )
 }
 
+function EditableFileMetadata({
+  file,
+  onUpdate,
+}: {
+  file: FileRow
+  onUpdate: (title: string | null, description: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [title, setTitle] = useState(file.title ?? '')
+  const [description, setDescription] = useState(file.description ?? '')
+  const titleRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing && titleRef.current) {
+      titleRef.current.focus()
+    }
+  }, [editing])
+
+  function handleSave() {
+    const newTitle = title.trim() || null
+    const newDescription = description.trim() || null
+    onUpdate(newTitle, newDescription)
+    setEditing(false)
+  }
+
+  function handleCancel() {
+    setTitle(file.title ?? '')
+    setDescription(file.description ?? '')
+    setEditing(false)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSave()
+    }
+    if (e.key === 'Escape') {
+      handleCancel()
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-2">
+        <input
+          ref={titleRef}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          placeholder={file.name}
+          className="w-full rounded border border-border bg-surface px-2 py-1 text-sm font-medium text-text focus:border-primary focus:outline-none"
+        />
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          placeholder="Add a description..."
+          rows={2}
+          className="w-full resize-none rounded border border-border bg-surface px-2 py-1 text-xs text-muted focus:border-primary focus:outline-none"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="group/edit w-full text-left"
+      title="Click to edit title and description"
+    >
+      <div className="flex items-center gap-1">
+        <p className="flex-1 truncate text-sm font-medium text-text group-hover/edit:text-primary">
+          {file.title || file.name}
+        </p>
+        <PencilIcon className="h-3 w-3 shrink-0 text-faint opacity-0 transition group-hover/edit:opacity-100" />
+      </div>
+      {file.description && (
+        <p className="mt-0.5 line-clamp-2 text-xs text-muted">
+          {file.description}
+        </p>
+      )}
+    </button>
+  )
+}
+
 function FileCard({
   file,
   doc,
@@ -324,6 +418,7 @@ function FileCard({
   onShare,
   onRemove,
   onSetScope,
+  onUpdateMetadata,
 }: {
   file: FileRow
   doc?: Doc
@@ -334,6 +429,7 @@ function FileCard({
   onShare: () => void
   onRemove: () => void
   onSetScope: (scope: string) => void
+  onUpdateMetadata: (title: string | null, description: string | null) => void
 }) {
   const isImage = file.mime_type?.startsWith('image/')
 
@@ -365,11 +461,10 @@ function FileCard({
 
       {/* File info */}
       <div className="flex flex-1 flex-col gap-1.5 px-4 py-3">
-        <button onClick={onDownload} className="text-left">
-          <p className="line-clamp-2 text-sm font-semibold text-text group-hover:text-primary">
-            {file.name}
-          </p>
-        </button>
+        <EditableFileMetadata
+          file={file}
+          onUpdate={onUpdateMetadata}
+        />
         <p className="text-xs text-faint">
           {formatBytes(file.size_bytes)} · {formatDate(file.created_at)}
         </p>

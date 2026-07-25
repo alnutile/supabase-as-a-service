@@ -697,6 +697,8 @@ export interface Database {
           bucket: string
           path: string
           name: string
+          title: string | null
+          description: string | null
           mime_type: string | null
           size_bytes: number | null
           visibility: Visibility
@@ -711,6 +713,8 @@ export interface Database {
           bucket?: string
           path: string
           name: string
+          title?: string | null
+          description?: string | null
           mime_type?: string | null
           size_bytes?: number | null
           visibility?: Visibility
@@ -806,6 +810,22 @@ export interface Database {
           updated_by?: string | null
         }
         Update: Partial<Database['public']['Tables']['feature_flags']['Insert']>
+        Relationships: []
+      }
+      workspace_settings: {
+        Row: {
+          key: string
+          value: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          key: string
+          value: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['workspace_settings']['Insert']>
         Relationships: []
       }
       webhooks: {
@@ -1151,6 +1171,8 @@ export interface Database {
           agent_id: string
           input: string
           interval_minutes: number
+          cron_expr: string | null
+          timezone: string
           is_active: boolean
           last_run_at: string | null
           next_run_at: string
@@ -1162,6 +1184,8 @@ export interface Database {
           agent_id: string
           input?: string
           interval_minutes?: number
+          cron_expr?: string | null
+          timezone?: string
           is_active?: boolean
           last_run_at?: string | null
           next_run_at?: string
@@ -1840,7 +1864,11 @@ export interface Database {
       }
       list_workspace_members: {
         Args: Record<PropertyKey, never>
-        Returns: { id: string; email: string | null; display_name: string | null }[]
+        Returns: { id: string; email: string | null; display_name: string | null; is_admin: boolean }[]
+      }
+      promote_to_admin: {
+        Args: { target_user_id: string }
+        Returns: undefined
       }
       collections_combined_chars: {
         Args: { p_ids: string[] }

@@ -4,6 +4,9 @@ project_id = "intranet"
 [functions.chat]
 verify_jwt = true
 
+[functions.transcribe]
+verify_jwt = true
+
 [functions.email-test]
 verify_jwt = true
 

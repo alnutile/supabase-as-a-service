@@ -3,11 +3,13 @@
 // pg_cron; runs any agents whose schedule is due, over the schedule's input.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { resolveModel } from '../_shared/models.ts'
+import { nextCronRun } from '../_shared/cron.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
+import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
@@ -78,7 +80,7 @@ function scheduledRunGuidance(ownerEmail: string | null): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(db: any, agent: { instructions: string; tool_ids: string[]; collection_ids?: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null) {
+async function runAgent(db: any, agent: { instructions: string; tool_ids: string[]; collection_ids?: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null, timezone: string) {
   const { tools, httpTools, builtins, mcpRouter, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   // Inject the agent's bound collections (artifacts/files/to-dos) as context.
   const collCtx = await loadCollectionsContext(db, agent.collection_ids ?? [], ownerId, model)
@@ -86,6 +88,7 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
   // should know their defaults/preferences just like their chat does.
   const memCtx = await loadUserMemories(db, ownerId)
   const system = [
+    currentTimeSection(timezone, new Date()),
     agent.instructions || 'You are a scheduled agent. Do the task described.',
     collCtx,
     memCtx,
@@ -147,21 +150,45 @@ Deno.serve(async (req: Request) => {
 
   const { data: due } = await db
     .from('schedules')
-    .select('id, owner_id, agent_id, input, interval_minutes')
+    .select('id, owner_id, agent_id, input, interval_minutes, cron_expr, timezone')
     .eq('is_active', true)
     .lte('next_run_at', new Date().toISOString())
     .limit(20)
 
   if (!orApiKey()) return new Response(JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }), { status: 500 })
   const model = await resolveModel(db, 'orchestrator')
+  const workspaceTz = await resolveWorkspaceTimezone(db)
   let ran = 0
 
   for (const s of due ?? []) {
+    // Compute the next fire time. A `cron_expr` OWNS the cadence (evaluated in the
+    // schedule's timezone); otherwise fall back to the fixed interval. If a cron
+    // expression can't yield a future run (invalid, or e.g. a since-deleted date),
+    // deactivate the row and log it so it doesn't get re-selected every tick.
+    const now = new Date()
+    let next: string
+    if (s.cron_expr) {
+      const nextRun = nextCronRun(s.cron_expr, s.timezone ?? 'UTC', now)
+      if (!nextRun) {
+        await db
+          .from('schedules')
+          .update({ is_active: false, last_run_at: now.toISOString() })
+          .eq('id', s.id)
+        await db.from('activity_log').insert({
+          type: 'schedule.error',
+          summary: 'Schedule paused: invalid cron expression',
+          detail: { schedule_id: s.id, cron_expr: s.cron_expr, timezone: s.timezone ?? 'UTC' },
+          actor_id: s.owner_id,
+        })
+        continue
+      }
+      next = nextRun.toISOString()
+    } else {
+      next = new Date(now.getTime() + s.interval_minutes * 60_000).toISOString()
+    }
     // Claim the row before running: advance next_run_at only if it is still due.
     // A concurrent tick (runs often outlast the 1-minute cron interval) loses the
     // conditional update and skips, so a schedule can never double-fire.
-    const now = new Date()
-    const next = new Date(now.getTime() + s.interval_minutes * 60_000).toISOString()
     const { data: claimed } = await db
       .from('schedules')
       .update({ last_run_at: now.toISOString(), next_run_at: next })
@@ -173,7 +200,12 @@ Deno.serve(async (req: Request) => {
       const { data: agent } = await db.from('agents').select('name, instructions, tool_ids, collection_ids, is_active').eq('id', s.agent_id).maybeSingle()
       if (agent && agent.is_active) {
         const { data: owner } = await db.from('profiles').select('email').eq('id', s.owner_id).maybeSingle()
-        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id)
+        // Which clock the agent is told is "now": a schedule that deliberately
+        // picked a non-UTC zone uses it; otherwise (the default, indistinguishable
+        // from an untouched 'UTC') fall back to the workspace timezone, so setting
+        // the workspace zone fixes the "wrong UTC" for every existing schedule.
+        const runTz = s.timezone && s.timezone !== 'UTC' ? s.timezone : workspaceTz
+        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id, runTz)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,

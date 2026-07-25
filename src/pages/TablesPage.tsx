@@ -324,6 +324,7 @@ function TableGrid({
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   // Column widths (drag-to-resize), persisted per-table in localStorage.
   const widthsKey = `table-cols:${table.id}`
@@ -393,6 +394,21 @@ function TableGrid({
     return sortRows(filtered, sort, sortType)
   }, [rows, cols, query, sort])
 
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function clearSelection() {
+    setSelected(new Set())
+  }
+
+  const selectedIds = useMemo(() => [...selected], [selected])
+
   async function addRow() {
     setBusy(true)
     setErr(null)
@@ -413,6 +429,23 @@ function TableGrid({
     }
     setRows((rs) => rs.filter((r) => r.id !== id))
     setExpandedRowId((cur) => (cur === id ? null : cur))
+  }
+
+  async function bulkDeleteRows() {
+    if (selectedIds.length === 0) return
+    if (!confirm(`Delete ${selectedIds.length} row${selectedIds.length === 1 ? '' : 's'}? This cannot be undone.`)) {
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    const { error } = await dyn(table.physical_name).delete().in('id', selectedIds)
+    setBusy(false)
+    if (error) {
+      setErr(error.message)
+      return
+    }
+    setRows((rs) => rs.filter((r) => !selectedIds.includes(String(r.id))))
+    clearSelection()
   }
 
   async function commitCell(id: string, key: string, value: unknown) {
@@ -501,6 +534,7 @@ function TableGrid({
         ) : (
           <table className="min-w-full table-fixed border-collapse text-sm">
             <colgroup>
+              <col style={{ width: 40 }} />
               <col style={{ width: 48 }} />
               {cols.map((c) => (
                 <col key={c.key} style={{ width: colWidth(c.key) }} />
@@ -509,6 +543,21 @@ function TableGrid({
             </colgroup>
             <thead className="sticky top-0 z-10 bg-surface">
               <tr>
+                <th className="border-b-2 border-border bg-surface px-2 py-2.5 text-center text-[11px] font-medium text-faint">
+                  <input
+                    type="checkbox"
+                    checked={visibleRows.length > 0 && visibleRows.every((r) => selected.has(String(r.id)))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelected(new Set(visibleRows.map((r) => String(r.id))))
+                      } else {
+                        clearSelection()
+                      }
+                    }}
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    title="Select all visible rows"
+                  />
+                </th>
                 <th className="border-b-2 border-border bg-surface px-2 py-2.5 text-center text-[11px] font-medium text-faint">
                   #
                 </th>
@@ -558,18 +607,34 @@ function TableGrid({
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((r, i) => (
-                <tr key={String(r.id)} className="group hover:bg-surface-hover/60">
-                  <td className="border-b border-border p-0 text-center align-middle">
-                    <button
-                      onClick={() => setExpandedRowId(String(r.id))}
-                      title="Open this row"
-                      className="flex h-full w-full items-center justify-center py-2 text-xs text-faint hover:text-primary"
-                    >
-                      <span className="group-hover:hidden">{i + 1}</span>
-                      <span className="hidden font-semibold group-hover:inline">↗</span>
-                    </button>
-                  </td>
+              {visibleRows.map((r, i) => {
+                const isSelected = selected.has(String(r.id))
+                return (
+                  <tr
+                    key={String(r.id)}
+                    className={`group ${
+                      isSelected ? 'bg-primary-soft/40 hover:bg-primary-soft/60' : 'hover:bg-surface-hover/60'
+                    }`}
+                  >
+                    <td className="border-b border-border p-0 text-center align-middle">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(String(r.id))}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                        title={isSelected ? 'Deselect row' : 'Select row'}
+                      />
+                    </td>
+                    <td className="border-b border-border p-0 text-center align-middle">
+                      <button
+                        onClick={() => setExpandedRowId(String(r.id))}
+                        title="Open this row"
+                        className="flex h-full w-full items-center justify-center py-2 text-xs text-faint hover:text-primary"
+                      >
+                        <span className="group-hover:hidden">{i + 1}</span>
+                        <span className="hidden font-semibold group-hover:inline">↗</span>
+                      </button>
+                    </td>
                   {cols.map((c) => (
                     <td key={c.key} className="border-b border-r border-border p-0 align-top">
                       <Cell
@@ -589,10 +654,11 @@ function TableGrid({
                     </button>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={cols.length + 2} className="px-3 py-10 text-center">
+                  <td colSpan={cols.length + 3} className="px-3 py-10 text-center">
                     <p className="text-sm font-medium text-text">Ready for your first row</p>
                     <p className="mx-auto mt-1 max-w-xs text-xs text-muted">
                       Click below to add one, then click any cell to type — it saves as you go. You
@@ -603,14 +669,14 @@ function TableGrid({
               )}
               {rows.length > 0 && visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={cols.length + 2} className="px-3 py-8 text-center text-sm text-faint">
+                  <td colSpan={cols.length + 3} className="px-3 py-8 text-center text-sm text-faint">
                     Nothing matches “{query}”.
                   </td>
                 </tr>
               )}
               {!query.trim() && (
                 <tr>
-                  <td colSpan={cols.length + 2} className="p-0">
+                  <td colSpan={cols.length + 3} className="p-0">
                     <button
                       onClick={addRow}
                       disabled={busy}
@@ -658,6 +724,27 @@ function TableGrid({
           }}
           onDeleted={onDeleted}
         />
+      )}
+
+      {selected.size > 0 && (
+        <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-20 flex justify-center px-4 pb-6">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-2.5 shadow-lg">
+            <span className="text-sm font-medium text-text">{selected.size} selected</span>
+            <button
+              onClick={bulkDeleteRows}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+            >
+              <TrashIcon className="h-4 w-4" /> Delete selected
+            </button>
+            <button
+              onClick={clearSelection}
+              className="text-sm font-medium text-muted hover:text-text"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
       )}
     </>
   )

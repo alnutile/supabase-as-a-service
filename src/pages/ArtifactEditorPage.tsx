@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
@@ -32,6 +32,11 @@ export default function ArtifactEditorPage() {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const panelResize = usePanelResize('artifact-editor-panel-w', 384)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showFilePicker, setShowFilePicker] = useState(false)
+  const [filePickerSearch, setFilePickerSearch] = useState('')
+  const [slashCommandStart, setSlashCommandStart] = useState<number | null>(null)
+  const [availableFiles, setAvailableFiles] = useState<Array<{ id: string; name: string; title: string | null }>>([])
+  const filePickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!artifactId) return
@@ -45,6 +50,18 @@ export default function ArtifactEditorPage() {
         else setNotFound(true)
       })
   }, [artifactId])
+
+  // Load available files for the file picker
+  useEffect(() => {
+    supabase
+      .from('files')
+      .select('id, name, title')
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data }) => {
+        if (data) setAvailableFiles(data)
+      })
+  }, [])
 
   const patch = useCallback((fields: Partial<Artifact>) => {
     setArtifact((a) => (a ? { ...a, ...fields } : a))
@@ -144,6 +161,87 @@ export default function ArtifactEditorPage() {
       }
     },
     [insertImages],
+  )
+
+  const handleContentChange = useCallback(
+    (newContent: string) => {
+      patch({ content: newContent })
+
+      // Detect /LinkFile command
+      const el = textareaRef.current
+      if (!el) return
+
+      const cursorPos = el.selectionStart
+      const textBeforeCursor = newContent.substring(0, cursorPos)
+
+      // Look for /LinkFile or just / followed by text
+      const lastSlashIndex = textBeforeCursor.lastIndexOf('/')
+      if (lastSlashIndex !== -1) {
+        const textAfterSlash = textBeforeCursor.substring(lastSlashIndex + 1)
+        const wordBoundaryBefore = lastSlashIndex === 0 || /\s/.test(textBeforeCursor[lastSlashIndex - 1])
+
+        if (wordBoundaryBefore && !textAfterSlash.includes('\n')) {
+          // Show file picker
+          setSlashCommandStart(lastSlashIndex)
+          setFilePickerSearch(textAfterSlash.toLowerCase())
+          setShowFilePicker(true)
+        } else {
+          setShowFilePicker(false)
+        }
+      } else {
+        setShowFilePicker(false)
+      }
+    },
+    [patch],
+  )
+
+  const insertFileLink = useCallback(
+    async (file: { id: string; name: string; title: string | null }) => {
+      if (!artifact || slashCommandStart === null) return
+
+      const el = textareaRef.current
+      if (!el) return
+
+      // Get a signed URL for the file
+      const { data: fileData } = await supabase
+        .from('files')
+        .select('*')
+        .eq('id', file.id)
+        .single()
+
+      if (!fileData) return
+
+      const { data: signedData } = await supabase.storage
+        .from(fileData.bucket)
+        .createSignedUrl(fileData.path, 60 * 60 * 24 * 7) // 7 days
+
+      if (!signedData?.signedUrl) return
+
+      const linkText = file.title || file.name
+      const markdownLink = `[${linkText}](${signedData.signedUrl})`
+
+      const content = artifact.content
+      const cursorPos = el.selectionStart
+
+      // Replace from slash command start to cursor
+      const before = content.substring(0, slashCommandStart)
+      const after = content.substring(cursorPos)
+      const newContent = before + markdownLink + after
+
+      patch({ content: newContent })
+      setShowFilePicker(false)
+      setSlashCommandStart(null)
+
+      // Restore cursor position
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          const newCursorPos = slashCommandStart + markdownLink.length
+          textareaRef.current.focus()
+          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos)
+        }
+      })
+    },
+    [artifact, slashCommandStart, patch],
   )
 
   const save = useCallback(
@@ -282,6 +380,18 @@ export default function ArtifactEditorPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [dirty, save])
 
+  // Close file picker when clicking outside
+  useEffect(() => {
+    if (!showFilePicker) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (filePickerRef.current && !filePickerRef.current.contains(e.target as Node)) {
+        setShowFilePicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showFilePicker])
+
   if (notFound) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted">
@@ -391,16 +501,36 @@ export default function ArtifactEditorPage() {
           </div>
         </div>
 
-        <textarea
-          ref={textareaRef}
-          value={artifact.content}
-          onChange={(e) => patch({ content: e.target.value })}
-          onPaste={handlePaste}
-          onDrop={handleDrop}
-          spellCheck={false}
-          className="min-h-[45vh] flex-1 resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
-          placeholder="Write here…  (paste or drop an image to embed it; paste a URL to make it a link)"
-        />
+        <div className="relative flex-1">
+          <textarea
+            ref={textareaRef}
+            value={artifact.content}
+            onChange={(e) => handleContentChange(e.target.value)}
+            onPaste={handlePaste}
+            onDrop={handleDrop}
+            onKeyDown={(e) => {
+              if (showFilePicker && (e.key === 'Escape' || e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setShowFilePicker(false)
+                }
+              }
+            }}
+            spellCheck={false}
+            className="min-h-[45vh] h-full w-full resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
+            placeholder="Write here…  (paste or drop an image to embed it; paste a URL to make it a link; type /LinkFile to insert a file link)"
+          />
+          {showFilePicker && (
+            <FilePicker
+              ref={filePickerRef}
+              files={availableFiles.filter(f =>
+                (f.title || f.name).toLowerCase().includes(filePickerSearch)
+              )}
+              onSelect={insertFileLink}
+              onClose={() => setShowFilePicker(false)}
+            />
+          )}
+        </div>
         {uploadError && (
           <div className="border-t border-border bg-red-50 px-4 py-2 text-xs text-red-600 md:px-5">
             {uploadError}
@@ -479,3 +609,81 @@ export default function ArtifactEditorPage() {
     </div>
   )
 }
+
+const FilePicker = forwardRef<
+  HTMLDivElement,
+  {
+    files: Array<{ id: string; name: string; title: string | null }>
+    onSelect: (file: { id: string; name: string; title: string | null }) => void
+    onClose: () => void
+  }
+>(({ files, onSelect, onClose }, ref) => {
+  const [selectedIndex, setSelectedIndex] = useState(0)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedIndex((prev) => Math.min(prev + 1, files.length - 1))
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedIndex((prev) => Math.max(prev - 1, 0))
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        if (files[selectedIndex]) {
+          onSelect(files[selectedIndex])
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [files, selectedIndex, onSelect, onClose])
+
+  if (files.length === 0) {
+    return (
+      <div
+        ref={ref}
+        className="absolute left-4 top-full z-50 mt-1 w-80 rounded-lg border border-border bg-surface p-3 text-sm text-muted shadow-xl"
+      >
+        No files found. Try a different search.
+      </div>
+    )
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-4 top-full z-50 mt-1 w-80 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface shadow-xl"
+    >
+      <div className="p-2 text-xs font-medium text-muted border-b border-border">
+        Link to file (↑↓ to navigate, ⏎ to select, esc to cancel)
+      </div>
+      {files.slice(0, 10).map((file, index) => (
+        <button
+          key={file.id}
+          onClick={() => onSelect(file)}
+          className={`w-full px-3 py-2 text-left text-sm transition ${
+            index === selectedIndex
+              ? 'bg-primary-soft text-primary'
+              : 'text-text hover:bg-surface-hover'
+          }`}
+        >
+          <div className="font-medium truncate">{file.title || file.name}</div>
+          {file.title && (
+            <div className="text-xs text-faint truncate">{file.name}</div>
+          )}
+        </button>
+      ))}
+      {files.length > 10 && (
+        <div className="p-2 text-xs text-faint border-t border-border">
+          {files.length - 10} more files... (keep typing to narrow)
+        </div>
+      )}
+    </div>
+  )
+})
+
+FilePicker.displayName = 'FilePicker'

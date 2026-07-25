@@ -18,6 +18,7 @@ import CollectionsPage from './pages/CollectionsPage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
 import MemoryPage from './pages/MemoryPage'
+import MeetingNotesPage from './pages/MeetingNotesPage'
 import TerminologyPage from './pages/TerminologyPage'
 import InboxPage from './pages/InboxPage'
 import EventsPage from './pages/EventsPage'
@@ -44,6 +45,7 @@ import FeaturesPage from './pages/FeaturesPage'
 import ProfileSettings from './pages/settings/ProfileSettings'
 import ConnectClaudeSettings from './pages/settings/ConnectClaudeSettings'
 import ModelsSettings from './pages/settings/ModelsSettings'
+import TimezoneSettings from './pages/settings/TimezoneSettings'
 import EmailSettings from './pages/settings/EmailSettings'
 import SlackSettings from './pages/settings/SlackSettings'
 import McpSettings from './pages/settings/McpSettings'
@@ -106,6 +108,7 @@ export default function App() {
         <Route path="todos/:todoId" element={<TodosPage />} />
         <Route path="links" element={<LinksPage />} />
         <Route path="memory" element={<MemoryPage />} />
+        <Route path="meeting-notes" element={<MeetingNotesPage />} />
         <Route path="terminology" element={<TerminologyPage />} />
         <Route path="terminology/:termId" element={<TerminologyPage />} />
         <Route path="skills" element={<SkillsPage />} />
@@ -131,6 +134,7 @@ export default function App() {
         <Route path="settings/profile" element={<ProfileSettings />} />
         <Route path="settings/connect" element={<ConnectClaudeSettings />} />
         <Route path="settings/models" element={<ModelsSettings />} />
+        <Route path="settings/timezone" element={<TimezoneSettings />} />
         <Route path="settings/email" element={<EmailSettings />} />
         <Route path="settings/slack" element={<SlackSettings />} />
         <Route path="settings/mcp" element={<McpSettings />} />

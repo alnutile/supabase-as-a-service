@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { GlobalSearch, isMac, openGlobalSearch } from './GlobalSearch'
+import { InstallPrompt } from './InstallPrompt'
 import {
   navGroups,
   settingsGroup,
@@ -191,6 +192,8 @@ export function Layout() {
 
   return (
     <div className="flex h-full bg-bg text-text">
+      {/* Offer to install the app as a PWA (dismissible, snoozed for 2 weeks). */}
+      <InstallPrompt />
       {/* Mobile overlay behind the drawer */}
       {drawerOpen && (
         <div

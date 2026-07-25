@@ -18,6 +18,7 @@ import { loadCollectionsContext } from '../_shared/collections.ts'
 import { parseArtifactBlocks } from '../_shared/artifacts.ts'
 import { cardsToText } from '../_shared/card_board.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
+import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
   assistantToolCallMsg,
@@ -324,6 +325,10 @@ Deno.serve(async (req: Request) => {
     const base = await loadAlwaysOnSystem(db)
     system = skillSystem.trim() ? `${base}\n\n---\n\n${skillSystem}` : base
   }
+  // Prepend the workspace-local date/time so the assistant reasons about
+  // "today/now" in the team's timezone instead of assuming UTC.
+  const tz = await resolveWorkspaceTimezone(db)
+  system = `${currentTimeSection(tz, new Date())}\n\n---\n\n${system}`
   // Make the system layer declare the live capability set, so the assistant
   // always knows which tools/abilities it currently has.
   if (capabilities.length) {
