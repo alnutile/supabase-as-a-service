@@ -1,4 +1,4 @@
--- 0087_table_events.sql
+-- 0093_table_events.sql
 -- Per-table event sourcing + a deterministic webhook -> table target.
 --
 -- Two capabilities that together let a raw payload flow: webhook lands it in a
