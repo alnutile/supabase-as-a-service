@@ -19,65 +19,25 @@ export default function MeetingNotesPage() {
   const [saving, setSaving] = useState(false)
   const [meetingTitle, setMeetingTitle] = useState('')
 
+  // How long each transcription segment runs. Each segment is recorded by its
+  // OWN MediaRecorder so the resulting blob is a complete, self-contained webm
+  // file (header + data). A single long recorder sliced into pieces only puts
+  // the container header on the FIRST slice, so every later slice fails to
+  // decode — that was the original bug.
+  const SEGMENT_MS = 15000
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
   const startTimeRef = useRef<number>(0)
+  const recordingRef = useRef(false)
+  const mimeTypeRef = useRef<string>('audio/webm')
+  const rotateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const startRecording = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-
-      // Use webm/opus for better browser compatibility
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm'
-
-      const mediaRecorder = new MediaRecorder(stream, { mimeType })
-      mediaRecorderRef.current = mediaRecorder
-      chunksRef.current = []
-      startTimeRef.current = Date.now()
-
-      // Collect audio in chunks for periodic transcription
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data)
-        }
-      }
-
-      // Send for transcription every 10 seconds
-      const transcribeInterval = setInterval(async () => {
-        if (chunksRef.current.length > 0 && mediaRecorder.state === 'recording') {
-          await transcribeChunks()
-        }
-      }, 10000)
-
-      mediaRecorder.onstop = () => {
-        clearInterval(transcribeInterval)
-        // Transcribe any remaining audio
-        if (chunksRef.current.length > 0) {
-          transcribeChunks()
-        }
-      }
-
-      mediaRecorder.start(1000) // Collect data every second
-      setIsRecording(true)
-      setStatus('Recording...')
-    } catch (error) {
-      console.error('Error starting recording:', error)
-      setStatus(`Error: ${error instanceof Error ? error.message : 'Could not access microphone'}`)
-    }
-  }, [])
-
-  const transcribeChunks = useCallback(async () => {
-    if (chunksRef.current.length === 0) return
-
-    const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
-    chunksRef.current = [] // Clear chunks after creating blob
+  const transcribeBlob = useCallback(async (audioBlob: Blob) => {
+    if (audioBlob.size === 0) return
 
     const formData = new FormData()
-    formData.append('audio', audioBlob, 'recording.webm')
+    formData.append('audio', audioBlob, 'segment.webm')
 
     setStatus('Transcribing...')
 
@@ -92,7 +52,8 @@ export default function MeetingNotesPage() {
       })
 
       if (!response.ok) {
-        throw new Error(`Transcription failed: ${response.statusText}`)
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.error || `Transcription failed (${response.status})`)
       }
 
       const result = await response.json()
@@ -106,20 +67,74 @@ export default function MeetingNotesPage() {
           {
             text: result.text.trim(),
             timestamp: now,
-            start: elapsed - (result.duration || 10),
+            start: Math.max(0, elapsed - (result.duration || SEGMENT_MS / 1000)),
             end: elapsed,
           },
         ])
       }
 
-      setStatus(isRecording ? 'Recording...' : 'Ready to record')
+      setStatus(recordingRef.current ? 'Recording...' : 'Ready to record')
     } catch (error) {
       console.error('Transcription error:', error)
       setStatus(`Transcription error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
-  }, [session, isRecording])
+  }, [session])
+
+  // Record one segment. On stop it ships a complete webm file for transcription
+  // and — if we're still recording — immediately starts the next segment.
+  const startSegment = useCallback(() => {
+    const stream = streamRef.current
+    if (!stream) return
+
+    const mediaRecorder = new MediaRecorder(stream, { mimeType: mimeTypeRef.current })
+    const chunks: Blob[] = []
+    mediaRecorderRef.current = mediaRecorder
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data)
+    }
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(chunks, { type: mimeTypeRef.current })
+      void transcribeBlob(blob)
+      if (recordingRef.current) startSegment()
+    }
+
+    mediaRecorder.start()
+    // Each segment schedules its own stop; onstop rolls into the next segment.
+    rotateTimerRef.current = setTimeout(() => {
+      if (mediaRecorder.state === 'recording') mediaRecorder.stop()
+    }, SEGMENT_MS)
+  }, [transcribeBlob])
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      // Use webm/opus for better browser compatibility
+      mimeTypeRef.current = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
+
+      startTimeRef.current = Date.now()
+      recordingRef.current = true
+      setIsRecording(true)
+      setStatus('Recording...')
+      startSegment()
+    } catch (error) {
+      console.error('Error starting recording:', error)
+      setStatus(`Error: ${error instanceof Error ? error.message : 'Could not access microphone'}`)
+    }
+  }, [startSegment])
 
   const stopRecording = useCallback(() => {
+    recordingRef.current = false
+    if (rotateTimerRef.current) {
+      clearTimeout(rotateTimerRef.current)
+      rotateTimerRef.current = null
+    }
+    // Stopping flushes the final segment (onstop transcribes it, no re-start).
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
     }
@@ -208,6 +223,8 @@ export default function MeetingNotesPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      recordingRef.current = false
+      if (rotateTimerRef.current) clearTimeout(rotateTimerRef.current)
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop()
       }

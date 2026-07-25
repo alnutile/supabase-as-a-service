@@ -18,11 +18,17 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
 
   try {
-    const apiKey = Deno.env.get('OPENAI_API_KEY')
+    // Transcription runs on OpenAI Whisper (OpenRouter has no audio endpoint).
+    // The rest of the app defaults to OpenRouter, so this is the one place that
+    // needs a dedicated OpenAI key — set it as the `OPENAI_KEY` edge secret.
+    // (`OPENAI_API_KEY` is accepted as a fallback for older setups.)
+    const apiKey = Deno.env.get('OPENAI_KEY') ?? Deno.env.get('OPENAI_API_KEY')
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: 'OpenAI API key not configured' }),
-        { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } },
+        JSON.stringify({
+          error: 'Transcription is not configured. Ask an admin to set the OPENAI_KEY edge-function secret.',
+        }),
+        { status: 503, headers: { ...CORS, 'Content-Type': 'application/json' } },
       )
     }
 
