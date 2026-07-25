@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Database, WebhookEventStatus } from '../lib/database.types'
+import type { Database, WebhookEventStatus, UserTableColumn } from '../lib/database.types'
 import { supabase, webhookUrl } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
@@ -9,6 +9,20 @@ type Webhook = Database['public']['Tables']['webhooks']['Row']
 type WebhookEvent = Database['public']['Tables']['webhook_events']['Row']
 type Agent = Database['public']['Tables']['agents']['Row']
 type Tool = Database['public']['Tables']['tools']['Row']
+type UserTable = Database['public']['Tables']['user_tables']['Row']
+
+type TargetMode = 'table' | 'tool' | 'agent' | 'prompt'
+
+function initialMode(w: Webhook): TargetMode {
+  if (w.table_id) return 'table'
+  if (w.tool_id) return 'tool'
+  if (w.agent_id) return 'agent'
+  return 'prompt'
+}
+
+function columnsOf(t: UserTable | undefined): UserTableColumn[] {
+  return (Array.isArray(t?.columns) ? t?.columns : []) as unknown as UserTableColumn[]
+}
 
 export default function WebhooksPage() {
   const { user } = useAuth()
@@ -154,12 +168,16 @@ function WebhookDetail({
   const [name, setName] = useState(webhook.name)
   const [prompt, setPrompt] = useState(webhook.prompt)
   const [isActive, setIsActive] = useState(webhook.is_active)
+  const [mode, setMode] = useState<TargetMode>(initialMode(webhook))
   const [agentId, setAgentId] = useState(webhook.agent_id ?? '')
   const [toolId, setToolId] = useState(webhook.tool_id ?? '')
+  const [tableId, setTableId] = useState(webhook.table_id ?? '')
+  const [targetColumn, setTargetColumn] = useState(webhook.target_column ?? '')
   const [secret, setSecret] = useState(webhook.secret ?? '')
   const [allowTools, setAllowTools] = useState(webhook.allow_tools)
   const [agents, setAgents] = useState<Agent[]>([])
   const [tools, setTools] = useState<Tool[]>([])
+  const [userTables, setUserTables] = useState<UserTable[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -180,16 +198,29 @@ function WebhookDetail({
       .eq('kind', 'http')
       .order('name')
       .then(({ data }) => setTools(data ?? []))
+    supabase
+      .from('user_tables')
+      .select('*')
+      .order('name')
+      .then(({ data }) => setUserTables(data ?? []))
   }, [])
 
   const selectedTool = tools.find((t) => t.id === toolId) ?? null
+  const selectedTable = userTables.find((t) => t.id === tableId)
   const url = webhookUrl(webhook.token)
+  // Exactly one target is saved, decided by `mode`; the others are nulled out.
+  const nextAgent = mode === 'agent' ? agentId : ''
+  const nextTool = mode === 'tool' ? toolId : ''
+  const nextTable = mode === 'table' ? tableId : ''
+  const nextColumn = mode === 'table' ? targetColumn : ''
   const dirty =
     name !== webhook.name ||
     prompt !== webhook.prompt ||
     isActive !== webhook.is_active ||
-    agentId !== (webhook.agent_id ?? '') ||
-    toolId !== (webhook.tool_id ?? '') ||
+    nextAgent !== (webhook.agent_id ?? '') ||
+    nextTool !== (webhook.tool_id ?? '') ||
+    nextTable !== (webhook.table_id ?? '') ||
+    nextColumn !== (webhook.target_column ?? '') ||
     secret !== (webhook.secret ?? '') ||
     allowTools !== webhook.allow_tools
 
@@ -227,8 +258,10 @@ function WebhookDetail({
         name,
         prompt,
         is_active: isActive,
-        agent_id: agentId || null,
-        tool_id: toolId || null,
+        agent_id: nextAgent || null,
+        tool_id: nextTool || null,
+        table_id: nextTable || null,
+        target_column: nextColumn || null,
         secret: secret.trim() || null,
         allow_tools: allowTools,
         updated_at: new Date().toISOString(),
@@ -335,93 +368,150 @@ function WebhookDetail({
         </p>
       </div>
 
-      {/* Call a function directly (deterministic) */}
-      <div className="mt-4">
+      {/* Target — exactly one of: table / function / agent / prompt.
+          One choice, so there's never ambiguity about what runs or in what order. */}
+      <div className="mt-4 rounded-xl border border-border bg-surface p-4">
         <label className="mb-1 block text-xs font-medium text-muted">
-          Call a function directly (optional, deterministic)
+          When a payload arrives, do one thing
         </label>
         <select
-          value={toolId}
-          onChange={(e) => setToolId(e.target.value)}
+          value={mode}
+          onChange={(e) => setMode(e.target.value as TargetMode)}
           className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
         >
-          <option value="">No function — use the AI options below</option>
-          {tools.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
+          <option value="table">Save it to a table (deterministic)</option>
+          <option value="tool">Call a function (deterministic)</option>
+          <option value="agent">Run an agent</option>
+          <option value="prompt">Run a prompt</option>
         </select>
-        {selectedTool && (
-          <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
+
+        {mode === 'table' && (
+          <div className="mt-3">
             <p className="text-xs text-emerald-700">
-              Deterministic: each payload is validated against these fields and sent straight to{' '}
-              <code className="font-mono">{selectedTool.name}</code> — no AI, no agent/prompt.
+              Deterministic: the raw payload drops straight into a column of your table — no AI, never
+              skipped. If that table emits events, an agent can structure and judge it afterward.
             </p>
-            <SchemaFields schema={selectedTool.input_schema} />
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-faint">Sample payload</summary>
-              <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
-                {JSON.stringify(samplePayload(selectedTool.input_schema), null, 2)}
-              </pre>
-            </details>
+            <label className="mt-3 mb-1 block text-xs font-medium text-muted">Table</label>
+            <select
+              value={tableId}
+              onChange={(e) => {
+                setTableId(e.target.value)
+                setTargetColumn('')
+              }}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            >
+              <option value="">Choose a table…</option>
+              {userTables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            {userTables.length === 0 && (
+              <p className="mt-1 text-xs text-muted">No tables yet — create one on the Tables page first.</p>
+            )}
+            {tableId && (
+              <>
+                <label className="mt-3 mb-1 block text-xs font-medium text-muted">
+                  Column to save the payload into
+                </label>
+                <select
+                  value={targetColumn}
+                  onChange={(e) => setTargetColumn(e.target.value)}
+                  className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                >
+                  <option value="">Choose a column…</option>
+                  {columnsOf(selectedTable).map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label} ({c.type})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-muted">
+                  Tip: a <code className="font-mono">json</code> column holds the whole payload cleanly.
+                </p>
+              </>
+            )}
           </div>
         )}
-      </div>
 
-      {/* Agent (optional) */}
-      <div className={`mt-4 ${toolId ? 'pointer-events-none opacity-40' : ''}`}>
-        <label className="mb-1 block text-xs font-medium text-muted">
-          Run an agent (optional)
-        </label>
-        <select
-          value={agentId}
-          onChange={(e) => setAgentId(e.target.value)}
-          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-        >
-          <option value="">No agent — use the prompt below</option>
-          {agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        {agentId && (
-          <>
-            <p className="mt-1 text-xs text-amber-600">
-              This webhook runs the agent on each payload. The prompt below is ignored.
-            </p>
-            <label className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-surface-2 p-2.5 text-sm text-text">
-              <input
-                type="checkbox"
-                checked={allowTools}
-                onChange={(e) => setAllowTools(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
-              />
-              <span>
-                Allow agent tools
-                <span className="mt-0.5 block text-xs font-normal text-muted">
-                  Tools let the agent act on whatever this webhook receives. Leave off unless the
-                  source is trusted — otherwise the agent runs read-only.
-                </span>
-              </span>
-            </label>
-          </>
+        {mode === 'tool' && (
+          <div className="mt-3">
+            <select
+              value={toolId}
+              onChange={(e) => setToolId(e.target.value)}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            >
+              <option value="">Choose a function…</option>
+              {tools.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            {selectedTool && (
+              <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
+                <p className="text-xs text-emerald-700">
+                  Deterministic: each payload is validated against these fields and sent straight to{' '}
+                  <code className="font-mono">{selectedTool.name}</code> — no AI.
+                </p>
+                <SchemaFields schema={selectedTool.input_schema} />
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-faint">Sample payload</summary>
+                  <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-relaxed text-slate-100">
+                    {JSON.stringify(samplePayload(selectedTool.input_schema), null, 2)}
+                  </pre>
+                </details>
+              </div>
+            )}
+          </div>
         )}
-      </div>
 
-      {/* Prompt */}
-      <div className={`mt-4 ${toolId ? 'pointer-events-none opacity-40' : ''}`}>
-        <label className="mb-1 block text-xs font-medium text-muted">
-          Prompt — what to do with each incoming payload
-        </label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={6}
-          placeholder="e.g. You receive form submissions. Summarize each one in two sentences and flag anything urgent."
-          className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-        />
+        {mode === 'agent' && (
+          <div className="mt-3">
+            <select
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            >
+              <option value="">Choose an agent…</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            {agentId && (
+              <label className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-surface-2 p-2.5 text-sm text-text">
+                <input
+                  type="checkbox"
+                  checked={allowTools}
+                  onChange={(e) => setAllowTools(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border-strong text-primary focus:ring-brand-500"
+                />
+                <span>
+                  Allow agent tools
+                  <span className="mt-0.5 block text-xs font-normal text-muted">
+                    Tools let the agent act on whatever this webhook receives. Leave off unless the
+                    source is trusted — otherwise the agent runs read-only.
+                  </span>
+                </span>
+              </label>
+            )}
+          </div>
+        )}
+
+        {mode === 'prompt' && (
+          <div className="mt-3">
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={6}
+              placeholder="e.g. You receive form submissions. Summarize each one in two sentences and flag anything urgent."
+              className="w-full resize-y rounded-lg border border-border-strong px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </div>
+        )}
       </div>
 
       <div className="mt-3 flex items-center justify-between">

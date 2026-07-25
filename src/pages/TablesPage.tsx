@@ -1287,6 +1287,44 @@ function TableSettingsModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cols = columnsOf(table)
+  const settings = (table.settings ?? {}) as { emit_events?: boolean; event_type?: string }
+  const [eventsOn, setEventsOn] = useState(!!settings.emit_events)
+  const [eventType, setEventType] = useState(settings.event_type ?? '')
+  const [testJson, setTestJson] = useState<string | null>(null)
+
+  // Turning events on/off attaches/detaches a DB trigger, so it goes through a
+  // security-definer RPC. The RPC returns the updated row; read the frozen
+  // event_type from it. Does NOT close the modal — you stay to test/copy it.
+  async function toggleEvents(next: boolean) {
+    setBusy(true)
+    setError(null)
+    setTestJson(null)
+    const { data, error: e } = await supabase.rpc('set_user_table_events', {
+      p_table_id: table.id,
+      p_enabled: next,
+    })
+    setBusy(false)
+    if (e) {
+      setError(e.message)
+      return
+    }
+    const s = ((data as UserTable | null)?.settings ?? {}) as { emit_events?: boolean; event_type?: string }
+    setEventsOn(!!s.emit_events)
+    setEventType(s.event_type ?? '')
+    onChanged()
+  }
+
+  async function sendTestEvent() {
+    setBusy(true)
+    setError(null)
+    const { data, error: e } = await supabase.rpc('emit_test_table_event', { p_table_id: table.id })
+    setBusy(false)
+    if (e) {
+      setError(e.message)
+      return
+    }
+    setTestJson(JSON.stringify(data, null, 2))
+  }
 
   async function saveMeta() {
     setBusy(true)
@@ -1431,6 +1469,48 @@ function TableSettingsModal({
                 Add
               </button>
             </div>
+          </div>
+
+          {/* Events — turn this table into an event source (opt-in, off by default) */}
+          <div className="rounded-xl border border-border p-3">
+            <label className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                checked={eventsOn}
+                disabled={busy}
+                onChange={(e) => toggleEvents(e.target.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              <span className="text-sm text-text">
+                Trigger an event when a row is added
+                <span className="block text-xs text-faint">
+                  Makes this table an event source. A listener (Automation → Listeners) can then react
+                  to each new row — structure it, judge it, notify you.
+                </span>
+              </span>
+            </label>
+            {eventsOn && eventType && (
+              <div className="mt-3 space-y-2">
+                <div className="text-xs text-muted">
+                  Event name to listen for:{' '}
+                  <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-text">
+                    {eventType}
+                  </code>
+                </div>
+                <button
+                  onClick={sendTestEvent}
+                  disabled={busy}
+                  className="rounded-lg border border-border-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover disabled:opacity-50"
+                >
+                  Send test event
+                </button>
+                {testJson && (
+                  <pre className="max-h-48 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">
+                    {testJson}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}

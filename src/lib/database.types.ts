@@ -837,6 +837,8 @@ export interface Database {
           token: string
           agent_id: string | null
           tool_id: string | null
+          table_id: string | null
+          target_column: string | null
           allow_tools: boolean
           is_active: boolean
           secret: string | null
@@ -851,6 +853,8 @@ export interface Database {
           token?: string
           agent_id?: string | null
           tool_id?: string | null
+          table_id?: string | null
+          target_column?: string | null
           allow_tools?: boolean
           is_active?: boolean
           secret?: string | null
@@ -921,6 +925,7 @@ export interface Database {
           owner_id: string
           columns: Json
           visibility: UserTableVisibility
+          settings: Json
           created_at: string
           updated_at: string
         }
@@ -932,6 +937,7 @@ export interface Database {
           owner_id: string
           columns?: Json
           visibility?: UserTableVisibility
+          settings?: Json
           created_at?: string
           updated_at?: string
         }
@@ -1897,6 +1903,14 @@ export interface Database {
       drop_user_table: {
         Args: { p_table_id: string }
         Returns: undefined
+      }
+      set_user_table_events: {
+        Args: { p_table_id: string; p_enabled: boolean }
+        Returns: Database['public']['Tables']['user_tables']['Row']
+      }
+      emit_test_table_event: {
+        Args: { p_table_id: string }
+        Returns: Json
       }
       set_artifact_password: {
         Args: { p_id: string; p_password: string | null }

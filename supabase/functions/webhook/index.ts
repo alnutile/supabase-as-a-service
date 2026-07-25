@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: webhook } = await db
     .from('webhooks')
-    .select('id, owner_id, name, prompt, is_active, agent_id, tool_id, allow_tools, secret')
+    .select('id, owner_id, name, prompt, is_active, agent_id, tool_id, table_id, target_column, allow_tools, secret')
     .eq('token', token)
     .maybeSingle()
   if (!webhook || !webhook.is_active) return json({ error: 'Unknown or inactive webhook' }, 404)
@@ -138,6 +138,52 @@ Deno.serve(async (req: Request) => {
     .select('id')
     .single()
   const eventId = event?.id
+
+  // Deterministic mode: if a table is attached, dump the raw payload straight into
+  // one column of that user table — no model, no guardrail, never dropped. The row
+  // insert emits a table event (if the table is an event source), so an AI listener
+  // can do the structuring/judging off-request. Takes precedence over tool/agent/prompt.
+  if (webhook.table_id) {
+    try {
+      const { data: table } = await db
+        .from('user_tables')
+        .select('id, name, physical_name, columns')
+        .eq('id', webhook.table_id)
+        .maybeSingle()
+      if (!table) {
+        const msg = 'Target table is missing.'
+        if (eventId) await db.from('webhook_events').update({ status: 'error', error: msg }).eq('id', eventId)
+        return json({ ok: false, event_id: eventId, error: msg }, 400)
+      }
+      const col = (webhook.target_column ?? '').trim()
+      const cols = (Array.isArray(table.columns) ? table.columns : []) as Array<{ key: string }>
+      if (!col || !cols.some((c) => c.key === col)) {
+        const msg = `Target column "${col}" is not a column on table "${table.name}".`
+        if (eventId) await db.from('webhook_events').update({ status: 'error', error: msg }).eq('id', eventId)
+        return json({ ok: false, event_id: eventId, error: msg }, 400)
+      }
+      const { error: insErr } = await db
+        .from(table.physical_name)
+        .insert({ owner_id: webhook.owner_id, [col]: payload })
+      if (insErr) {
+        if (eventId) await db.from('webhook_events').update({ status: 'error', error: insErr.message }).eq('id', eventId)
+        return json({ ok: false, event_id: eventId, error: insErr.message }, 502)
+      }
+      const result = `Saved payload to table "${table.name}" (${col}).`
+      if (eventId) await db.from('webhook_events').update({ status: 'ok', result }).eq('id', eventId)
+      await db.from('activity_log').insert({
+        type: 'webhook.table',
+        summary: `Webhook "${webhook.name}" → ${table.name}`,
+        detail: { event_id: eventId, table: table.name, column: col },
+        actor_id: webhook.owner_id,
+      })
+      return json({ ok: true, event_id: eventId, result })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'table insert failed'
+      if (eventId) await db.from('webhook_events').update({ status: 'error', error: message }).eq('id', eventId)
+      return json({ ok: false, event_id: eventId, error: message }, 502)
+    }
+  }
 
   // Deterministic mode: if a tool/function is attached, call it DIRECTLY with the
   // validated payload — no model, no guardrail (schema validation is the gate).
