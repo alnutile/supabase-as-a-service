@@ -1094,3 +1094,14 @@ call (it's a one-line edit in Settings → Models).
 
 Trunk-based: commit and push directly to `main` (no PR flow). Run `npm run build` first.
 Hosting auto-deploys from `main`.
+
+**Never commit directly to `release`.** `release` is a release cut of `main` and only ever
+receives changes by merging `main` into it (the `main → release` PR). Committing straight onto
+`release` makes it diverge from `main`, which turns the next `main → release` merge into a
+conflict — exactly what happened once (PR #258: commit #235 was authored on `release`, so
+`FilesPage`/`HomePage`/`icons.tsx`/`CLAUDE.md` collided with main's newer versions). To cut a
+release: land the work on `main`, then merge `main → release` (a clean fast-forward as long as
+this rule holds). If `release` has already drifted, reconcile by merging `release` into `main`
+resolving every conflict in **main's favor** (main is the superset) — that records the shared
+history without changing any file on `main`, and the pending `main → release` PR becomes a clean
+fast-forward again.
