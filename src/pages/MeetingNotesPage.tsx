@@ -63,11 +63,16 @@ export default function MeetingNotesPage() {
   const SEGMENT_MS = 15000
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
+  const streamRef = useRef<MediaStream | null>(null) // the (possibly mixed) stream fed to MediaRecorder
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const displayStreamRef = useRef<MediaStream | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
   const startTimeRef = useRef<number>(0)
   const recordingRef = useRef(false)
   const mimeTypeRef = useRef<string>('audio/webm')
   const rotateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Also capture tab/app audio (Zoom, Meet, Slack huddle) alongside the mic.
+  const [captureSystem, setCaptureSystem] = useState(false)
 
   const transcribeBlob = useCallback(async (audioBlob: Blob) => {
     if (audioBlob.size === 0) return
@@ -150,9 +155,59 @@ export default function MeetingNotesPage() {
     }, SEGMENT_MS)
   }, [transcribeBlob])
 
+  // Stop every capture source (mixed output, mic, shared tab/app) and close the
+  // mixing graph. Safe to call more than once.
+  const teardownStreams = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    micStreamRef.current?.getTracks().forEach((t) => t.stop())
+    displayStreamRef.current?.getTracks().forEach((t) => t.stop())
+    audioCtxRef.current?.close().catch(() => {})
+    streamRef.current = null
+    micStreamRef.current = null
+    displayStreamRef.current = null
+    audioCtxRef.current = null
+  }, [])
+
+  // Build the stream MediaRecorder captures. Mic only, or — when `withSystem` —
+  // the mic mixed with shared tab/app audio (Zoom/Meet/Slack) via Web Audio, so
+  // Whisper hears both sides. getDisplayMedia is requested FIRST to stay inside
+  // the click's user-gesture; if the user cancels or shares no audio, we fall
+  // back to mic-only rather than failing.
+  const buildRecordingStream = useCallback(async (withSystem: boolean): Promise<MediaStream> => {
+    let display: MediaStream | null = null
+    if (withSystem) {
+      try {
+        display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+      } catch {
+        display = null // user dismissed the picker
+      }
+    }
+
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: true })
+    micStreamRef.current = mic
+
+    if (!display) return mic
+
+    const sysTracks = display.getAudioTracks()
+    if (sysTracks.length === 0) {
+      display.getTracks().forEach((t) => t.stop())
+      setStatus('No tab/app audio was shared — recording your mic only. Re-share and tick “Share tab audio”.')
+      return mic
+    }
+
+    displayStreamRef.current = display // keep alive; sharing indicator stays up
+    const ctx = new AudioContext()
+    audioCtxRef.current = ctx
+    await ctx.resume().catch(() => {})
+    const dest = ctx.createMediaStreamDestination()
+    ctx.createMediaStreamSource(mic).connect(dest)
+    ctx.createMediaStreamSource(new MediaStream(sysTracks)).connect(dest)
+    return dest.stream
+  }, [])
+
   const startRecording = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await buildRecordingStream(captureSystem)
       streamRef.current = stream
 
       // Use webm/opus for better browser compatibility
@@ -163,13 +218,14 @@ export default function MeetingNotesPage() {
       startTimeRef.current = Date.now()
       recordingRef.current = true
       setIsRecording(true)
-      setStatus('Recording...')
+      setStatus(captureSystem && displayStreamRef.current ? 'Recording (mic + shared audio)…' : 'Recording...')
       startSegment()
     } catch (error) {
       console.error('Error starting recording:', error)
+      teardownStreams()
       setStatus(`Error: ${error instanceof Error ? error.message : 'Could not access microphone'}`)
     }
-  }, [startSegment])
+  }, [startSegment, buildRecordingStream, captureSystem, teardownStreams])
 
   const stopRecording = useCallback(() => {
     recordingRef.current = false
@@ -182,13 +238,10 @@ export default function MeetingNotesPage() {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
-    }
+    teardownStreams()
     setIsRecording(false)
     setStatus('Recording stopped. Review and save.')
-  }, [])
+  }, [teardownStreams])
 
   // Formatted transcript text (with [m:ss] stamps), reused by the chat panel and
   // the ambient monitor.
@@ -424,11 +477,9 @@ export default function MeetingNotesPage() {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop()
       }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-      }
+      teardownStreams()
     }
-  }, [])
+  }, [teardownStreams])
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6 p-6 lg:flex-row">
@@ -513,6 +564,27 @@ export default function MeetingNotesPage() {
                      text-zinc-900 focus:outline-none focus:ring-2 focus:ring-purple-500
                      dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-purple-600"
           />
+        </div>
+
+        {/* Also capture the audio of a call/video (Zoom, Meet, Slack huddle). */}
+        <div className="mb-4">
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={captureSystem}
+              onChange={(e) => setCaptureSystem(e.target.checked)}
+              disabled={isRecording}
+              className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-purple-600 focus:ring-purple-500
+                       disabled:opacity-50 dark:border-zinc-600"
+            />
+            <span>
+              Also capture tab/app audio (Zoom, Meet, Slack huddle)
+              <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
+                On start you'll pick the tab/window to listen to — tick “Share tab audio”. Your mic is
+                always captured too. Best in Chrome; Safari support is limited.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="flex items-center gap-3 mb-4">
