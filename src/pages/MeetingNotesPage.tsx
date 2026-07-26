@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase, transcribeFunctionUrl } from '../lib/supabase'
 import { formatDate } from '../lib/util'
-import { ChatIcon, MicIcon, SaveIcon, StopIcon, TrashIcon } from '../components/icons'
+import { ChatIcon, MicIcon, SaveIcon, SparkleIcon, StopIcon, TrashIcon } from '../components/icons'
 import { MeetingChatPanel } from '../components/MeetingChatPanel'
+import { streamChat } from '../lib/chat'
 
 interface TranscriptSegment {
   text: string
@@ -11,6 +12,12 @@ interface TranscriptSegment {
   start?: number
   end?: number
 }
+
+// Where an in-progress meeting is stashed so a reload doesn't lose the
+// transcript captured so far (client-side; the chat thread is already durable).
+const STORAGE_KEY = 'meetingNotes:active'
+// How often the ambient monitor checks the latest transcript for ideas.
+const MONITOR_MS = 60000
 
 export default function MeetingNotesPage() {
   const { user, session } = useAuth()
@@ -37,6 +44,16 @@ export default function MeetingNotesPage() {
   // Called by the recorder's onstop (defined below triggerAutoRun) via a ref to
   // sidestep declaration ordering.
   const triggerAutoRunRef = useRef<() => void>(() => {})
+  // Ambient idea monitor (opt-in): periodically surface unprompted ideas from
+  // the latest transcript while recording.
+  const [monitorOn, setMonitorOn] = useState(false)
+  const [ideas, setIdeas] = useState<string[]>([])
+  const monitorBusyRef = useRef(false)
+  const monitorLenRef = useRef(0)
+  // Latest transcript length + text, read by the monitor's interval without
+  // recreating it each render (avoids stale-closure over `transcript`).
+  const transcriptLenRef = useRef(0)
+  const transcriptTextRef = useRef<() => string>(() => '')
 
   // How long each transcription segment runs. Each segment is recorded by its
   // OWN MediaRecorder so the resulting blob is a complete, self-contained webm
@@ -173,6 +190,22 @@ export default function MeetingNotesPage() {
     setStatus('Recording stopped. Review and save.')
   }, [])
 
+  // Formatted transcript text (with [m:ss] stamps), reused by the chat panel and
+  // the ambient monitor.
+  const buildTranscriptText = useCallback(
+    () =>
+      transcript
+        .map((seg) => {
+          const t =
+            seg.start !== undefined
+              ? `[${Math.floor(seg.start / 60)}:${String(Math.floor(seg.start % 60)).padStart(2, '0')}] `
+              : ''
+          return `${t}${seg.text}`.trim()
+        })
+        .join('\n\n'),
+    [transcript],
+  )
+
   const clearTranscript = useCallback(() => {
     if (confirm('Clear the current transcript? This cannot be undone.')) {
       setTranscript([])
@@ -182,7 +215,10 @@ export default function MeetingNotesPage() {
       setMeetingId(crypto.randomUUID()) // fresh meeting → fresh chat thread
       setChatOpen(false)
       setAutoRun(undefined)
+      setIdeas([])
       transcribedRef.current = false
+      monitorLenRef.current = 0
+      try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
     }
   }, [])
 
@@ -236,6 +272,7 @@ export default function MeetingNotesPage() {
       if (error) throw error
 
       setStatus('Saved successfully!')
+      try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
 
       // Clear the transcript after successful save
       setTimeout(() => {
@@ -280,6 +317,80 @@ export default function MeetingNotesPage() {
     setAutoRun({ id: crypto.randomUUID(), instruction })
   }, [])
   useEffect(() => { triggerAutoRunRef.current = triggerAutoRun }, [triggerAutoRun])
+
+  // Keep the monitor's refs current each render.
+  useEffect(() => {
+    transcriptLenRef.current = transcript.length
+    transcriptTextRef.current = buildTranscriptText
+  }, [transcript, buildTranscriptText])
+
+  // Restore an in-progress meeting after a reload (client-side; the chat thread
+  // is already durable via meeting_id). Runs once on mount.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (!raw) return
+      const saved = JSON.parse(raw)
+      if (saved?.meetingId && Array.isArray(saved.transcript) && saved.transcript.length) {
+        setMeetingId(saved.meetingId)
+        setMeetingTitle(saved.title || '')
+        setMeetingPrompt(saved.prompt || '')
+        setTranscript(saved.transcript)
+        transcribedRef.current = true
+        setStatus('Restored an in-progress meeting — resume recording or save.')
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  // Persist the in-progress meeting whenever it changes.
+  useEffect(() => {
+    if (transcript.length === 0) return
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ meetingId, title: meetingTitle, prompt: meetingPrompt, transcript }),
+      )
+    } catch { /* ignore quota */ }
+  }, [transcript, meetingId, meetingTitle, meetingPrompt])
+
+  // Ambient idea monitor (opt-in): every MONITOR_MS while recording, if new
+  // transcript has landed, ask the model for one idea/question/action worth
+  // flagging. Runs tool-free (toolIds:[]) so it never acts, only observes.
+  useEffect(() => {
+    if (!isRecording || !monitorOn) return
+    const controller = new AbortController()
+    const id = setInterval(() => {
+      if (monitorBusyRef.current) return
+      const len = transcriptLenRef.current
+      if (len <= monitorLenRef.current) return // nothing new since last check
+      monitorBusyRef.current = true
+      monitorLenRef.current = len
+      const title = meetingTitle.trim() || 'Untitled meeting'
+      void streamChat(
+        [{
+          role: 'user',
+          content:
+            'From the latest part of this meeting, surface ONE brief, useful idea, open question, or action item a participant might miss. Reply with a single short sentence. If nothing stands out, reply with exactly "NONE".',
+        }],
+        () => {},
+        {
+          system: `You are silently monitoring a live meeting titled "${title}". Transcript so far:\n\n${transcriptTextRef.current()}`,
+          toolIds: [],
+          signal: controller.signal,
+        },
+      )
+        .then((full) => {
+          const t = full.trim()
+          if (t && !/^none\b/i.test(t)) setIdeas((prev) => [...prev, t])
+        })
+        .catch(() => { /* ignore monitor errors */ })
+        .finally(() => { monitorBusyRef.current = false })
+    }, MONITOR_MS)
+    return () => {
+      clearInterval(id)
+      controller.abort()
+    }
+  }, [isRecording, monitorOn, meetingTitle])
 
   // Check up front whether transcription is configured (OPENAI_KEY secret set)
   // so we can warn before the user records rather than failing mid-session.
@@ -476,8 +587,34 @@ export default function MeetingNotesPage() {
           <span className="text-zinc-600 dark:text-zinc-400">
             {status}
           </span>
+
+          <label className="ml-auto flex cursor-pointer items-center gap-2 text-zinc-600 dark:text-zinc-400">
+            <input
+              type="checkbox"
+              checked={monitorOn}
+              onChange={(e) => setMonitorOn(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 text-purple-600 focus:ring-purple-500 dark:border-zinc-600"
+            />
+            Suggest ideas while recording
+          </label>
         </div>
       </div>
+
+      {/* Ambient ideas — unprompted thoughts surfaced by the monitor. */}
+      {ideas.length > 0 && (
+        <div className="mb-6 rounded-lg border border-purple-200 bg-purple-50 p-4
+                        dark:border-purple-500/30 dark:bg-purple-500/10">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-purple-800 dark:text-purple-200">
+            <SparkleIcon className="h-4 w-4" />
+            Ideas &amp; prompts
+          </div>
+          <ul className="space-y-2">
+            {ideas.map((idea, i) => (
+              <li key={i} className="text-sm text-purple-900 dark:text-purple-100">• {idea}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Transcript Display */}
       {transcript.length > 0 && (
@@ -514,17 +651,7 @@ export default function MeetingNotesPage() {
             <MeetingChatPanel
               meetingId={meetingId}
               meetingTitle={meetingTitle.trim() || 'Untitled meeting'}
-              getTranscript={() =>
-                transcript
-                  .map((seg) => {
-                    const t =
-                      seg.start !== undefined
-                        ? `[${Math.floor(seg.start / 60)}:${String(Math.floor(seg.start % 60)).padStart(2, '0')}] `
-                        : ''
-                    return `${t}${seg.text}`.trim()
-                  })
-                  .join('\n\n')
-              }
+              getTranscript={buildTranscriptText}
               autoRun={autoRun}
               onClose={() => setChatOpen(false)}
             />
