@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase, transcribeFunctionUrl } from '../lib/supabase'
 import { formatDate } from '../lib/util'
-import { MicIcon, SaveIcon, StopIcon, TrashIcon } from '../components/icons'
+import { ChatIcon, MicIcon, SaveIcon, StopIcon, TrashIcon } from '../components/icons'
+import { MeetingChatPanel } from '../components/MeetingChatPanel'
 
 interface TranscriptSegment {
   text: string
@@ -20,6 +21,11 @@ export default function MeetingNotesPage() {
   const [meetingTitle, setMeetingTitle] = useState('')
   // null = not checked yet; true/false = whether the OPENAI_KEY secret is set.
   const [transcribeConfigured, setTranscribeConfigured] = useState<boolean | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  // Stable id for THIS meeting session — correlates the live chat thread
+  // (conversations.meeting_id) with the artifact saved at the end. A fresh id
+  // starts a fresh meeting (regenerated after save / clear).
+  const [meetingId, setMeetingId] = useState<string>(() => crypto.randomUUID())
 
   // How long each transcription segment runs. Each segment is recorded by its
   // OWN MediaRecorder so the resulting blob is a complete, self-contained webm
@@ -153,6 +159,8 @@ export default function MeetingNotesPage() {
       setTranscript([])
       setMeetingTitle('')
       setStatus('Ready to record')
+      setMeetingId(crypto.randomUUID()) // fresh meeting → fresh chat thread
+      setChatOpen(false)
     }
   }, [])
 
@@ -193,6 +201,7 @@ export default function MeetingNotesPage() {
           visibility: 'private',
           data: {
             meeting_notes: true,
+            meeting_id: meetingId,
             recorded_at: new Date().toISOString(),
             duration: transcript.length > 0 && transcript[transcript.length - 1].end
               ? Math.round(transcript[transcript.length - 1].end!)
@@ -220,7 +229,7 @@ export default function MeetingNotesPage() {
       setStatus(`Error saving: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setSaving(false)
     }
-  }, [transcript, meetingTitle, user])
+  }, [transcript, meetingTitle, user, meetingId])
 
   // Check up front whether transcription is configured (OPENAI_KEY secret set)
   // so we can warn before the user records rather than failing mid-session.
@@ -261,7 +270,8 @@ export default function MeetingNotesPage() {
   }, [])
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto flex flex-col gap-6 p-6 lg:flex-row">
+      <div className="min-w-0 flex-1">
       {transcribeConfigured === false && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900
                         dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
@@ -357,6 +367,17 @@ export default function MeetingNotesPage() {
               </button>
             </>
           )}
+
+          {/* Chat about the meeting — available during and after recording. */}
+          <button
+            onClick={() => setChatOpen((o) => !o)}
+            className="ml-auto flex items-center gap-2 rounded-lg border border-zinc-300 px-4 py-2
+                     font-medium text-zinc-700 transition-colors hover:bg-zinc-100
+                     dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            <ChatIcon className="h-5 w-5" />
+            {chatOpen ? 'Hide chat' : 'Chat'}
+          </button>
         </div>
 
         <div className="flex items-center gap-2 text-sm">
@@ -397,6 +418,30 @@ export default function MeetingNotesPage() {
         <div className="text-center py-12 text-zinc-500 dark:text-zinc-400">
           <MicIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p>Start recording to see your transcript here</p>
+        </div>
+      )}
+      </div>
+
+      {chatOpen && (
+        <div className="lg:w-[380px] lg:shrink-0">
+          <div className="h-[70vh] overflow-hidden rounded-lg border border-border lg:sticky lg:top-6">
+            <MeetingChatPanel
+              meetingId={meetingId}
+              meetingTitle={meetingTitle.trim() || 'Untitled meeting'}
+              getTranscript={() =>
+                transcript
+                  .map((seg) => {
+                    const t =
+                      seg.start !== undefined
+                        ? `[${Math.floor(seg.start / 60)}:${String(Math.floor(seg.start % 60)).padStart(2, '0')}] `
+                        : ''
+                    return `${t}${seg.text}`.trim()
+                  })
+                  .join('\n\n')
+              }
+              onClose={() => setChatOpen(false)}
+            />
+          </div>
         </div>
       )}
     </div>

@@ -25,6 +25,7 @@ const EVENT_TYPES = [
   { value: 'todo.completed', label: 'To-do completed' },
   { value: 'link.created', label: 'Link saved' },
   { value: 'chat.created', label: 'Conversation started' },
+  { value: 'meeting.recorded', label: 'Meeting recorded' },
 ]
 
 const ENTITY_TYPES = ['artifact', 'file', 'todo', 'link', 'message', 'table']
