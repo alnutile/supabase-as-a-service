@@ -18,6 +18,8 @@ export default function MeetingNotesPage() {
   const [status, setStatus] = useState<string>('Ready to record')
   const [saving, setSaving] = useState(false)
   const [meetingTitle, setMeetingTitle] = useState('')
+  // null = not checked yet; true/false = whether the OPENAI_KEY secret is set.
+  const [transcribeConfigured, setTranscribeConfigured] = useState<boolean | null>(null)
 
   // How long each transcription segment runs. Each segment is recorded by its
   // OWN MediaRecorder so the resulting blob is a complete, self-contained webm
@@ -220,6 +222,30 @@ export default function MeetingNotesPage() {
     }
   }, [transcript, meetingTitle, user])
 
+  // Check up front whether transcription is configured (OPENAI_KEY secret set)
+  // so we can warn before the user records rather than failing mid-session.
+  useEffect(() => {
+    if (!session?.access_token) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const response = await fetch(transcribeFunctionUrl(), {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+        })
+        if (!response.ok) return // don't block on a probe failure
+        const result = await response.json()
+        if (!cancelled) setTranscribeConfigured(Boolean(result?.configured))
+      } catch {
+        // Ignore probe errors — recording will surface a real error if needed.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [session])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -236,6 +262,22 @@ export default function MeetingNotesPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
+      {transcribeConfigured === false && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900
+                        dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <p className="font-semibold">Transcription isn't set up yet</p>
+          <p className="mt-1 text-sm">
+            Meeting notes transcribe audio with OpenAI Whisper (the app's usual OpenRouter
+            provider has no audio/transcription endpoint). An admin needs to set the{' '}
+            <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs dark:bg-amber-500/20">
+              OPENAI_KEY
+            </code>{' '}
+            edge-function secret in Supabase. Until then, recording will capture audio but
+            produce no transcript.
+          </p>
+        </div>
+      )}
+
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">
           Meeting Notes

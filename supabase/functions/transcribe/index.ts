@@ -11,7 +11,7 @@ const MAX_AUDIO_BYTES = 25_000_000 // 25MB (Whisper limit)
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 }
 
 Deno.serve(async (req: Request) => {
@@ -23,6 +23,17 @@ Deno.serve(async (req: Request) => {
     // needs a dedicated OpenAI key — set it as the `OPENAI_KEY` edge secret.
     // (`OPENAI_API_KEY` is accepted as a fallback for older setups.)
     const apiKey = Deno.env.get('OPENAI_KEY') ?? Deno.env.get('OPENAI_API_KEY')
+
+    // Health check: a GET reports whether transcription is configured, so the
+    // UI can show a "set OPENAI_KEY" notice up front instead of failing only
+    // once someone hits Record. No audio work, never leaks the key itself.
+    if (req.method === 'GET') {
+      return new Response(
+        JSON.stringify({ configured: !!apiKey }),
+        { headers: { ...CORS, 'Content-Type': 'application/json' } },
+      )
+    }
+
     if (!apiKey) {
       return new Response(
         JSON.stringify({
