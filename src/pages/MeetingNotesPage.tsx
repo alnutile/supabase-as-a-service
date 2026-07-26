@@ -343,12 +343,44 @@ export default function MeetingNotesPage() {
         }
       }
 
+      // Generate a TLDR + follow-ups from the transcript AND the chat, so the
+      // end-of-meeting work the context prompt/skill did (which lands in chat) is
+      // distilled into the note, not just dumped. Tool-free; optional (a failure
+      // leaves those sections empty rather than blocking the save).
+      let tldr = ''
+      let followup = ''
+      try {
+        setStatus('Summarizing…')
+        const sys =
+          `You are writing up a meeting. Transcript:\n\n${content}` +
+          (chatMd ? `\n\nMeeting chat (may contain agreed decisions/follow-ups):\n\n${chatMd}` : '')
+        const resp = await streamChat(
+          [{
+            role: 'user',
+            content:
+              'Write up this meeting. Respond in EXACTLY this format and nothing else:\n' +
+              '<<<TLDR>>>\n<2–4 sentence summary of what happened and what was decided>\n' +
+              '<<<FOLLOWUP>>>\n- <each concrete action item as a bullet; include owner and due date if stated>',
+          }],
+          () => {},
+          { system: sys, toolIds: [] },
+        )
+        const [head, tail] = resp.split('<<<FOLLOWUP>>>')
+        tldr = (head || '').replace('<<<TLDR>>>', '').trim()
+        followup = (tail || '').trim()
+      } catch {
+        // Summary is best-effort — keep saving.
+      }
+
+      const now = new Date()
+      const dateStr = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()}`
       const sections = [
-        `# ${meetingTitle}`,
-        `**Date:** ${formatDate(new Date().toISOString())}`,
-        `## Transcript\n\n${content}`,
+        `# ${meetingTitle} — ${dateStr}`,
+        `## Ideas\n\n${ideas.length ? ideas.map((i) => `- ${i}`).join('\n') : '_None captured._'}`,
+        `## Follow up\n\n${followup || '_None._'}`,
+        `## TLDR\n\n${tldr || '_Not generated._'}`,
+        `## Raw Transcript\n\n${content}`,
       ]
-      if (ideas.length) sections.push(`## Ideas & Prompts\n\n${ideas.map((i) => `- ${i}`).join('\n')}`)
       if (chatMd) sections.push(`## Chat\n\n${chatMd}`)
       const fullContent = sections.join('\n\n')
 
@@ -369,6 +401,7 @@ export default function MeetingNotesPage() {
               : 0,
             ideas_count: ideas.length,
             has_chat: !!chatMd,
+            has_summary: !!(tldr || followup),
           },
         })
         .select()
