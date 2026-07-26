@@ -268,12 +268,13 @@ export default function MeetingNotesPage() {
           <p className="font-semibold">Transcription isn't set up yet</p>
           <p className="mt-1 text-sm">
             Meeting notes transcribe audio with OpenAI Whisper (the app's usual OpenRouter
-            provider has no audio/transcription endpoint). An admin needs to set the{' '}
+            provider has no audio/transcription endpoint). An admin needs to add a workspace
+            secret named{' '}
             <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs dark:bg-amber-500/20">
               OPENAI_KEY
             </code>{' '}
-            edge-function secret in Supabase. Until then, recording will capture audio but
-            produce no transcript.
+            in Settings → Secrets. Until then, recording will capture audio but produce no
+            transcript.
           </p>
         </div>
       )}
