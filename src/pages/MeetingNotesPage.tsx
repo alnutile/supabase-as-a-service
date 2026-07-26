@@ -71,6 +71,7 @@ export default function MeetingNotesPage() {
   const recordingRef = useRef(false)
   const mimeTypeRef = useRef<string>('audio/webm')
   const rotateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const transcriptScrollRef = useRef<HTMLDivElement>(null)
   // Also capture tab/app audio (Zoom, Meet, Slack huddle) alongside the mic.
   const [captureSystem, setCaptureSystem] = useState(false)
 
@@ -183,7 +184,16 @@ export default function MeetingNotesPage() {
       }
     }
 
-    const mic = await navigator.mediaDevices.getUserMedia({ audio: true })
+    // When we're mixing in tab/app audio, DISABLE the mic's echo cancellation /
+    // noise suppression / auto-gain. Otherwise the browser treats the loud tab
+    // audio (played on the speakers) as far-end "echo" and ducks the mic — so
+    // your voice vanishes while a video plays and returns when it's paused.
+    const mixing = !!display
+    const mic = await navigator.mediaDevices.getUserMedia({
+      audio: mixing
+        ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        : true,
+    })
     micStreamRef.current = mic
 
     if (!display) return mic
@@ -200,7 +210,11 @@ export default function MeetingNotesPage() {
     audioCtxRef.current = ctx
     await ctx.resume().catch(() => {})
     const dest = ctx.createMediaStreamDestination()
-    ctx.createMediaStreamSource(mic).connect(dest)
+    // Slightly boost the mic relative to tab audio so your voice stays present
+    // when the tab audio is loud.
+    const micGain = ctx.createGain()
+    micGain.gain.value = 1.4
+    ctx.createMediaStreamSource(mic).connect(micGain).connect(dest)
     ctx.createMediaStreamSource(new MediaStream(sysTracks)).connect(dest)
     return dest.stream
   }, [])
@@ -394,6 +408,15 @@ export default function MeetingNotesPage() {
       }
     } catch { /* ignore */ }
   }, [])
+
+  // Keep the transcript scrolled to the newest segment — but only when the user
+  // is already near the bottom, so scrolling up to re-read isn't yanked away.
+  useEffect(() => {
+    const el = transcriptScrollRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140
+    if (nearBottom) el.scrollTo({ top: el.scrollHeight })
+  }, [transcript])
 
   // Persist the in-progress meeting whenever it changes.
   useEffect(() => {
@@ -694,7 +717,7 @@ export default function MeetingNotesPage() {
           <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-4">
             Transcript
           </h2>
-          <div className="space-y-4 max-h-96 overflow-y-auto">
+          <div ref={transcriptScrollRef} className="space-y-4 max-h-96 overflow-y-auto scroll-smooth">
             {transcript.map((seg, i) => (
               <div key={i} className="border-l-2 border-purple-500 pl-4">
                 {seg.start !== undefined && (
