@@ -117,5 +117,13 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Test edge functions on the built branch
-        run: deno test supabase/functions/tests/
+      # Retry so a transient remote-dep fetch failure (e.g. esm.sh 522) doesn't
+      # flake the run; a real test failure still fails all attempts.
+      - name: Test edge functions on the built branch (retry transient failures)
+        run: |
+          for attempt in 1 2 3; do
+            if deno test supabase/functions/tests/; then exit 0; fi
+            echo "attempt $attempt failed; retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+          exit 1
