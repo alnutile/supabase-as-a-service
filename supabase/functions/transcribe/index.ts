@@ -5,13 +5,51 @@
 //
 // verify_jwt: true (authenticated users only)
 
+import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+
 const OPENAI_API_URL = 'https://api.openai.com/v1/audio/transcriptions'
 const MAX_AUDIO_BYTES = 25_000_000 // 25MB (Whisper limit)
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+}
+
+// The caller's user id, decoded from the already-verified JWT (verify_jwt:true,
+// so the platform validated it before we ever run). Used to scope Vault reads.
+function userIdFromAuth(req: Request): string | null {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  try {
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof payload.sub === 'string' ? payload.sub : null
+  } catch {
+    return null
+  }
+}
+
+// Resolve the OpenAI key. Admins store it in the in-app Secrets Vault (a
+// `vault_secrets` row named OPENAI_KEY), read via the service-role-only
+// `read_vault_secret` RPC — the same pattern as the email/MCP/github secrets.
+// An edge-function env secret (OPENAI_KEY / OPENAI_API_KEY) is a fallback.
+async function resolveOpenAiKey(req: Request): Promise<string | null> {
+  const url = Deno.env.get('SUPABASE_URL')
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (url && serviceKey) {
+    try {
+      const db = createClient(url, serviceKey)
+      const userId = userIdFromAuth(req)
+      for (const name of ['OPENAI_KEY', 'OPENAI_API_KEY']) {
+        const { data } = await db.rpc('read_vault_secret', { p_name: name, p_user_id: userId })
+        if (typeof data === 'string' && data.trim()) return data.trim()
+      }
+    } catch {
+      // Fall through to the env fallback below.
+    }
+  }
+  return Deno.env.get('OPENAI_KEY') ?? Deno.env.get('OPENAI_API_KEY') ?? null
 }
 
 Deno.serve(async (req: Request) => {
@@ -20,13 +58,24 @@ Deno.serve(async (req: Request) => {
   try {
     // Transcription runs on OpenAI Whisper (OpenRouter has no audio endpoint).
     // The rest of the app defaults to OpenRouter, so this is the one place that
-    // needs a dedicated OpenAI key — set it as the `OPENAI_KEY` edge secret.
-    // (`OPENAI_API_KEY` is accepted as a fallback for older setups.)
-    const apiKey = Deno.env.get('OPENAI_KEY') ?? Deno.env.get('OPENAI_API_KEY')
+    // needs a dedicated OpenAI key — stored as a workspace secret named
+    // OPENAI_KEY in the in-app Secrets Vault (env secret is a fallback).
+    const apiKey = await resolveOpenAiKey(req)
+
+    // Health check: a GET reports whether transcription is configured, so the
+    // UI can show a "set OPENAI_KEY" notice up front instead of failing only
+    // once someone hits Record. No audio work, never leaks the key itself.
+    if (req.method === 'GET') {
+      return new Response(
+        JSON.stringify({ configured: !!apiKey }),
+        { headers: { ...CORS, 'Content-Type': 'application/json' } },
+      )
+    }
+
     if (!apiKey) {
       return new Response(
         JSON.stringify({
-          error: 'Transcription is not configured. Ask an admin to set the OPENAI_KEY edge-function secret.',
+          error: 'Transcription is not configured. Add a workspace secret named OPENAI_KEY in Settings → Secrets.',
         }),
         { status: 503, headers: { ...CORS, 'Content-Type': 'application/json' } },
       )
