@@ -20,11 +20,15 @@ export function MeetingChatPanel({
   meetingId,
   meetingTitle,
   getTranscript,
+  autoRun,
   onClose,
 }: {
   meetingId: string
   meetingTitle: string
   getTranscript: () => string
+  // When this changes to a new id, the panel auto-sends `instruction` (used to
+  // run the meeting's context prompt over the transcript when recording stops).
+  autoRun?: { id: string; instruction: string }
   onClose: () => void
 }) {
   const { user } = useAuth()
@@ -100,6 +104,18 @@ export function MeetingChatPanel({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages, streaming])
 
+  // Fire the meeting's context prompt over the transcript once, when the parent
+  // bumps autoRun to a new id (i.e. recording stopped and the final segment
+  // transcribed). `send` is a hoisted function declaration, safe to call here.
+  const autoRunHandled = useRef<string | null>(null)
+  useEffect(() => {
+    if (!autoRun?.id || !autoRun.instruction.trim()) return
+    if (autoRunHandled.current === autoRun.id) return
+    autoRunHandled.current = autoRun.id
+    void send(autoRun.instruction)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun?.id])
+
   const insertMessage = useCallback(
     async (convId: string, role: 'user' | 'assistant', content: string) => {
       const { data } = await supabase
@@ -140,10 +156,10 @@ export function MeetingChatPanel({
     ].join('\n\n')
   }
 
-  async function send() {
-    const text = input.trim()
+  async function send(explicitText?: string) {
+    const text = (explicitText ?? input).trim()
     if (!text || sending || !user) return
-    setInput('')
+    if (explicitText === undefined) setInput('')
     setSending(true)
     setError(null)
     // History from what's on screen now + this turn (built before the insert).
