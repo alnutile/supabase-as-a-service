@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase, transcribeFunctionUrl } from '../lib/supabase'
 import { formatDate } from '../lib/util'
-import { MicIcon, SaveIcon, StopIcon, TrashIcon } from '../components/icons'
+import { ChatIcon, MicIcon, SaveIcon, StopIcon, TrashIcon } from '../components/icons'
+import { MeetingChatPanel } from '../components/MeetingChatPanel'
 
 interface TranscriptSegment {
   text: string
@@ -20,6 +21,22 @@ export default function MeetingNotesPage() {
   const [meetingTitle, setMeetingTitle] = useState('')
   // null = not checked yet; true/false = whether the OPENAI_KEY secret is set.
   const [transcribeConfigured, setTranscribeConfigured] = useState<boolean | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  // Stable id for THIS meeting session — correlates the live chat thread
+  // (conversations.meeting_id) with the artifact saved at the end. A fresh id
+  // starts a fresh meeting (regenerated after save / clear).
+  const [meetingId, setMeetingId] = useState<string>(() => crypto.randomUUID())
+  // The meeting's context prompt: what to do with the transcript when it ends
+  // (free text, optionally prefilled from a saved skill). Auto-runs on stop.
+  const [meetingPrompt, setMeetingPrompt] = useState('')
+  const meetingPromptRef = useRef('')
+  const [skills, setSkills] = useState<Array<{ id: string; name: string; instructions: string }>>([])
+  const [autoRun, setAutoRun] = useState<{ id: string; instruction: string } | undefined>(undefined)
+  const autoRunAfterFinal = useRef(false)
+  const transcribedRef = useRef(false)
+  // Called by the recorder's onstop (defined below triggerAutoRun) via a ref to
+  // sidestep declaration ordering.
+  const triggerAutoRunRef = useRef<() => void>(() => {})
 
   // How long each transcription segment runs. Each segment is recorded by its
   // OWN MediaRecorder so the resulting blob is a complete, self-contained webm
@@ -61,6 +78,7 @@ export default function MeetingNotesPage() {
       const result = await response.json()
 
       if (result.text && result.text.trim()) {
+        transcribedRef.current = true
         const now = Date.now()
         const elapsed = (now - startTimeRef.current) / 1000
 
@@ -98,8 +116,14 @@ export default function MeetingNotesPage() {
 
     mediaRecorder.onstop = () => {
       const blob = new Blob(chunks, { type: mimeTypeRef.current })
-      void transcribeBlob(blob)
-      if (recordingRef.current) startSegment()
+      const done = transcribeBlob(blob)
+      if (recordingRef.current) {
+        startSegment()
+      } else if (autoRunAfterFinal.current) {
+        // Final segment: run the meeting's context prompt once it has transcribed.
+        autoRunAfterFinal.current = false
+        void done.finally(() => triggerAutoRunRef.current())
+      }
     }
 
     mediaRecorder.start()
@@ -132,6 +156,7 @@ export default function MeetingNotesPage() {
 
   const stopRecording = useCallback(() => {
     recordingRef.current = false
+    autoRunAfterFinal.current = true // run the context prompt after the last segment
     if (rotateTimerRef.current) {
       clearTimeout(rotateTimerRef.current)
       rotateTimerRef.current = null
@@ -152,7 +177,12 @@ export default function MeetingNotesPage() {
     if (confirm('Clear the current transcript? This cannot be undone.')) {
       setTranscript([])
       setMeetingTitle('')
+      setMeetingPrompt('')
       setStatus('Ready to record')
+      setMeetingId(crypto.randomUUID()) // fresh meeting → fresh chat thread
+      setChatOpen(false)
+      setAutoRun(undefined)
+      transcribedRef.current = false
     }
   }, [])
 
@@ -193,6 +223,7 @@ export default function MeetingNotesPage() {
           visibility: 'private',
           data: {
             meeting_notes: true,
+            meeting_id: meetingId,
             recorded_at: new Date().toISOString(),
             duration: transcript.length > 0 && transcript[transcript.length - 1].end
               ? Math.round(transcript[transcript.length - 1].end!)
@@ -220,7 +251,35 @@ export default function MeetingNotesPage() {
       setStatus(`Error saving: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setSaving(false)
     }
-  }, [transcript, meetingTitle, user])
+  }, [transcript, meetingTitle, user, meetingId])
+
+  // Keep the prompt ref in sync so the recorder callbacks read the latest value.
+  useEffect(() => { meetingPromptRef.current = meetingPrompt }, [meetingPrompt])
+
+  // Load the user's on-demand skills as pickable meeting context prompts.
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    supabase
+      .from('skills')
+      .select('id, name, instructions')
+      .eq('auto_apply', false)
+      .order('name', { ascending: true })
+      .then(({ data }) => {
+        if (active && data) setSkills(data)
+      })
+    return () => { active = false }
+  }, [user])
+
+  // Run the meeting's context prompt over the transcript (fired once the final
+  // segment has transcribed). No-ops if there's no prompt or nothing was said.
+  const triggerAutoRun = useCallback(() => {
+    const instruction = meetingPromptRef.current.trim()
+    if (!instruction || !transcribedRef.current) return
+    setChatOpen(true)
+    setAutoRun({ id: crypto.randomUUID(), instruction })
+  }, [])
+  useEffect(() => { triggerAutoRunRef.current = triggerAutoRun }, [triggerAutoRun])
 
   // Check up front whether transcription is configured (OPENAI_KEY secret set)
   // so we can warn before the user records rather than failing mid-session.
@@ -261,7 +320,8 @@ export default function MeetingNotesPage() {
   }, [])
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto flex flex-col gap-6 p-6 lg:flex-row">
+      <div className="min-w-0 flex-1">
       {transcribeConfigured === false && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900
                         dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
@@ -305,6 +365,42 @@ export default function MeetingNotesPage() {
                      bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100
                      focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-600
                      disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+        </div>
+
+        {/* Context prompt: what to do with the transcript. Runs on stop. */}
+        <div className="mb-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <label htmlFor="meeting-prompt" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              What should I do with this meeting? <span className="text-zinc-400">(optional)</span>
+            </label>
+            {skills.length > 0 && (
+              <select
+                aria-label="Prefill from a saved skill"
+                value=""
+                onChange={(e) => {
+                  const s = skills.find((x) => x.id === e.target.value)
+                  if (s) setMeetingPrompt(s.instructions)
+                }}
+                className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700
+                         dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+              >
+                <option value="">Use a skill…</option>
+                {skills.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <textarea
+            id="meeting-prompt"
+            value={meetingPrompt}
+            onChange={(e) => setMeetingPrompt(e.target.value)}
+            placeholder="e.g. Summarise the decisions and create a to-do for each action item. Runs automatically when you stop recording."
+            rows={2}
+            className="w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm
+                     text-zinc-900 focus:outline-none focus:ring-2 focus:ring-purple-500
+                     dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-purple-600"
           />
         </div>
 
@@ -357,6 +453,17 @@ export default function MeetingNotesPage() {
               </button>
             </>
           )}
+
+          {/* Chat about the meeting — available during and after recording. */}
+          <button
+            onClick={() => setChatOpen((o) => !o)}
+            className="ml-auto flex items-center gap-2 rounded-lg border border-zinc-300 px-4 py-2
+                     font-medium text-zinc-700 transition-colors hover:bg-zinc-100
+                     dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            <ChatIcon className="h-5 w-5" />
+            {chatOpen ? 'Hide chat' : 'Chat'}
+          </button>
         </div>
 
         <div className="flex items-center gap-2 text-sm">
@@ -397,6 +504,31 @@ export default function MeetingNotesPage() {
         <div className="text-center py-12 text-zinc-500 dark:text-zinc-400">
           <MicIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p>Start recording to see your transcript here</p>
+        </div>
+      )}
+      </div>
+
+      {chatOpen && (
+        <div className="lg:w-[380px] lg:shrink-0">
+          <div className="h-[70vh] overflow-hidden rounded-lg border border-border lg:sticky lg:top-6">
+            <MeetingChatPanel
+              meetingId={meetingId}
+              meetingTitle={meetingTitle.trim() || 'Untitled meeting'}
+              getTranscript={() =>
+                transcript
+                  .map((seg) => {
+                    const t =
+                      seg.start !== undefined
+                        ? `[${Math.floor(seg.start / 60)}:${String(Math.floor(seg.start % 60)).padStart(2, '0')}] `
+                        : ''
+                    return `${t}${seg.text}`.trim()
+                  })
+                  .join('\n\n')
+              }
+              autoRun={autoRun}
+              onClose={() => setChatOpen(false)}
+            />
+          </div>
         </div>
       )}
     </div>
