@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { migrationName, migrationVersion, pendingMigrations } from './rollout'
+import { migrationName, migrationVersion, parseTenantRefs, pendingMigrations } from './rollout'
+
+describe('parseTenantRefs', () => {
+  it('keeps non-blank refs, trims, de-dupes, drops nulls', () => {
+    expect(
+      parseTenantRefs([
+        { project_ref: 'aaa' },
+        { project_ref: ' bbb ' },
+        { project_ref: null },
+        { project_ref: '' },
+        { project_ref: 'aaa' },
+      ]),
+    ).toEqual(['aaa', 'bbb'])
+  })
+
+  it('is empty for no rows', () => {
+    expect(parseTenantRefs([])).toEqual([])
+  })
+})
 
 describe('rollout migration helpers', () => {
   it('parses version and name from a path or bare filename', () => {

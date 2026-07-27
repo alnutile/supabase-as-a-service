@@ -24,6 +24,21 @@ export interface MigrationFile {
   name: string
 }
 
+// Rows from the control-plane `tenants` query → a clean, de-duped list of
+// project refs (drops null/blank/duplicate refs).
+export function parseTenantRefs(rows: Array<{ project_ref?: string | null }>): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const r of rows) {
+    const ref = typeof r.project_ref === 'string' ? r.project_ref.trim() : ''
+    if (ref && !seen.has(ref)) {
+      seen.add(ref)
+      out.push(ref)
+    }
+  }
+  return out
+}
+
 // Given all migration file paths and the versions already applied on a target
 // database, return the ones still pending, in ascending version order.
 export function pendingMigrations(paths: string[], applied: Iterable<string>): MigrationFile[] {

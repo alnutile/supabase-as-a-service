@@ -1,4 +1,4 @@
 {
-  "$comment": "Tenant Supabase project refs the 'Release to tenants' workflow fans out to (migrations + edge functions), using the single org-owner PAT. Add a ref here when you provision a tenant; remove it to stop updating one. ONLY list projects that are THIS app under your own Supabase org — never non-app projects, since the fan-out runs migrations against every ref listed. The origin project (SupaNet) already deploys via deploy-migrations.yml / deploy-functions.yml on main, so you typically do NOT list it here.",
+  "$comment": "OPTIONAL override for the 'Release to tenants' fan-out. Normally leave refs EMPTY — the fan-out reads live tenants (status active|past_due) straight from the control-plane `tenants` table, so this list stays in sync automatically. Put one or more refs here ONLY to pin the rollout to a canary/manual subset (e.g. roll out to a single tenant first to verify), then set it back to [] to resume 'all live tenants'. Any ref listed here must be one of YOUR app's tenant projects.",
   "refs": []
 }

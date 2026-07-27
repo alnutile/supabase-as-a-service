@@ -14,9 +14,17 @@ name: Release to tenants
 # to deploy the origin project) reaches all of them via the Management API. No
 # per-tenant secret, no DB password, nothing for a tenant to do.
 #
-#   Migrations → Management API SQL endpoint (scripts/apply-migrations.ts), which
-#                needs only the PAT (a DB password can't be fetched with a PAT).
-#   Functions  → `supabase functions deploy --project-ref <ref>` (PAT-only too).
+#   Tenant list → the CONTROL PLANE's `tenants` table (its own Supabase project,
+#                 the system of record): scripts/list-tenants.ts queries it for
+#                 live tenants (status active|past_due) via the Management API SQL
+#                 endpoint. So the list stays in sync automatically — no hand-kept
+#                 registry. infra/tenants.json is only an optional canary override.
+#   Migrations  → Management API SQL endpoint (scripts/apply-migrations.ts), which
+#                 needs only the PAT (a DB password can't be fetched with a PAT).
+#   Functions   → `supabase functions deploy --project-ref <ref>` (PAT-only too).
+#
+# Setup: SUPABASE_ACCESS_TOKEN (secret, the org PAT) + CONTROL_PLANE_REF (repo
+# variable, the control-plane Supabase project ref).
 #
 # Trigger: push to `release` — the same merge you already do to ship the frontend
 # to tenants — so DB + functions move together. workflow_dispatch offers a
@@ -30,6 +38,8 @@ on:
       - 'supabase/functions/**'
       - 'supabase/config.toml'
       - 'infra/tenants.json'
+      - 'scripts/apply-migrations.ts'
+      - 'scripts/list-tenants.ts'
       - '.github/workflows/release-tenants.yml'
   workflow_dispatch:
     inputs:
@@ -50,11 +60,19 @@ jobs:
     outputs:
       refs: ${{ steps.read.outputs.refs }}
       count: ${{ steps.read.outputs.count }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      CONTROL_PLANE_REF: ${{ vars.CONTROL_PLANE_REF }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - id: read
+        # Live tenants from the control plane (or the infra/tenants.json canary
+        # override). Prints a JSON array of project refs.
         run: |
-          REFS=$(jq -c '.refs // []' infra/tenants.json)
+          REFS=$(npx --yes tsx@4 scripts/list-tenants.ts)
           echo "refs=$REFS" >> "$GITHUB_OUTPUT"
           echo "count=$(printf '%s' "$REFS" | jq 'length')" >> "$GITHUB_OUTPUT"
           echo "Tenants to update: $REFS"
