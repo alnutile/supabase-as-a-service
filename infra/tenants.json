@@ -1,0 +1,4 @@
+{
+  "$comment": "OPTIONAL override for the 'Release to tenants' fan-out. Normally leave refs EMPTY — the fan-out reads live tenants (status active|past_due) straight from the control-plane `tenants` table, so this list stays in sync automatically. Put one or more refs here ONLY to pin the rollout to a canary/manual subset (e.g. roll out to a single tenant first to verify), then set it back to [] to resume 'all live tenants'. Any ref listed here must be one of YOUR app's tenant projects.",
+  "refs": []
+}
