@@ -32,6 +32,7 @@ import {
   ToolIcon,
   UploadIcon,
   UsageIcon,
+  UsersIcon,
   WebhookIcon,
   type IconProps,
 } from '../components/icons'
@@ -589,7 +590,7 @@ function PinnedArtifacts({
   loading: boolean
   navigate: (to: string) => void
 }) {
-  const VIS_ICON = { private: LockIcon, unlisted: LinkIcon, public: GlobeIcon }
+  const VIS_ICON = { private: LockIcon, workspace: UsersIcon, unlisted: LinkIcon, public: GlobeIcon }
 
   return (
     <div className="mb-6">

@@ -280,9 +280,10 @@ export default function ArtifactEditorPage() {
 
   async function changeVisibility(visibility: Visibility) {
     if (!artifact) return
-    // Public/unlisted artifacts need a slug for their share link.
+    // Public/unlisted artifacts need a slug for their external share link.
+    // Workspace artifacts are internal-only and don't need a public slug.
     let slug = artifact.public_slug
-    if (visibility !== 'private' && !slug) slug = makeSlug()
+    if ((visibility === 'unlisted' || visibility === 'public') && !slug) slug = makeSlug()
     const overrides = { visibility, public_slug: slug }
     patch(overrides)
     await save(overrides)
@@ -403,8 +404,12 @@ export default function ArtifactEditorPage() {
     return <div className="flex h-full items-center justify-center text-sm text-faint">Loading…</div>
   }
 
+  // Only unlisted/public artifacts get an external share URL. Workspace artifacts
+  // are internal-only and don't need a public slug or share link.
   const shareUrl =
-    artifact.public_slug ? `${window.location.origin}/share/a/${artifact.public_slug}` : null
+    artifact.public_slug && (artifact.visibility === 'unlisted' || artifact.visibility === 'public')
+      ? `${window.location.origin}/share/a/${artifact.public_slug}`
+      : null
 
   return (
     <div className="flex h-full flex-col overflow-y-auto md:flex-row md:overflow-hidden">
@@ -558,7 +563,9 @@ export default function ArtifactEditorPage() {
               onRemove: removeSharePassword,
             }}
           />
-          {artifact.type === 'html' && artifact.visibility !== 'private' && artifact.public_slug && (
+          {artifact.type === 'html' &&
+            (artifact.visibility === 'unlisted' || artifact.visibility === 'public') &&
+            artifact.public_slug && (
             <a
               href={standalonePageUrl(artifact.public_slug)}
               target="_blank"
