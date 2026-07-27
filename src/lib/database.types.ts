@@ -8,7 +8,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type Visibility = 'private' | 'unlisted' | 'public'
+export type Visibility = 'private' | 'workspace' | 'unlisted' | 'public'
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ArtifactType = 'markdown' | 'code' | 'html' | 'text'
 export type SkillOutputMode = 'artifact' | 'reply'

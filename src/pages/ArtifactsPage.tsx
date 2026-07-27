@@ -22,12 +22,13 @@ import {
   SearchIcon,
   TrashIcon,
   DownloadIcon,
+  UsersIcon,
 } from '../components/icons'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
 
-const VIS_ICON = { private: LockIcon, unlisted: LinkIcon, public: GlobeIcon }
+const VIS_ICON = { private: LockIcon, workspace: UsersIcon, unlisted: LinkIcon, public: GlobeIcon }
 
 export default function ArtifactsPage() {
   const navigate = useNavigate()
@@ -66,9 +67,9 @@ export default function ArtifactsPage() {
   )
   // Filter by visibility (null = all). Backed by the `?visibility=<type>` URL
   // param so the selection survives navigation.
-  const activeVisibility = searchParams.get('visibility') as 'private' | 'unlisted' | 'public' | null
+  const activeVisibility = searchParams.get('visibility') as 'private' | 'workspace' | 'unlisted' | 'public' | null
   const setActiveVisibility = useCallback(
-    (vis: 'private' | 'unlisted' | 'public' | null) => {
+    (vis: 'private' | 'workspace' | 'unlisted' | 'public' | null) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev)
@@ -428,7 +429,7 @@ export default function ArtifactsPage() {
         {/* Visibility filter bar */}
         <div className="mb-5 flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium uppercase tracking-wide text-faint">Visibility:</span>
-          {(['private', 'unlisted', 'public'] as const).map((vis) => {
+          {(['private', 'workspace', 'unlisted', 'public'] as const).map((vis) => {
             const Icon = VIS_ICON[vis]
             const count = artifacts.filter((a) => a.visibility === vis).length
             return (

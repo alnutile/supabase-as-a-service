@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { Visibility } from '../lib/database.types'
 import { validateSharePassword } from '../lib/artifactShare'
-import { GlobeIcon, LinkIcon, LockIcon, EyeIcon, EyeOffIcon } from './icons'
+import { GlobeIcon, LinkIcon, LockIcon, UsersIcon, EyeIcon, EyeOffIcon } from './icons'
 
 const OPTIONS: { value: Visibility; label: string; hint: string; Icon: typeof LockIcon }[] = [
   { value: 'private', label: 'Private', hint: 'Only you', Icon: LockIcon },
+  { value: 'workspace', label: 'Workspace', hint: 'Team members', Icon: UsersIcon },
   { value: 'unlisted', label: 'Unlisted', hint: 'Anyone with the link', Icon: LinkIcon },
   { value: 'public', label: 'Public', hint: 'Discoverable link', Icon: GlobeIcon },
 ]

@@ -36,7 +36,7 @@ const CORS = {
 const JSON_HEADERS = { ...CORS, 'Content-Type': 'application/json' }
 
 const ARTIFACT_TYPES = ['markdown', 'code', 'html', 'text'] as const
-const VISIBILITIES = ['private', 'unlisted', 'public'] as const
+const VISIBILITIES = ['private', 'workspace', 'unlisted', 'public'] as const
 
 function admin() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
@@ -187,7 +187,7 @@ ENDPOINTS
            "content": "...",           (required)
            "type": "markdown",         (markdown|code|html|text, default markdown)
            "language": "ts",           (optional, for code)
-           "visibility": "private",    (private|unlisted|public, default private)
+           "visibility": "private",    (private|workspace|unlisted|public, default private)
            "collection": "Blog",       (optional name or id — created if missing)
            "collections": ["Blog","Q3"] (optional list, same rules) }
 
@@ -200,9 +200,11 @@ ENDPOINTS
   DELETE /artifacts/:id            Delete one.
 
 NOTES
-  • Set visibility to "unlisted" or "public" to get a public_slug back. HTML
-    artifacts also get a share_url (a standalone page). For other types, link to
-    https://<app-origin>/share/a/<public_slug>.
+  • Visibility options: "private" (only you), "workspace" (team members),
+    "unlisted" (anyone with link), "public" (anyone with link, discoverable).
+    Only "unlisted" and "public" generate a public_slug for external sharing.
+    HTML artifacts also get a share_url (a standalone page). For other types,
+    link to https://<app-origin>/share/a/<public_slug>.
   • A collection is a named group you can chat with in the app. Reference it by
     name (created automatically if it doesn't exist yet) or by id.
 
@@ -298,7 +300,8 @@ async function handleCreate(db: DB, owner: string, body: Record<string, unknown>
     ? (body.visibility as string)
     : 'private'
   const language = typeof body.language === 'string' ? body.language : null
-  const slug = visibility !== 'private' ? makeSlug() : null
+  // Only unlisted/public artifacts get a slug for external sharing; workspace is internal-only.
+  const slug = visibility === 'unlisted' || visibility === 'public' ? makeSlug() : null
 
   const { data, error } = await db
     .from('artifacts')
@@ -328,8 +331,10 @@ async function handleUpdate(db: DB, owner: string, id: string, body: Record<stri
   if (typeof body.language === 'string') patch.language = body.language
   if ((VISIBILITIES as readonly string[]).includes(body.visibility as string)) {
     patch.visibility = body.visibility
-    // Mint a slug when going public/unlisted without one; keep existing otherwise.
-    if (body.visibility !== 'private' && !existing.public_slug) patch.public_slug = makeSlug()
+    // Mint a slug when going public/unlisted without one; workspace is internal-only.
+    if ((body.visibility === 'unlisted' || body.visibility === 'public') && !existing.public_slug) {
+      patch.public_slug = makeSlug()
+    }
   }
 
   let data = existing as Record<string, unknown>
