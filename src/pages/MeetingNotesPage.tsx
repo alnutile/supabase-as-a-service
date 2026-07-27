@@ -74,6 +74,12 @@ export default function MeetingNotesPage() {
   const transcriptScrollRef = useRef<HTMLDivElement>(null)
   // Also capture tab/app audio (Zoom, Meet, Slack huddle) alongside the mic.
   const [captureSystem, setCaptureSystem] = useState(false)
+  // Record view vs. the list of past saved meetings.
+  const [tab, setTab] = useState<'record' | 'past'>('record')
+  const [pastMeetings, setPastMeetings] = useState<
+    Array<{ id: string; title: string; created_at: string; data: Record<string, unknown> | null }>
+  >([])
+  const [pastLoading, setPastLoading] = useState(false)
 
   const transcribeBlob = useCallback(async (audioBlob: Blob) => {
     if (audioBlob.size === 0) return
@@ -314,7 +320,69 @@ export default function MeetingNotesPage() {
         })
         .join('\n\n')
 
-      const fullContent = `# ${meetingTitle}\n\n**Date:** ${formatDate(new Date().toISOString())}\n\n## Transcript\n\n${content}`
+      // Pull the meeting's chat thread (if any) so the artifact is the FULL
+      // record, not just the transcript.
+      let chatMd = ''
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('meeting_id', meetingId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (conv) {
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('role, content')
+          .eq('conversation_id', conv.id)
+          .order('created_at', { ascending: true })
+        if (msgs && msgs.length) {
+          chatMd = msgs
+            .map((m) => `**${m.role === 'assistant' ? 'Assistant' : 'You'}:** ${m.content}`)
+            .join('\n\n')
+        }
+      }
+
+      // Generate a TLDR + follow-ups from the transcript AND the chat, so the
+      // end-of-meeting work the context prompt/skill did (which lands in chat) is
+      // distilled into the note, not just dumped. Tool-free; optional (a failure
+      // leaves those sections empty rather than blocking the save).
+      let tldr = ''
+      let followup = ''
+      try {
+        setStatus('Summarizing…')
+        const sys =
+          `You are writing up a meeting. Transcript:\n\n${content}` +
+          (chatMd ? `\n\nMeeting chat (may contain agreed decisions/follow-ups):\n\n${chatMd}` : '')
+        const resp = await streamChat(
+          [{
+            role: 'user',
+            content:
+              'Write up this meeting. Respond in EXACTLY this format and nothing else:\n' +
+              '<<<TLDR>>>\n<2–4 sentence summary of what happened and what was decided>\n' +
+              '<<<FOLLOWUP>>>\n- <each concrete action item as a bullet; include owner and due date if stated>',
+          }],
+          () => {},
+          { system: sys, toolIds: [] },
+        )
+        const [head, tail] = resp.split('<<<FOLLOWUP>>>')
+        tldr = (head || '').replace('<<<TLDR>>>', '').trim()
+        followup = (tail || '').trim()
+      } catch {
+        // Summary is best-effort — keep saving.
+      }
+
+      const now = new Date()
+      const dateStr = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()}`
+      const sections = [
+        `# ${meetingTitle} — ${dateStr}`,
+        `## Ideas\n\n${ideas.length ? ideas.map((i) => `- ${i}`).join('\n') : '_None captured._'}`,
+        `## Follow up\n\n${followup || '_None._'}`,
+        `## TLDR\n\n${tldr || '_Not generated._'}`,
+        `## Raw Transcript\n\n${content}`,
+      ]
+      if (chatMd) sections.push(`## Chat\n\n${chatMd}`)
+      const fullContent = sections.join('\n\n')
 
       const { data: artifact, error } = await supabase
         .from('artifacts')
@@ -331,6 +399,9 @@ export default function MeetingNotesPage() {
             duration: transcript.length > 0 && transcript[transcript.length - 1].end
               ? Math.round(transcript[transcript.length - 1].end!)
               : 0,
+            ideas_count: ideas.length,
+            has_chat: !!chatMd,
+            has_summary: !!(tldr || followup),
           },
         })
         .select()
@@ -355,7 +426,7 @@ export default function MeetingNotesPage() {
       setStatus(`Error saving: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setSaving(false)
     }
-  }, [transcript, meetingTitle, user, meetingId])
+  }, [transcript, meetingTitle, user, meetingId, ideas])
 
   // Keep the prompt ref in sync so the recorder callbacks read the latest value.
   useEffect(() => { meetingPromptRef.current = meetingPrompt }, [meetingPrompt])
@@ -403,6 +474,7 @@ export default function MeetingNotesPage() {
         setMeetingTitle(saved.title || '')
         setMeetingPrompt(saved.prompt || '')
         setTranscript(saved.transcript)
+        if (Array.isArray(saved.ideas)) setIdeas(saved.ideas)
         transcribedRef.current = true
         setStatus('Restored an in-progress meeting — resume recording or save.')
       }
@@ -424,10 +496,38 @@ export default function MeetingNotesPage() {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ meetingId, title: meetingTitle, prompt: meetingPrompt, transcript }),
+        JSON.stringify({ meetingId, title: meetingTitle, prompt: meetingPrompt, transcript, ideas }),
       )
     } catch { /* ignore quota */ }
-  }, [transcript, meetingId, meetingTitle, meetingPrompt])
+  }, [transcript, meetingId, meetingTitle, meetingPrompt, ideas])
+
+  // Load past saved meetings (they're artifacts tagged meeting_notes) for the
+  // "Past meetings" tab. Owner-only via RLS, newest first.
+  useEffect(() => {
+    if (tab !== 'past' || !user) return
+    let active = true
+    setPastLoading(true)
+    supabase
+      .from('artifacts')
+      .select('id, title, created_at, data')
+      .contains('data', { meeting_notes: true })
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data }) => {
+        if (!active) return
+        const rows = (data ?? []).map((r) => ({
+          id: r.id,
+          title: r.title,
+          created_at: r.created_at,
+          data: r.data && typeof r.data === 'object' && !Array.isArray(r.data)
+            ? (r.data as Record<string, unknown>)
+            : null,
+        }))
+        setPastMeetings(rows)
+        setPastLoading(false)
+      })
+    return () => { active = false }
+  }, [tab, user])
 
   // Ambient idea monitor (opt-in): every MONITOR_MS while recording, if new
   // transcript has landed, ask the model for one idea/question/action worth
@@ -507,6 +607,70 @@ export default function MeetingNotesPage() {
   return (
     <div className="max-w-6xl mx-auto flex flex-col gap-6 p-6 lg:flex-row">
       <div className="min-w-0 flex-1">
+      <div className="mb-4">
+        <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">
+          Meeting Notes
+        </h1>
+        <p className="text-zinc-600 dark:text-zinc-400">
+          Record audio and get a live transcript. Saved as an artifact.
+        </p>
+      </div>
+
+      {/* Tabs: record vs. past meetings */}
+      <div className="mb-6 flex gap-1 border-b border-zinc-200 dark:border-zinc-700">
+        {(['record', 'past'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+              tab === t
+                ? 'border-purple-500 text-purple-600 dark:text-purple-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
+            }`}
+          >
+            {t === 'record' ? 'Record' : 'Past meetings'}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'past' && (
+        <div className="space-y-2">
+          {pastLoading && <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>}
+          {!pastLoading && pastMeetings.length === 0 && (
+            <div className="text-center py-12 text-zinc-500 dark:text-zinc-400">
+              <MicIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>No saved meetings yet. Record one and hit “Save”.</p>
+            </div>
+          )}
+          {pastMeetings.map((m) => (
+            <a
+              key={m.id}
+              href={`/artifacts/${m.id}`}
+              className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-4
+                       transition-colors hover:border-purple-300 hover:bg-purple-50
+                       dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-purple-500/40 dark:hover:bg-purple-500/10"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{m.title || 'Untitled meeting'}</p>
+                <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  {formatDate(m.created_at)}
+                  {typeof m.data?.duration === 'number' && m.data.duration > 0 && (
+                    <> · {Math.floor((m.data.duration as number) / 60)}m {Math.round((m.data.duration as number) % 60)}s</>
+                  )}
+                  {m.data?.has_chat ? ' · chat' : ''}
+                  {typeof m.data?.ideas_count === 'number' && (m.data.ideas_count as number) > 0
+                    ? ` · ${m.data.ideas_count} idea${(m.data.ideas_count as number) === 1 ? '' : 's'}`
+                    : ''}
+                </p>
+              </div>
+              <span className="shrink-0 text-xs text-purple-600 dark:text-purple-400">Open →</span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {tab === 'record' && (
+      <>
       {transcribeConfigured === false && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900
                         dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
@@ -523,15 +687,6 @@ export default function MeetingNotesPage() {
           </p>
         </div>
       )}
-
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">
-          Meeting Notes
-        </h1>
-        <p className="text-zinc-600 dark:text-zinc-400">
-          Record audio and get a live transcript. Saved as an artifact.
-        </p>
-      </div>
 
       {/* Recording Controls */}
       <div className="bg-white dark:bg-zinc-800 rounded-lg p-6 mb-6 shadow-sm border border-zinc-200 dark:border-zinc-700">
@@ -738,9 +893,11 @@ export default function MeetingNotesPage() {
           <p>Start recording to see your transcript here</p>
         </div>
       )}
+      </>
+      )}
       </div>
 
-      {chatOpen && (
+      {tab === 'record' && chatOpen && (
         <div className="lg:w-[380px] lg:shrink-0">
           <div className="h-[70vh] overflow-hidden rounded-lg border border-border lg:sticky lg:top-6">
             <MeetingChatPanel
