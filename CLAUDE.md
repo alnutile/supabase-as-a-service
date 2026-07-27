@@ -891,6 +891,23 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   `.failed` / `.deleted`). *Planned follow-up (not built): DB-writing forged functions via
   admin-authored `security definer` RPCs; an `applies_to_forge` guardrail context; a
   `forge_tool` MCP action so Claude Code can forge tools too.*
+- **Multi-tenant release fan-out (`release-tenants.yml`):** the origin deploy workflows only touch
+  ONE project on `main`, but this template runs as many tenant apps (each its own Supabase project +
+  Railway frontend, all under the maintainer's own Supabase org). The frontend already fans out (each
+  tenant rebuilds from the `release` branch), but migrations + edge functions did not — so a tenant
+  got new frontend code calling a table/function its DB never received (`Could not find … in the
+  schema cache`). `release-tenants.yml` closes that: on push to `release` (the same merge that ships
+  the frontend), it reads the tenant refs from **`infra/tenants.json`** and, for each, applies pending
+  migrations + deploys functions — using the SINGLE org-owner PAT (`SUPABASE_ACCESS_TOKEN`, already
+  used for the origin), so **zero per-tenant secret and nothing for a tenant to do**. Migrations go
+  through the Management API SQL endpoint (`scripts/apply-migrations.ts` → `/database/query`), because
+  a PAT can't fetch a project's DB password (so `db push --db-url` isn't an option); it reads
+  `schema_migrations`, applies each pending file (version = `NNNN` prefix, matching `db push`) in a
+  transaction, records it, then calls `setup_automation_cron` (0094). The pure pending-diff logic is
+  `src/lib/rollout.ts` (unit-tested). Functions deploy via `supabase functions deploy --project-ref`
+  (PAT-only). `fail-fast:false` so one bad tenant never halts the fleet; `workflow_dispatch` offers a
+  dry-run. `infra/tenants.json` is the one central list the maintainer keeps (never list non-app
+  projects — the fan-out migrates every ref).
 - **DB migrations on `main`:** a **GitHub Action** (`.github/workflows/deploy-migrations.yml`)
   runs `supabase db push` whenever a file under `supabase/migrations/**` changes on `main`, so new
   migrations go live automatically (the CLI's migration history makes re-runs apply only what's

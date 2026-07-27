@@ -1,0 +1,99 @@
+name: Release to tenants
+
+# Fan out BACKEND updates (DB migrations + edge functions) to every tenant
+# project listed in infra/tenants.json — so "push once, all tenants just work".
+#
+# Why this exists: the frontend already fans out to tenants (each tenant's
+# Railway app rebuilds from the `release` branch), but migrations and edge
+# functions do NOT ride that — deploy-migrations.yml / deploy-functions.yml only
+# target the ORIGIN project on `main`. A tenant would get new frontend code
+# calling a table/function its database never received. This closes that gap.
+#
+# How it stays zero-touch for tenants: every tenant project lives under YOUR
+# Supabase org, so the SINGLE org-owner PAT (SUPABASE_ACCESS_TOKEN — already used
+# to deploy the origin project) reaches all of them via the Management API. No
+# per-tenant secret, no DB password, nothing for a tenant to do.
+#
+#   Migrations → Management API SQL endpoint (scripts/apply-migrations.ts), which
+#                needs only the PAT (a DB password can't be fetched with a PAT).
+#   Functions  → `supabase functions deploy --project-ref <ref>` (PAT-only too).
+#
+# Trigger: push to `release` — the same merge you already do to ship the frontend
+# to tenants — so DB + functions move together. workflow_dispatch offers a
+# dry-run (list pending migrations without applying).
+
+on:
+  push:
+    branches: [release]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+      - 'infra/tenants.json'
+      - '.github/workflows/release-tenants.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List pending migrations per tenant without applying'
+        type: boolean
+        default: false
+
+# Never cancel an in-flight fleet rollout — a half-applied fleet is worse than
+# waiting for the previous one to finish.
+concurrency:
+  group: release-tenants
+  cancel-in-progress: false
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      refs: ${{ steps.read.outputs.refs }}
+      count: ${{ steps.read.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          REFS=$(jq -c '.refs // []' infra/tenants.json)
+          echo "refs=$REFS" >> "$GITHUB_OUTPUT"
+          echo "count=$(printf '%s' "$REFS" | jq 'length')" >> "$GITHUB_OUTPUT"
+          echo "Tenants to update: $REFS"
+
+  rollout:
+    needs: list
+    if: needs.list.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      # One tenant's failure must not halt the others; surface each independently.
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        ref: ${{ fromJson(needs.list.outputs.refs) }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PAT
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN (org owner PAT) is required — the same token the origin deploy workflows use."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply migrations + schedule cron (${{ matrix.ref }})
+        run: >-
+          npx --yes tsx@4 scripts/apply-migrations.ts ${{ matrix.ref }}
+          ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+
+      - name: Deploy edge functions (${{ matrix.ref }})
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        run: supabase functions deploy --project-ref ${{ matrix.ref }}

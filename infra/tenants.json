@@ -1,0 +1,4 @@
+{
+  "$comment": "Tenant Supabase project refs the 'Release to tenants' workflow fans out to (migrations + edge functions), using the single org-owner PAT. Add a ref here when you provision a tenant; remove it to stop updating one. ONLY list projects that are THIS app under your own Supabase org — never non-app projects, since the fan-out runs migrations against every ref listed. The origin project (SupaNet) already deploys via deploy-migrations.yml / deploy-functions.yml on main, so you typically do NOT list it here.",
+  "refs": []
+}
