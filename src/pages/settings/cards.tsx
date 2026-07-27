@@ -991,7 +991,8 @@ export function InviteLinks() {
 // Admin Management — promote trusted members to admin as a recovery path.
 // Addresses the "single admin" security finding.
 export function AdminManagement() {
-  const [members, setMembers] = useState<{ id: string; email: string | null; display_name: string | null; is_admin: boolean }[]>([])
+  const { user } = useAuth()
+  const [members, setMembers] = useState<{ id: string; email: string | null; display_name: string | null; is_admin: boolean; disabled: boolean }[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -1028,15 +1029,79 @@ export function AdminManagement() {
     load()
   }
 
-  const adminCount = members.filter(m => m.is_admin).length
+  async function disableUser(userId: string, displayName: string | null, email: string | null) {
+    const name = displayName || email || 'this user'
+    if (!confirm(`Disable ${name}'s account? They will no longer be able to access the workspace.`)) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setSuccess(null)
+    const { error: disableErr } = await supabase.rpc('disable_user', { target_user_id: userId })
+    setBusy(false)
+    if (disableErr) {
+      setError(disableErr.message)
+      return
+    }
+    setSuccess(`${name}'s account has been disabled.`)
+    setTimeout(() => setSuccess(null), 3000)
+    load()
+  }
+
+  async function enableUser(userId: string, displayName: string | null, email: string | null) {
+    const name = displayName || email || 'this user'
+    if (!confirm(`Re-enable ${name}'s account?`)) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setSuccess(null)
+    const { error: enableErr } = await supabase.rpc('enable_user', { target_user_id: userId })
+    setBusy(false)
+    if (enableErr) {
+      setError(enableErr.message)
+      return
+    }
+    setSuccess(`${name}'s account has been re-enabled.`)
+    setTimeout(() => setSuccess(null), 3000)
+    load()
+  }
+
+  async function deleteUser(userId: string, displayName: string | null, email: string | null) {
+    const name = displayName || email || 'this user'
+    if (!confirm(`PERMANENTLY DELETE ${name}? This will remove them and all their content. This action cannot be undone.\n\nTo temporarily disable instead, use the "Disable" button.`)) {
+      return
+    }
+    // Double confirmation for destructive action
+    const confirmed = prompt(`Type DELETE to confirm permanent deletion of ${name}:`)
+    if (confirmed !== 'DELETE') {
+      setError('Deletion cancelled.')
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setSuccess(null)
+    const { error: deleteErr } = await supabase.rpc('delete_user', { target_user_id: userId })
+    setBusy(false)
+    if (deleteErr) {
+      setError(deleteErr.message)
+      return
+    }
+    setSuccess(`${name} has been permanently deleted.`)
+    setTimeout(() => setSuccess(null), 3000)
+    load()
+  }
+
+  const adminCount = members.filter(m => m.is_admin && !m.disabled).length
   const nonAdmins = members.filter(m => !m.is_admin)
 
   return (
     <section className="mt-6 rounded-xl border border-border bg-surface p-5">
-      <h2 className="text-sm font-semibold text-text">Admin management</h2>
+      <h2 className="text-sm font-semibold text-text">Workspace members</h2>
       <p className="mt-1 text-sm text-muted">
-        Promote a trusted member to admin as a recovery path. Admins have full access to governance
-        surfaces (tools, guardrails, secrets, this dashboard).
+        Manage workspace members: promote to admin, disable accounts, or permanently remove users.
+        Admins have full access to governance surfaces (tools, guardrails, secrets, this dashboard).
       </p>
 
       {adminCount === 1 && (
@@ -1053,31 +1118,76 @@ export function AdminManagement() {
         {members.length === 0 ? (
           <p className="px-3 py-4 text-center text-sm text-faint">No members yet.</p>
         ) : (
-          members.map((m) => (
-            <div key={m.id} className="flex items-center gap-3 px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-text">
-                  {m.display_name || m.email || 'Unknown user'}
+          members.map((m) => {
+            const isCurrentUser = m.id === user?.id
+            return (
+              <div key={m.id} className={`flex items-center gap-2 px-3 py-2 ${m.disabled ? 'opacity-50' : ''}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm text-text">
+                      {m.display_name || m.email || 'Unknown user'}
+                    </span>
+                    {isCurrentUser && (
+                      <span className="text-xs text-faint">(you)</span>
+                    )}
+                  </div>
+                  {m.display_name && m.email && (
+                    <div className="truncate text-xs text-faint">{m.email}</div>
+                  )}
                 </div>
-                {m.display_name && m.email && (
-                  <div className="truncate text-xs text-faint">{m.email}</div>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {m.is_admin && (
+                    <span className="rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary">
+                      Admin
+                    </span>
+                  )}
+                  {m.disabled && (
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                      Disabled
+                    </span>
+                  )}
+                  {!isCurrentUser && (
+                    <>
+                      {!m.is_admin && !m.disabled && (
+                        <button
+                          onClick={() => promote(m.id, m.display_name, m.email)}
+                          disabled={busy}
+                          className="rounded-lg bg-primary px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
+                        >
+                          Make admin
+                        </button>
+                      )}
+                      {m.disabled ? (
+                        <button
+                          onClick={() => enableUser(m.id, m.display_name, m.email)}
+                          disabled={busy}
+                          className="rounded-lg border border-border-strong px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface disabled:opacity-60"
+                        >
+                          Enable
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => disableUser(m.id, m.display_name, m.email)}
+                          disabled={busy}
+                          className="rounded-lg border border-border-strong px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface disabled:opacity-60"
+                        >
+                          Disable
+                        </button>
+                      )}
+                      <button
+                        onClick={() => deleteUser(m.id, m.display_name, m.email)}
+                        disabled={busy}
+                        className="rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                        title="Permanently delete this user and all their content"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              {m.is_admin ? (
-                <span className="rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary">
-                  Admin
-                </span>
-              ) : (
-                <button
-                  onClick={() => promote(m.id, m.display_name, m.email)}
-                  disabled={busy}
-                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
-                >
-                  Promote to admin
-                </button>
-              )}
-            </div>
-          ))
+            )
+          })
         )}
       </div>
 

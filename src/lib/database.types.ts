@@ -43,6 +43,8 @@ export interface Database {
           display_name: string | null
           avatar_url: string | null
           is_admin: boolean
+          disabled: boolean
+          disabled_at: string | null
           created_at: string
           updated_at: string
         }
@@ -52,6 +54,8 @@ export interface Database {
           display_name?: string | null
           avatar_url?: string | null
           is_admin?: boolean
+          disabled?: boolean
+          disabled_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1866,9 +1870,21 @@ export interface Database {
       }
       list_workspace_members: {
         Args: Record<PropertyKey, never>
-        Returns: { id: string; email: string | null; display_name: string | null; is_admin: boolean }[]
+        Returns: { id: string; email: string | null; display_name: string | null; is_admin: boolean; disabled: boolean }[]
       }
       promote_to_admin: {
+        Args: { target_user_id: string }
+        Returns: undefined
+      }
+      disable_user: {
+        Args: { target_user_id: string }
+        Returns: undefined
+      }
+      enable_user: {
+        Args: { target_user_id: string }
+        Returns: undefined
+      }
+      delete_user: {
         Args: { target_user_id: string }
         Returns: undefined
       }
