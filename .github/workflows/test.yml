@@ -32,4 +32,21 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno test supabase/functions/tests/
+      # The deno tests fetch remote deps (e.g. croner from esm.sh) at run time,
+      # so a transient CDN outage (esm.sh 522) can fail an otherwise-green run.
+      # Retry a few times with backoff so infra flakes don't red-flag main; a
+      # real test failure still fails all attempts.
+      - name: deno test (retry transient network failures)
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::deno test (attempt $attempt)"
+            if deno test supabase/functions/tests/; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "attempt $attempt failed; retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+          echo "deno test failed after 3 attempts"
+          exit 1
