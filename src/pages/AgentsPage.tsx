@@ -340,9 +340,23 @@ export default function AgentsPage() {
                 <p className="mt-1 line-clamp-2 text-xs text-muted">
                   {a.description || a.instructions.slice(0, 100) || 'No description'}
                 </p>
-                <p className="mt-2 text-[11px] text-faint">
-                  {a.tool_ids.length} tool{a.tool_ids.length === 1 ? '' : 's'} · {formatDate(a.updated_at)}
-                </p>
+                {(() => {
+                  const agentSchedules = schedules.filter((s) => s.agent_id === a.id)
+                  return agentSchedules.length > 0 ? (
+                    <div className="mt-2 space-y-0.5">
+                      {agentSchedules.map((s) => (
+                        <p key={s.id} className="text-[11px] text-faint">
+                          {scheduleLabel(s)}
+                          {s.cron_expr && s.timezone && s.timezone !== 'UTC' && (
+                            <span className="ml-1">({s.timezone})</span>
+                          )}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[11px] text-faint">{formatDate(a.updated_at)}</p>
+                  )
+                })()}
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => navigate(`/chat?agent=${a.id}&run=1`)}
