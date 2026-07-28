@@ -430,6 +430,8 @@ function AgentEditor({
   const [newTimezone, setNewTimezone] = useState(localTimezone())
   const [showCronHelp, setShowCronHelp] = useState(false)
   const [newInput, setNewInput] = useState('')
+  const [cronNaturalLang, setCronNaturalLang] = useState('')
+  const [generatingCron, setGeneratingCron] = useState(false)
 
   // --- "/" skill autocomplete in the instructions field ---
   const [skills, setSkills] = useState<Skill[]>([])
@@ -540,6 +542,42 @@ function AgentEditor({
   async function removeSchedule(id: string) {
     await supabase.from('schedules').delete().eq('id', id)
     loadSchedules()
+  }
+
+  async function generateCronFromNaturalLanguage() {
+    if (!cronNaturalLang.trim()) return
+    setGeneratingCron(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        alert('You must be signed in to use this feature')
+        return
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cron-helper`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: cronNaturalLang }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to generate cron expression' }))
+        alert(error.error || 'Failed to generate cron expression')
+        return
+      }
+
+      const { cron } = await response.json()
+      setNewCron(cron)
+      setCronNaturalLang('')
+    } catch (err) {
+      console.error('Error generating cron:', err)
+      alert('Failed to generate cron expression')
+    } finally {
+      setGeneratingCron(false)
+    }
   }
 
   function toggleCollection(id: string) {
@@ -801,6 +839,35 @@ function AgentEditor({
                 </div>
               ) : (
                 <div className="space-y-2">
+                  {/* Natural language input for AI-assisted cron generation */}
+                  <div className="rounded-lg border border-primary-soft bg-primary-soft/20 p-2">
+                    <p className="mb-1.5 text-xs font-medium text-muted">
+                      Describe your schedule in plain English
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={cronNaturalLang}
+                        onChange={(e) => setCronNaturalLang(e.target.value)}
+                        placeholder='e.g., "Friday 7am", "Every weekday at 9am", "15th of every month at 2pm"'
+                        disabled={generatingCron}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !generatingCron && cronNaturalLang.trim()) {
+                            generateCronFromNaturalLanguage()
+                          }
+                        }}
+                        className="w-full rounded-lg border border-border-strong px-2 py-1.5 text-xs outline-none focus:border-primary disabled:opacity-50 sm:flex-1"
+                      />
+                      <button
+                        onClick={generateCronFromNaturalLanguage}
+                        disabled={!cronNaturalLang.trim() || generatingCron}
+                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-strong disabled:opacity-50"
+                      >
+                        {generatingCron ? 'Generating…' : 'Generate cron'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Manual cron expression input */}
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <input
                       value={newCron}

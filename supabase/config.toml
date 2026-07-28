@@ -24,6 +24,11 @@ verify_jwt = true
 [functions.link-meta]
 verify_jwt = true
 
+# AI-powered cron expression generator for the agent editor's schedule UI.
+# Accepts natural language (e.g., "Friday 7am") and returns a valid cron expression.
+[functions.cron-helper]
+verify_jwt = true
+
 # Public / token-gated functions — must stay verify_jwt = false so external
 # callers (and pg_cron via pg_net) reach them without a Supabase JWT. They are
 # gated instead by an unguessable token in the URL (webhook / email-inbound), a
