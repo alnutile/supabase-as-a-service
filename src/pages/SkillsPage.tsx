@@ -16,6 +16,7 @@ import {
   PlusIcon,
   SparkleIcon,
   TrashIcon,
+  UploadIcon,
 } from '../components/icons'
 
 type Skill = Database['public']['Tables']['skills']['Row']
@@ -47,6 +48,7 @@ export default function SkillsPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Skill | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -91,6 +93,64 @@ export default function SkillsPage() {
     }
   }
 
+  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploadError(null)
+
+    // Validate file type
+    if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown')) {
+      setUploadError('Please upload a Markdown (.md) file')
+      event.target.value = ''
+      return
+    }
+
+    try {
+      const text = await file.text()
+      const parsed = parseSkillMarkdown(text)
+
+      // Validate required fields
+      if (!parsed.name?.trim()) {
+        setUploadError('Skill file must include a "name" in the frontmatter')
+        event.target.value = ''
+        return
+      }
+
+      if (!parsed.instructions?.trim()) {
+        setUploadError('Skill file must include instructions')
+        event.target.value = ''
+        return
+      }
+
+      // Create the skill from the uploaded file
+      const { data, error } = await supabase
+        .from('skills')
+        .insert({
+          owner_id: user!.id,
+          name: parsed.name,
+          description: parsed.description || null,
+          instructions: parsed.instructions,
+          auto_apply: false, // Default to on-demand skill
+          output_mode: 'artifact',
+          artifact_type: 'markdown',
+        })
+        .select()
+        .single()
+
+      if (error) {
+        setUploadError(error.message)
+      } else if (data) {
+        await load()
+        setEditing(data)
+      }
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Failed to upload skill')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
   // Filter skills based on search query
   const filterSkills = (skillList: Skill[]) => {
     if (!searchQuery.trim()) return skillList
@@ -118,12 +178,27 @@ export default function SkillsPage() {
                 <code className="rounded bg-surface-2 px-1">/</code>.
               </p>
             </div>
-            <button
-              onClick={() => create(false)}
-              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
-            >
-              <PlusIcon className="h-4 w-4" /> New skill
-            </button>
+            <div className="flex gap-2">
+              <label
+                htmlFor="skill-upload"
+                className="flex cursor-pointer items-center gap-2 rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-text transition hover:border-primary hover:text-primary"
+              >
+                <UploadIcon className="h-4 w-4" /> Upload .md
+              </label>
+              <input
+                id="skill-upload"
+                type="file"
+                accept=".md,.markdown"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <button
+                onClick={() => create(false)}
+                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
+              >
+                <PlusIcon className="h-4 w-4" /> New skill
+              </button>
+            </div>
           </div>
           <div className="mt-4">
             <input
@@ -134,6 +209,19 @@ export default function SkillsPage() {
               className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-sm outline-none placeholder:text-faint focus:border-primary focus:ring-2 focus:ring-primary-soft"
             />
           </div>
+          {uploadError && (
+            <div className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div className="flex items-center justify-between">
+                <span>{uploadError}</span>
+                <button
+                  onClick={() => setUploadError(null)}
+                  className="ml-2 text-red-500 hover:text-red-700"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {loading ? (
