@@ -108,3 +108,8 @@ verify_jwt = false
 # so it must stay verify_jwt = false (no user JWT on a cron POST).
 [functions.email-poll]
 verify_jwt = false
+
+# "Test connection" for the Add-an-inbox form: connects to an IMAP mailbox and
+# reports success. verify_jwt = true so only a signed-in user can trigger it.
+[functions.imap-test]
+verify_jwt = true
