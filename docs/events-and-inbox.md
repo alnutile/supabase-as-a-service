@@ -123,6 +123,14 @@ stored encrypted in Supabase Vault, never shown again.
 A mailbox is `private` (mail visible only to you) or `workspace` (shared with the
 team), mirroring links/todos. Provider presets fill host/port for you.
 
+**Test without waiting:** the editor has a **Test connection** button (the
+`imap-test` edge function, `verify_jwt=true`) that logs in and reports the folder's
+message count, so you can validate an app password before saving. Each saved inbox
+also has a **Test message** button that inserts a synthetic `source='email'` row —
+firing `message.received` — so you can wire and verify a Listener end-to-end without
+waiting for real mail. (A fresh inbox is also polled on the next 1-minute tick, not
+after its full interval, since it has no `last_checked_at` yet.)
+
 **How it runs:** the `email-poll` edge function is cron-ticked every minute (added
 to `_automation_cron_jobs()`, so every tenant self-schedules it — no manual step),
 but each mailbox is only checked at most once per its **Check every N minutes**
@@ -176,6 +184,5 @@ username = the **full email address**. Only fall back to port 143 (STARTTLS) if 
 host doesn't offer implicit TLS.
 
 *Planned:* Google/Microsoft **OAuth** account connectors (no app password) on the
-same `email_accounts` table; STARTTLS (port 143) support; a "test connection"
-button; injecting a collection's messages into `loadCollectionsContext`; a REST API
-+ MCP tools like artifacts/to-dos.
+same `email_accounts` table; STARTTLS (port 143) support; injecting a collection's
+messages into `loadCollectionsContext`; a REST API + MCP tools like artifacts/to-dos.

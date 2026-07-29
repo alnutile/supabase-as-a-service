@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { InboxIcon, MailIcon, PlusIcon, TrashIcon } from '../components/icons'
+import { BoltIcon, InboxIcon, MailIcon, PlusIcon, TrashIcon } from '../components/icons'
 
 type Account = Database['public']['Tables']['email_accounts']['Row']
 
@@ -18,9 +19,35 @@ const PRESETS: Record<string, { host: string; port: number; secure: boolean }> =
 }
 
 export default function InboxAccountsPage() {
+  const { user } = useAuth()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Account | 'new' | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  // Insert a synthetic email into the inbox (source=email) so message.received
+  // fires — lets you wire + verify a Listener without waiting for real mail.
+  async function sendMock(a: Account) {
+    setNotice(null)
+    const { error } = await supabase.from('inbox_messages').insert({
+      owner_id: user?.id ?? a.owner_id,
+      source: 'email',
+      external_id: `mock:${crypto.randomUUID()}`,
+      from_address: a.username,
+      from_name: 'IMAP Test',
+      to_address: a.username,
+      subject: `Test message from ${a.label || a.username}`,
+      body_text:
+        'This is a mock email inserted to test the inbox → message.received → listener pipeline. It did not come from a real mailbox.',
+      visibility: a.visibility,
+      raw: { provider: 'mock', account_id: a.id },
+    })
+    setNotice(
+      error
+        ? `Could not create test message: ${error.message}`
+        : 'Test message added to the Inbox — it fired a message.received event, so any matching Listener runs now.',
+    )
+  }
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -73,6 +100,15 @@ export default function InboxAccountsPage() {
           providers require one once 2FA is on.
         </p>
 
+        {notice && (
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-text">
+            <span>{notice}</span>
+            <button onClick={() => setNotice(null)} className="shrink-0 text-faint hover:text-text">
+              ✕
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <p className="text-sm text-faint">Loading…</p>
         ) : accounts.length === 0 ? (
@@ -122,6 +158,13 @@ export default function InboxAccountsPage() {
                         : `Not checked yet · every ${a.poll_interval_minutes} min`}
                   </p>
                 </button>
+                <button
+                  onClick={() => sendMock(a)}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted transition hover:bg-surface-hover hover:text-text"
+                  title="Insert a mock email to fire a message.received event"
+                >
+                  <BoltIcon className="h-3.5 w-3.5" /> Test message
+                </button>
               </div>
             ))}
           </div>
@@ -170,6 +213,42 @@ function AccountEditor({
   const [active, setActive] = useState(account?.active ?? true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  async function testConnection() {
+    setError(null)
+    setTestResult(null)
+    if (!host.trim() || !username.trim()) {
+      setError('Host and username are required to test.')
+      return
+    }
+    if (!account && !password.trim()) {
+      setError('Enter the app password to test a new inbox.')
+      return
+    }
+    setTesting(true)
+    const { data, error: fnError } = await supabase.functions.invoke('imap-test', {
+      body: {
+        account_id: account?.id ?? null,
+        host: host.trim(),
+        port: Number(port) || 993,
+        secure,
+        username: username.trim(),
+        password: password.trim() || undefined, // omitted → server reads the saved one from Vault
+        folder: folder.trim() || 'INBOX',
+      },
+    })
+    setTesting(false)
+    const result = (data ?? {}) as { ok?: boolean; message?: string; error?: string }
+    if (fnError) {
+      setTestResult({ ok: false, msg: fnError.message })
+    } else if (result.ok) {
+      setTestResult({ ok: true, msg: result.message ?? 'Connected.' })
+    } else {
+      setTestResult({ ok: false, msg: result.error ?? 'Connection failed.' })
+    }
+  }
 
   function applyPreset(name: string) {
     const p = PRESETS[name]
@@ -325,20 +404,35 @@ function AccountEditor({
             Active (polling on)
           </label>
 
+          {testResult && (
+            <p className={`text-sm ${testResult.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+              {testResult.ok ? '✓ ' : '✗ '}
+              {testResult.msg}
+            </p>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
-          <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover">
-            Cancel
-          </button>
+        <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
           <button
-            onClick={save}
-            disabled={saving || !host.trim() || !username.trim()}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+            onClick={testConnection}
+            disabled={testing || !host.trim() || !username.trim()}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
           >
-            {saving ? 'Saving…' : 'Save'}
+            {testing ? 'Testing…' : 'Test connection'}
           </button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover">
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={saving || !host.trim() || !username.trim()}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
