@@ -142,6 +142,7 @@ export interface Database {
           data: Json
           share_password_hash: string | null
           pinned: boolean
+          deleted_at: string | null
           created_at: string
           updated_at: string
         }
@@ -158,6 +159,7 @@ export interface Database {
           data?: Json
           share_password_hash?: string | null
           pinned?: boolean
+          deleted_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -743,6 +745,7 @@ export interface Database {
           artifact_type: ArtifactType
           auto_apply: boolean
           is_builtin: boolean
+          deleted_at: string | null
           created_at: string
           updated_at: string
         }
@@ -756,6 +759,7 @@ export interface Database {
           artifact_type?: ArtifactType
           auto_apply?: boolean
           is_builtin?: boolean
+          deleted_at?: string | null
           created_at?: string
           updated_at?: string
         }

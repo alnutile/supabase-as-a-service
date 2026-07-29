@@ -196,6 +196,7 @@ async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): P
       .from('skills')
       .select('instructions, is_builtin, created_at')
       .eq('auto_apply', true)
+      .is('deleted_at', null)
       .order('is_builtin', { ascending: false })
       .order('created_at', { ascending: true })
     const parts = (data ?? [])

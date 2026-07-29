@@ -312,8 +312,10 @@ export default function ArtifactEditorPage() {
 
   async function remove() {
     if (!artifact) return
-    if (!confirm('Delete this artifact? This cannot be undone.')) return
-    await supabase.from('artifacts').delete().eq('id', artifact.id)
+    // Soft delete: archive to Trash (recoverable from the Artifacts page) rather
+    // than destroy. Permanent deletion happens from the Trash panel there.
+    if (!confirm('Archive this artifact? It moves to Trash and can be restored later.')) return
+    await supabase.from('artifacts').update({ deleted_at: new Date().toISOString() }).eq('id', artifact.id)
     navigate('/artifacts')
   }
 
@@ -498,7 +500,7 @@ export default function ArtifactEditorPage() {
             </button>
             <button
               onClick={remove}
-              title="Delete"
+              title="Archive"
               className="rounded-lg p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
             >
               <TrashIcon className="h-[18px] w-[18px]" />

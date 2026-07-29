@@ -263,6 +263,7 @@ async function handleList(db: DB, owner: string, url: URL) {
     .from('artifacts')
     .select('id, title, type, language, visibility, public_slug, content, created_at, updated_at')
     .eq('owner_id', owner)
+    .is('deleted_at', null)
     .order('updated_at', { ascending: false })
     .range(offset, offset + limit - 1)
   if (onlyIds) query = query.in('id', onlyIds)

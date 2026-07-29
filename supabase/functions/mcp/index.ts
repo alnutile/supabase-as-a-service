@@ -126,12 +126,13 @@ const TOOLS = [
   {
     name: 'list_skills',
     description:
-      'List skills and always-on prompts you can see (your own on-demand skills + every always-on prompt). Each row shows its id, name, mode (always-on prompt vs on-demand skill), and whether it is built-in. Filter with always_on and/or a text query.',
+      'List skills and always-on prompts you can see (your own on-demand skills + every always-on prompt). Each row shows its id, name, mode (always-on prompt vs on-demand skill), and whether it is built-in. Filter with always_on, a text query, and/or archived.',
     inputSchema: {
       type: 'object',
       properties: {
         always_on: { type: 'boolean', description: 'true = only always-on prompts; false = only on-demand skills; omit = both.' },
         query: { type: 'string', description: 'Optional case-insensitive substring of the name/description.' },
+        archived: { type: 'boolean', description: 'true = list only ARCHIVED skills/prompts (the recovery area); default false = only live ones.' },
         limit: { type: 'number', description: 'Max rows (default 50, max 200).' },
       },
     },
@@ -168,11 +169,24 @@ const TOOLS = [
   {
     name: 'delete_skill',
     description:
-      'Delete a skill or always-on prompt (by id or exact name). Personal skills are deletable by their owner; always-on prompts require admin. Built-in prompts cannot be deleted.',
+      'Delete a skill or always-on prompt (by id or exact name). By default this ARCHIVES it (a soft delete): it is hidden from normal views but recoverable with restore_skill. Pass permanent:true to remove it for good (irreversible). Personal skills are deletable by their owner; always-on prompts require admin. Built-in prompts cannot be deleted.',
     inputSchema: {
       type: 'object',
       properties: {
         skill: { type: 'string', description: 'The skill/prompt id or its exact name.' },
+        permanent: { type: 'boolean', description: 'true = delete permanently (irreversible); default false = archive (recoverable).' },
+      },
+      required: ['skill'],
+    },
+  },
+  {
+    name: 'restore_skill',
+    description:
+      'Restore (un-archive) a skill or always-on prompt you previously archived, by id or exact name. Personal skills restorable by their owner; always-on prompts require admin.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        skill: { type: 'string', description: 'The archived skill/prompt id or its exact name.' },
       },
       required: ['skill'],
     },
@@ -215,13 +229,14 @@ const TOOLS = [
   {
     name: 'list_artifacts',
     description:
-      'List artifacts you can access, most recent first, with their ids — so after create_artifact (or a chat :::artifact) you can retrieve the id to file it into a collection. Optionally filter by collection (name/id), title_contains, or type.',
+      'List artifacts you can access, most recent first, with their ids — so after create_artifact (or a chat :::artifact) you can retrieve the id to file it into a collection. Optionally filter by collection (name/id), title_contains, type, or archived (the recovery area).',
     inputSchema: {
       type: 'object',
       properties: {
         collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
         title_contains: { type: 'string', description: 'Optional case-insensitive substring of the title.' },
         type: { type: 'string', enum: ['markdown', 'code', 'html', 'text'], description: 'Optional artifact type filter.' },
+        archived: { type: 'boolean', description: 'true = list only ARCHIVED artifacts (the recovery area); default false = only live artifacts.' },
         since: { type: 'string', description: 'Optional ISO 8601 timestamp — only artifacts updated at/after it (for cheap daily diffs).' },
         limit: { type: 'number', description: 'Max rows (default 20, max 100).' },
       },
@@ -249,6 +264,31 @@ const TOOLS = [
         artifact: { type: 'string', description: 'The artifact id or its exact title.' },
         title: { type: 'string', description: 'New title (optional).' },
         content: { type: 'string', description: 'New full content (optional).' },
+      },
+      required: ['artifact'],
+    },
+  },
+  {
+    name: 'delete_artifact',
+    description:
+      'Delete an artifact you own (by id or exact title). By default this ARCHIVES it (a soft delete): hidden from all normal views and share links but recoverable with restore_artifact. Pass permanent:true to remove it for good (cannot be undone). Owner only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact: { type: 'string', description: 'The artifact id or its exact title.' },
+        permanent: { type: 'boolean', description: 'true = delete permanently (irreversible); default false = archive (recoverable).' },
+      },
+      required: ['artifact'],
+    },
+  },
+  {
+    name: 'restore_artifact',
+    description:
+      'Restore (un-archive) an artifact you previously archived, by id or exact title. It becomes visible in normal views again. Owner only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact: { type: 'string', description: 'The archived artifact id or its exact title.' },
       },
       required: ['artifact'],
     },
@@ -1158,7 +1198,7 @@ async function resolveArtifact(
   ref: string,
 ): Promise<{ id: string; title: string; type: string; content: string; data: unknown } | null> {
   let q = db.from('artifacts').select('id, title, type, content, data, owner_id, visibility, updated_at')
-  q = q.or(`owner_id.eq.${owner},visibility.neq.private`)
+  q = q.or(`owner_id.eq.${owner},visibility.neq.private`).is('deleted_at', null)
   q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('title', ref)
   const { data } = await q.order('updated_at', { ascending: false }).limit(1)
   return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
@@ -1261,6 +1301,7 @@ async function buildCollectionBundle(
         .from('artifacts')
         .select('id, title, type, content, updated_at, owner_id, visibility')
         .in('id', ids)
+        .is('deleted_at', null)
         .order('updated_at', { ascending: false })
       if (since) q = q.gte('updated_at', since)
       const { data } = await q
@@ -1415,6 +1456,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'get_skill':
     case 'update_skill':
     case 'delete_skill':
+    case 'restore_skill':
       return text(await runBuiltin(db, name, args, owner))
     case 'create_artifact': {
       const type = normalizeArtifactType(args.type)
@@ -1442,12 +1484,15 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         memberIds = (members ?? []).map((m: { artifact_id: string }) => m.artifact_id)
         if (!memberIds.length) return text(`No artifacts in collection "${col.name}".`)
       }
+      const wantArchived = args.archived === true
       let q = db
         .from('artifacts')
         .select('id, title, type, created_at')
-        .or(`owner_id.eq.${owner},visibility.neq.private`)
         .order('created_at', { ascending: false })
         .limit(limit)
+      q = wantArchived
+        ? q.eq('owner_id', owner).not('deleted_at', 'is', null)
+        : q.or(`owner_id.eq.${owner},visibility.neq.private`).is('deleted_at', null)
       const titleContains = typeof args.title_contains === 'string' ? args.title_contains.trim() : ''
       if (titleContains) q = q.ilike('title', `%${titleContains}%`)
       const typeFilter = String(args.type ?? args.mime_type ?? '').trim().toLowerCase()
@@ -1494,6 +1539,9 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     }
     case 'update_artifact':
       return text(await runBuiltin(db, 'update_artifact', args, owner))
+    case 'delete_artifact':
+    case 'restore_artifact':
+      return text(await runBuiltin(db, name, args, owner))
     case 'get_collection': {
       const ref = String(args.collection ?? '').trim()
       if (!ref) return text('get_collection needs a collection (name or id).', true)

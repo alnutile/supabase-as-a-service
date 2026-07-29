@@ -87,6 +87,7 @@ export async function loadCollectionsContext(
         .from('artifacts')
         .select('id, title, type, content, visibility, owner_id')
         .in('id', ids)
+        .is('deleted_at', null)
         .order('updated_at', { ascending: false })
       readable = (arts ?? []).filter(
         (a: { owner_id: string; visibility: string }) => a.owner_id === userId || a.visibility !== 'private',
