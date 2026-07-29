@@ -113,11 +113,29 @@ collection"*).
 ### IMAP email accounts ("Add an inbox")
 
 Instead of a provider push, you can **add an IMAP mailbox** that the workspace
-polls. New mail lands in `inbox_messages` (`source='email'`) and fires
-`message.received` — so from the **Listeners** page you route it exactly like a
-webhook (e.g. *"drop each new email into the `logs` table"* via `run_tool:
+polls (migration `0102`). New mail lands in `inbox_messages` (`source='email'`)
+and fires `message.received` — so from the **Listeners** page you route it exactly
+like a webhook (e.g. *"drop each new email into the `logs` table"* via `run_tool:
 add_table_row`). You enter the mailbox's connection details once; the password is
 stored encrypted in Supabase Vault, never shown again.
+
+**Where:** Inbox → **Inboxes** (top-right) → **Add inbox** (`/inbox/accounts`).
+A mailbox is `private` (mail visible only to you) or `workspace` (shared with the
+team), mirroring links/todos. Provider presets fill host/port for you.
+
+**How it runs:** the `email-poll` edge function is cron-ticked every minute (added
+to `_automation_cron_jobs()`, so every tenant self-schedules it — no manual step),
+but each mailbox is only checked at most once per its **Check every N minutes**
+setting. It opens IMAP over TLS (`Deno.connectTls`), fetches messages with a UID
+greater than the last one ingested (a fresh inbox backfills only the ~10 most
+recent), and dedupes on `Message-ID`. Any failure is recorded on the account's
+`last_error` and shown on the card (with an "error" badge); it never blocks other
+mailboxes. RFC822 parsing (headers, MIME text body, base64/quoted-printable) is the
+pure, unit-tested `supabase/functions/_shared/imap.ts` (`tests/imap_test.ts`).
+
+> If your Supabase project's egress blocks outbound port 993, the poll will report
+> a connect error — fall back to a provider inbound-parse (`email-inbound`) or a
+> push to `message-inbound`.
 
 **Use an app password, not your real password.** Almost every mail provider now
 requires an *app-specific password* for IMAP once two-factor authentication (2FA)
@@ -158,5 +176,6 @@ username = the **full email address**. Only fall back to port 143 (STARTTLS) if 
 host doesn't offer implicit TLS.
 
 *Planned:* Google/Microsoft **OAuth** account connectors (no app password) on the
-same table; injecting a collection's messages into `loadCollectionsContext`; a REST
-API + MCP tools like artifacts/to-dos.
+same `email_accounts` table; STARTTLS (port 143) support; a "test connection"
+button; injecting a collection's messages into `loadCollectionsContext`; a REST API
++ MCP tools like artifacts/to-dos.
