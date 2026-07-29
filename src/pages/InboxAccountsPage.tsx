@@ -199,6 +199,7 @@ function AccountEditor({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { user } = useAuth()
   const [label, setLabel] = useState(account?.label ?? '')
   const [host, setHost] = useState(account?.host ?? '')
   const [port, setPort] = useState(account?.port ?? 993)
@@ -217,6 +218,69 @@ function AccountEditor({
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [rescanning, setRescanning] = useState(false)
+
+  // "When mail arrives here → do X" — one managed per-inbox listener.
+  type TableRow = { id: string; name: string; columns: { key: string; label?: string }[] }
+  const [tables, setTables] = useState<TableRow[]>([])
+  const [agentList, setAgentList] = useState<{ id: string; name: string }[]>([])
+  const [toolList, setToolList] = useState<{ id: string; name: string }[]>([])
+  const [routeAction, setRouteAction] = useState<'none' | 'table' | 'agent' | 'function'>('none')
+  const [routeTable, setRouteTable] = useState('') // table name
+  const [colFrom, setColFrom] = useState('')
+  const [colSubject, setColSubject] = useState('')
+  const [colBody, setColBody] = useState('')
+  const [colReceived, setColReceived] = useState('')
+  const [routeAgent, setRouteAgent] = useState('')
+  const [routeTool, setRouteTool] = useState('') // tool name
+
+  useEffect(() => {
+    supabase.from('user_tables').select('id, name, columns').order('name').then(({ data }) =>
+      setTables(((data ?? []) as unknown as TableRow[]).map((t) => ({ ...t, columns: t.columns ?? [] }))),
+    )
+    supabase.from('agents').select('id, name').eq('is_active', true).order('name').then(({ data }) =>
+      setAgentList((data as { id: string; name: string }[]) ?? []),
+    )
+    supabase.from('tools').select('id, name, kind').eq('is_active', true).order('name').then(({ data }) =>
+      setToolList(((data ?? []) as { id: string; name: string; kind: string }[]).filter((t) => t.kind === 'http')),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Prefill the routing UI from the account's managed listener, if any.
+  useEffect(() => {
+    if (!account?.routing_listener_id) return
+    supabase
+      .from('event_listeners')
+      .select('action_type, action_config')
+      .eq('id', account.routing_listener_id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return
+        const cfg = (data.action_config ?? {}) as {
+          tool?: string
+          agent_id?: string
+          input?: { table?: string; values?: Record<string, string> }
+        }
+        if (data.action_type === 'run_agent') {
+          setRouteAction('agent')
+          setRouteAgent(cfg.agent_id ?? '')
+        } else if (data.action_type === 'run_tool' && cfg.tool === 'add_table_row') {
+          setRouteAction('table')
+          setRouteTable(cfg.input?.table ?? '')
+          for (const [col, tok] of Object.entries(cfg.input?.values ?? {})) {
+            const f = /event\.data\.(\w+)/.exec(tok || '')?.[1]
+            if (f === 'from_address') setColFrom(col)
+            else if (f === 'subject') setColSubject(col)
+            else if (f === 'body') setColBody(col)
+            else if (f === 'received_at') setColReceived(col)
+          }
+        } else if (data.action_type === 'run_tool') {
+          setRouteAction('function')
+          setRouteTool(cfg.tool ?? '')
+        }
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.routing_listener_id])
 
   async function rescan() {
     if (!account) return
@@ -285,7 +349,7 @@ function AccountEditor({
       return
     }
     setSaving(true)
-    const { error: rpcError } = await supabase.rpc('set_email_account', {
+    const { data: newId, error: rpcError } = await supabase.rpc('set_email_account', {
       p_id: account?.id ?? null,
       p_label: label.trim(),
       p_host: host.trim(),
@@ -299,13 +363,75 @@ function AccountEditor({
       p_active: active,
       p_mark_seen: markSeen,
     })
-    setSaving(false)
     if (rpcError) {
+      setSaving(false)
       setError(rpcError.message)
       return
     }
+    const accountId = (newId as string) ?? account?.id
+    if (accountId) await saveRouting(accountId)
+    setSaving(false)
     setPassword('')
     onSaved()
+  }
+
+  // Create / update / detach the ONE per-inbox listener that routes new mail.
+  // A deterministic run_tool (add_table_row) or run_agent / run function, scoped
+  // to this inbox via match.account_id (0104). The message still lands in the Inbox.
+  async function saveRouting(accountId: string) {
+    const existing = account?.routing_listener_id ?? null
+    if (routeAction === 'none') {
+      if (existing) await supabase.from('event_listeners').delete().eq('id', existing)
+      await supabase.rpc('set_email_account_routing', { p_account_id: accountId, p_listener_id: null })
+      return
+    }
+    const base = {
+      name: `Inbox: ${label.trim() || username.trim()}`,
+      event_type: 'message.received',
+      match: { account_id: accountId },
+      is_active: true,
+      visibility,
+    }
+    let action_type: string
+    let action_config: Record<string, unknown>
+    if (routeAction === 'table') {
+      const values: Record<string, string> = {}
+      if (colFrom) values[colFrom] = '{{event.data.from_address}}'
+      if (colSubject) values[colSubject] = '{{event.data.subject}}'
+      if (colBody) values[colBody] = '{{event.data.body}}'
+      if (colReceived) values[colReceived] = '{{event.data.received_at}}'
+      action_type = 'run_tool'
+      action_config = { tool: 'add_table_row', input: { table: routeTable, values } }
+    } else if (routeAction === 'agent') {
+      action_type = 'run_agent'
+      action_config = { agent_id: routeAgent }
+    } else {
+      action_type = 'run_tool'
+      action_config = {
+        tool: routeTool,
+        input: {
+          source: '{{event.data.source}}',
+          from_address: '{{event.data.from_address}}',
+          subject: '{{event.data.subject}}',
+          body: '{{event.data.body}}',
+          received_at: '{{event.data.received_at}}',
+          account_id: '{{event.data.account_id}}',
+        },
+      }
+    }
+    const row = { ...base, action_type, action_config } as never
+    let listenerId = existing
+    if (listenerId) {
+      await supabase.from('event_listeners').update(row).eq('id', listenerId)
+    } else {
+      const { data: ins } = await supabase
+        .from('event_listeners')
+        .insert({ ...(row as object), owner_id: user?.id } as never)
+        .select('id')
+        .single()
+      listenerId = (ins as { id: string } | null)?.id ?? null
+    }
+    if (listenerId) await supabase.rpc('set_email_account_routing', { p_account_id: accountId, p_listener_id: listenerId })
   }
 
   async function remove() {
@@ -424,6 +550,86 @@ function AccountEditor({
             <input type="checkbox" checked={markSeen} onChange={(e) => setMarkSeen(e.target.checked)} />
             Mark messages read on the server after importing
           </label>
+
+          <div className="space-y-3 rounded-lg border border-border bg-surface-2/40 p-3">
+            <span className="block text-xs font-medium text-muted">When new mail arrives here</span>
+            <select
+              value={routeAction}
+              onChange={(e) => setRouteAction(e.target.value as typeof routeAction)}
+              className={field}
+            >
+              <option value="none">Just add it to the Inbox</option>
+              <option value="table">Also save it to a table</option>
+              <option value="agent">Also run an agent</option>
+              <option value="function">Also run a function</option>
+            </select>
+
+            {routeAction === 'table' && (
+              <div className="space-y-2">
+                <select value={routeTable} onChange={(e) => setRouteTable(e.target.value)} className={field}>
+                  <option value="">Choose a table…</option>
+                  {tables.map((t) => (
+                    <option key={t.id} value={t.name}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                {routeTable &&
+                  (() => {
+                    const cols = tables.find((t) => t.name === routeTable)?.columns ?? []
+                    const colSelect = (val: string, set: (v: string) => void, lbl: string) => (
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] text-faint">{lbl} →</span>
+                        <select value={val} onChange={(e) => set(e.target.value)} className={field}>
+                          <option value="">— skip —</option>
+                          {cols.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.label || c.key}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )
+                    return (
+                      <div className="grid grid-cols-2 gap-2">
+                        {colSelect(colFrom, setColFrom, 'From')}
+                        {colSelect(colSubject, setColSubject, 'Subject')}
+                        {colSelect(colBody, setColBody, 'Body')}
+                        {colSelect(colReceived, setColReceived, 'Received')}
+                      </div>
+                    )
+                  })()}
+              </div>
+            )}
+
+            {routeAction === 'agent' && (
+              <select value={routeAgent} onChange={(e) => setRouteAgent(e.target.value)} className={field}>
+                <option value="">Choose an agent…</option>
+                {agentList.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {routeAction === 'function' && (
+              <select value={routeTool} onChange={(e) => setRouteTool(e.target.value)} className={field}>
+                <option value="">Choose a function…</option>
+                {toolList.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <p className="text-[11px] text-faint">
+              Runs deterministically through a per-inbox rule on the{' '}
+              <Link to="/listeners" className="underline">Listeners</Link> page — no AI needed for “save to a
+              table.” The message still lands in your Inbox either way.
+            </p>
+          </div>
 
           {testResult && (
             <p className={`text-sm ${testResult.ok ? 'text-emerald-600' : 'text-red-600'}`}>
