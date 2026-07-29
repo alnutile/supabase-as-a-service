@@ -4,8 +4,9 @@ import { supabase } from '../lib/supabase'
 import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { formatBytes, formatDate } from '../lib/util'
-import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon, GridIcon, ListIcon, DownloadIcon, PencilIcon } from '../components/icons'
+import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon, GridIcon, ListIcon, DownloadIcon, PencilIcon, RefreshIcon } from '../components/icons'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
+import { canReindex, reindexActionLabel, reindexDocPatch } from '../lib/documents'
 
 type FileRow = Database['public']['Tables']['files']['Row']
 type Doc = Database['public']['Tables']['documents']['Row']
@@ -93,6 +94,15 @@ export default function FilesPage() {
   async function setScope(doc: Doc, scope: string) {
     if (doc.file_id) setDocs((prev) => ({ ...prev, [doc.file_id!]: { ...doc, scope } }))
     await supabase.from('documents').update({ scope }).eq('id', doc.id)
+  }
+
+  // Re-queue a document for indexing from scratch. Resetting to `pending` is
+  // enough — the ingest cron (0100) picks it up and its PARSE phase clears any
+  // stale chunks before re-inserting. Fixes files stuck on "Indexing…".
+  async function reindex(doc: Doc) {
+    const patch = reindexDocPatch()
+    if (doc.file_id) setDocs((prev) => ({ ...prev, [doc.file_id!]: { ...doc, ...patch } }))
+    await supabase.from('documents').update(patch).eq('id', doc.id)
   }
 
   async function handleUpload(fileList: FileList | null) {
@@ -263,6 +273,7 @@ export default function FilesPage() {
                 </div>
                 {doc && <ScopeToggle doc={doc} onChange={(scope) => setScope(doc, scope)} />}
                 <IndexBadge doc={doc} />
+                <ReindexButton doc={doc} onReindex={() => reindex(doc)} />
                 <button
                   onClick={() => share(f)}
                   title="Copy 7-day share link"
@@ -297,6 +308,7 @@ export default function FilesPage() {
                   onShare={() => share(f)}
                   onRemove={() => remove(f)}
                   onSetScope={(scope) => setScope(doc, scope)}
+                  onReindex={() => doc && reindex(doc)}
                   onUpdateMetadata={(title, description) => updateFileMetadata(f.id, title, description)}
                 />
               )
@@ -418,6 +430,7 @@ function FileCard({
   onShare,
   onRemove,
   onSetScope,
+  onReindex,
   onUpdateMetadata,
 }: {
   file: FileRow
@@ -429,6 +442,7 @@ function FileCard({
   onShare: () => void
   onRemove: () => void
   onSetScope: (scope: string) => void
+  onReindex: () => void
   onUpdateMetadata: (title: string | null, description: string | null) => void
 }) {
   const isImage = file.mime_type?.startsWith('image/')
@@ -477,6 +491,7 @@ function FileCard({
       {/* Footer: scope toggle + actions */}
       <div className="flex items-center gap-1 border-t border-border px-3 py-2">
         {doc && <ScopeToggle doc={doc} onChange={onSetScope} />}
+        <ReindexButton doc={doc} onReindex={onReindex} />
 
         <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
           <button
@@ -531,6 +546,23 @@ function ScopeToggle({ doc, onChange }: { doc: Doc; onChange: (scope: string) =>
       }`}
     >
       {shared ? 'Team knowledge' : 'Only me'}
+    </button>
+  )
+}
+
+// Re-queue a stuck/failed (or already-indexed) PDF for indexing. Small icon
+// button placed next to the IndexBadge; the parent resets the doc to `pending`.
+function ReindexButton({ doc, onReindex }: { doc?: Doc; onReindex: () => void }) {
+  if (!doc || !canReindex(doc.status)) return null
+  const label = reindexActionLabel(doc.status)
+  return (
+    <button
+      onClick={onReindex}
+      title={`${label} — rebuild this file's search index`}
+      aria-label={label}
+      className="shrink-0 rounded-md p-1 text-faint hover:bg-surface-hover hover:text-primary"
+    >
+      <RefreshIcon className="h-[18px] w-[18px]" />
     </button>
   )
 }
