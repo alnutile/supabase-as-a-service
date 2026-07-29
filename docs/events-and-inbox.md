@@ -110,6 +110,53 @@ A `message.received` event fires on every insert, so an inbound message can driv
 a listener (e.g. *"when a WhatsApp message arrives, add it to the Support
 collection"*).
 
-*Planned:* IMAP/Google/Microsoft account connectors that funnel into this table;
-injecting a collection's messages into `loadCollectionsContext`; a REST API + MCP
-tools like artifacts/to-dos.
+### IMAP email accounts ("Add an inbox")
+
+Instead of a provider push, you can **add an IMAP mailbox** that the workspace
+polls. New mail lands in `inbox_messages` (`source='email'`) and fires
+`message.received` — so from the **Listeners** page you route it exactly like a
+webhook (e.g. *"drop each new email into the `logs` table"* via `run_tool:
+add_table_row`). You enter the mailbox's connection details once; the password is
+stored encrypted in Supabase Vault, never shown again.
+
+**Use an app password, not your real password.** Almost every mail provider now
+requires an *app-specific password* for IMAP once two-factor authentication (2FA)
+is on — your normal login password will be rejected. The app password lives in the
+provider's **2FA / security** area:
+
+- **Gmail / Google Workspace** (covers custom domains on Google, e.g.
+  `monitoring@yourdomain.com`):
+  1. Turn on **2-Step Verification** — the *App passwords* option only appears
+     after 2FA is enabled. Google Account → **Security** → *2-Step Verification*.
+  2. Google Account → **Security** → **App passwords** → generate one for "Mail".
+     You get a 16-character code (shown without spaces) — that is the password you
+     paste into the inbox form.
+  3. IMAP is on by default for most accounts; if not, Gmail → Settings → *Forwarding
+     and POP/IMAP* → **Enable IMAP**.
+- **Microsoft / Outlook.com** — Account security → *Advanced security options* →
+  **App passwords** (requires 2FA). Note: many Microsoft 365 **org** tenants disable
+  basic-auth/IMAP entirely and only allow OAuth — those can't use this connector yet
+  (OAuth is a later connector type).
+- **Yahoo** — Account Security → **Generate app password**.
+- **iCloud** — appleid.apple.com → Sign-In and Security → **App-Specific Passwords**.
+- **Custom domain on another host** (cPanel, Fastmail, etc.) — use the mailbox
+  password or an app password from that host's control panel.
+
+**Typical IMAP settings:**
+
+| Provider | Host | Port | Security | Username |
+| --- | --- | --- | --- | --- |
+| Gmail / Google Workspace | `imap.gmail.com` | `993` | SSL/TLS | full email address |
+| Outlook.com / Microsoft 365 | `outlook.office365.com` | `993` | SSL/TLS | full email address |
+| Yahoo | `imap.mail.yahoo.com` | `993` | SSL/TLS | full email address |
+| iCloud | `imap.mail.me.com` | `993` | SSL/TLS | full email address |
+| Fastmail | `imap.fastmail.com` | `993` | SSL/TLS | full email address |
+| Other / custom | *from your mail host* | `993` (SSL) or `143` (STARTTLS) | SSL/TLS | usually the full email address |
+
+Defaults that work almost everywhere: **port 993, SSL/TLS**, folder **`INBOX`**,
+username = the **full email address**. Only fall back to port 143 (STARTTLS) if the
+host doesn't offer implicit TLS.
+
+*Planned:* Google/Microsoft **OAuth** account connectors (no app password) on the
+same table; injecting a collection's messages into `loadCollectionsContext`; a REST
+API + MCP tools like artifacts/to-dos.
