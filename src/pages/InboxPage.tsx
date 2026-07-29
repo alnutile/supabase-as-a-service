@@ -3,7 +3,8 @@ import type { Database } from '../lib/database.types'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../lib/util'
-import { InboxIcon, PlusIcon, TrashIcon, CollectionIcon } from '../components/icons'
+import { Link } from 'react-router-dom'
+import { InboxIcon, MailIcon, PlusIcon, TrashIcon, CollectionIcon } from '../components/icons'
 
 type Message = Database['public']['Tables']['inbox_messages']['Row']
 type Collection = { id: string; name: string }
@@ -126,12 +127,21 @@ export default function InboxPage() {
               collections to chat over them or trigger automations.
             </p>
           </div>
-          <button
-            onClick={() => setComposing(true)}
-            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
-          >
-            <PlusIcon className="h-4 w-4" /> New
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              to="/inbox/accounts"
+              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-sm font-semibold text-muted transition hover:bg-surface-hover hover:text-text"
+              title="Connect an IMAP mailbox"
+            >
+              <MailIcon className="h-4 w-4" /> Inboxes
+            </Link>
+            <button
+              onClick={() => setComposing(true)}
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
+            >
+              <PlusIcon className="h-4 w-4" /> New
+            </button>
+          </div>
         </div>
       </div>
 

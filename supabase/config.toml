@@ -102,3 +102,9 @@ verify_jwt = false
 # (mcp_tokens), same auth as run-tool, so it must stay verify_jwt = false.
 [functions.message-inbound]
 verify_jwt = false
+
+# IMAP inbox poller: pulls new mail from registered email_accounts into the
+# unified inbox. Cron-ticked and gated by the DB cron secret (x-cron-secret),
+# so it must stay verify_jwt = false (no user JWT on a cron POST).
+[functions.email-poll]
+verify_jwt = false
