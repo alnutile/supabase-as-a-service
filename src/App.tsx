@@ -21,6 +21,7 @@ import MemoryPage from './pages/MemoryPage'
 import MeetingNotesPage from './pages/MeetingNotesPage'
 import TerminologyPage from './pages/TerminologyPage'
 import InboxPage from './pages/InboxPage'
+import InboxAccountsPage from './pages/InboxAccountsPage'
 import EventsPage from './pages/EventsPage'
 import ListenersPage from './pages/ListenersPage'
 import PublicArtifactPage from './pages/PublicArtifactPage'
@@ -84,6 +85,7 @@ export default function App() {
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:conversationId" element={<ChatPage />} />
         <Route path="inbox" element={<InboxPage />} />
+        <Route path="inbox/accounts" element={<InboxAccountsPage />} />
         <Route path="artifacts" element={<ArtifactsPage />} />
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
         <Route path="whiteboards" element={<WhiteboardsPage />} />

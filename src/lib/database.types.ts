@@ -1430,6 +1430,48 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['vault_secrets']['Insert']>
         Relationships: []
       }
+      email_accounts: {
+        Row: {
+          id: string
+          label: string
+          host: string
+          port: number
+          secure: boolean
+          username: string
+          secret_id: string
+          folder: string
+          last_seen_uid: number
+          poll_interval_minutes: number
+          visibility: 'private' | 'workspace'
+          owner_id: string | null
+          active: boolean
+          last_checked_at: string | null
+          last_error: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          label?: string
+          host: string
+          port?: number
+          secure?: boolean
+          username: string
+          secret_id: string
+          folder?: string
+          last_seen_uid?: number
+          poll_interval_minutes?: number
+          visibility?: 'private' | 'workspace'
+          owner_id?: string | null
+          active?: boolean
+          last_checked_at?: string | null
+          last_error?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['email_accounts']['Insert']>
+        Relationships: []
+      }
       integrations: {
         Row: {
           id: string
@@ -1843,6 +1885,26 @@ export interface Database {
       read_vault_secret: {
         Args: { p_name: string; p_user_id: string | null }
         Returns: string
+      }
+      set_email_account: {
+        Args: {
+          p_id: string | null
+          p_label: string
+          p_host: string
+          p_port: number
+          p_secure: boolean
+          p_username: string
+          p_password: string
+          p_folder?: string
+          p_visibility?: string
+          p_poll_interval_minutes?: number
+          p_active?: boolean
+        }
+        Returns: string
+      }
+      delete_email_account: {
+        Args: { p_id: string }
+        Returns: undefined
       }
       set_slack_integration: {
         Args: {
