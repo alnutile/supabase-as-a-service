@@ -65,10 +65,30 @@ export function matchListener(event: EventRow, listener: ListenerRow): boolean {
 // Replace {{event}} tokens (deep, in any string) with the event's JSON so a
 // run_tool action can feed event context to a tool input. Mirrors run-tool's
 // {{prev}} substitution.
+//   {{event}}                 → the whole event JSON
+//   {{event.data.subject}}    → a single field (dot path into the event object)
+// A dot path resolves into the event; a scalar is inserted as-is, an object/array
+// as JSON, and a missing/null path as an empty string — so a table-column mapping
+// like values.subject = "{{event.data.subject}}" fills deterministically.
+export function resolveEventPath(event: EventRow, path: string): string {
+  let cur: unknown = event
+  for (const key of path.split('.')) {
+    if (cur && typeof cur === 'object' && key in (cur as Record<string, unknown>)) {
+      cur = (cur as Record<string, unknown>)[key]
+    } else {
+      return ''
+    }
+  }
+  if (cur === null || cur === undefined) return ''
+  return typeof cur === 'object' ? JSON.stringify(cur) : String(cur)
+}
+
 export function substituteEvent<T>(input: T, event: EventRow): T {
-  const json = JSON.stringify(event)
+  const full = JSON.stringify(event)
+  const sub = (s: string) =>
+    s.replace(/\{\{\s*event(?:\.([\w.]+))?\s*\}\}/g, (_m, path) => (path ? resolveEventPath(event, path) : full))
   const walk = (v: unknown): unknown => {
-    if (typeof v === 'string') return v.replace(/\{\{\s*event\s*\}\}/g, json)
+    if (typeof v === 'string') return sub(v)
     if (Array.isArray(v)) return v.map(walk)
     if (v && typeof v === 'object') {
       const out: Record<string, unknown> = {}
