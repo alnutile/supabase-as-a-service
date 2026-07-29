@@ -139,6 +139,16 @@ untouched. **Re-scan:** the editor's **Re-scan** button resets the ingest cursor
 handy after a config change, or to pull the messages that were already in the box
 when you connected.
 
+**Route one inbox, not all (0104):** every incoming message emits a single
+`message.received` event; to automate on just one mailbox, the event data carries
+`account_id` (the originating `email_accounts` id, stamped on `raw.account_id` by
+the poller and the Test-message button). A Listener's `match` can filter on it —
+the **Inbox** picker on the Listeners page (beside the existing **From source**
+filter) sets `match.account_id`, so "when mail arrives in *this* inbox → run_tool"
+targets exactly that mailbox. No inbox picked = every message, unchanged. This is a
+filter on the existing event (like `source`/`collection_id`), not a per-inbox event
+type — so there's no UUID in the event name and no duplicate events.
+
 *Note on dedupe (0103 fix):* the poller inserts each message with a plain `insert`
 and treats a `23505` unique violation on `(source, external_id)` as "already
 ingested". It does **not** use `upsert(..., {onConflict})`, because the unique index

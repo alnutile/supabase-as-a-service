@@ -11,6 +11,7 @@
 //      - entity_type  → event.entity_type === match.entity_type
 //      - collection_id→ event.data.collection_id === match.collection_id
 //      - source       → event.data.source === match.source  (message.* events)
+//      - account_id   → event.data.account_id === match.account_id (one inbox)
 
 export interface EventRow {
   id?: string
@@ -54,6 +55,9 @@ export function matchListener(event: EventRow, listener: ListenerRow): boolean {
   }
   if (typeof m.source === 'string' && m.source) {
     if ((data as Record<string, unknown>).source !== m.source) return false
+  }
+  if (typeof m.account_id === 'string' && m.account_id) {
+    if ((data as Record<string, unknown>).account_id !== m.account_id) return false
   }
   return true
 }
