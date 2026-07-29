@@ -71,6 +71,26 @@ Deno.test('matchListener: source filter for messages', () => {
   assertEquals(matchListener(ev, { event_type: 'message.*' }), true)
 })
 
+Deno.test('matchListener: account_id filter scopes to one inbox', () => {
+  const ev: EventRow = {
+    type: 'message.received',
+    entity_type: 'inbox_message',
+    data: { source: 'email', account_id: 'inbox-a', subject: 'hi' },
+  }
+  // right inbox matches; wrong inbox does not; no filter still catches it
+  assertEquals(matchListener(ev, { event_type: 'message.received', match: { account_id: 'inbox-a' } }), true)
+  assertEquals(matchListener(ev, { event_type: 'message.received', match: { account_id: 'inbox-b' } }), false)
+  assertEquals(matchListener(ev, { event_type: 'message.received', match: {} }), true)
+  // combined with source
+  assertEquals(
+    matchListener(ev, { event_type: 'message.received', match: { source: 'email', account_id: 'inbox-a' } }),
+    true,
+  )
+  // a message with no account_id (e.g. slack) can't match an inbox-scoped rule
+  const noAcct: EventRow = { type: 'message.received', data: { source: 'slack' } }
+  assertEquals(matchListener(noAcct, { event_type: 'message.received', match: { account_id: 'inbox-a' } }), false)
+})
+
 Deno.test('matchListener: empty match object matches any of that type', () => {
   const ev: EventRow = { type: 'todo.completed', entity_type: 'todo', data: {} }
   assertEquals(matchListener(ev, { event_type: 'todo.completed', match: {} }), true)
