@@ -1447,6 +1447,7 @@ export interface Database {
           active: boolean
           last_checked_at: string | null
           last_error: string | null
+          mark_seen: boolean
           created_at: string
           updated_at: string
         }
@@ -1466,6 +1467,7 @@ export interface Database {
           active?: boolean
           last_checked_at?: string | null
           last_error?: string | null
+          mark_seen?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -1899,11 +1901,16 @@ export interface Database {
           p_visibility?: string
           p_poll_interval_minutes?: number
           p_active?: boolean
+          p_mark_seen?: boolean
         }
         Returns: string
       }
       delete_email_account: {
         Args: { p_id: string }
+        Returns: undefined
+      }
+      reset_email_account_cursor: {
+        Args: { p_account_id: string }
         Returns: undefined
       }
       set_slack_integration: {

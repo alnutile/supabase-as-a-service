@@ -211,10 +211,26 @@ function AccountEditor({
     (account?.visibility as 'private' | 'workspace') ?? 'private',
   )
   const [active, setActive] = useState(account?.active ?? true)
+  const [markSeen, setMarkSeen] = useState(account?.mark_seen ?? true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [rescanning, setRescanning] = useState(false)
+
+  async function rescan() {
+    if (!account) return
+    setError(null)
+    setTestResult(null)
+    setRescanning(true)
+    const { error: rpcError } = await supabase.rpc('reset_email_account_cursor', { p_account_id: account.id })
+    setRescanning(false)
+    setTestResult(
+      rpcError
+        ? { ok: false, msg: rpcError.message }
+        : { ok: true, msg: 'Cursor reset — the next poll (within ~1 min) re-imports the most recent mail.' },
+    )
+  }
 
   async function testConnection() {
     setError(null)
@@ -281,6 +297,7 @@ function AccountEditor({
       p_visibility: visibility,
       p_poll_interval_minutes: Number(interval) || 5,
       p_active: active,
+      p_mark_seen: markSeen,
     })
     setSaving(false)
     if (rpcError) {
@@ -403,6 +420,10 @@ function AccountEditor({
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Active (polling on)
           </label>
+          <label className="flex items-center gap-2 text-sm text-muted">
+            <input type="checkbox" checked={markSeen} onChange={(e) => setMarkSeen(e.target.checked)} />
+            Mark messages read on the server after importing
+          </label>
 
           {testResult && (
             <p className={`text-sm ${testResult.ok ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -414,13 +435,25 @@ function AccountEditor({
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
-          <button
-            onClick={testConnection}
-            disabled={testing || !host.trim() || !username.trim()}
-            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
-          >
-            {testing ? 'Testing…' : 'Test connection'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={testConnection}
+              disabled={testing || !host.trim() || !username.trim()}
+              className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
+            >
+              {testing ? 'Testing…' : 'Test connection'}
+            </button>
+            {account && (
+              <button
+                onClick={rescan}
+                disabled={rescanning}
+                className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
+                title="Reset the cursor so the next poll re-imports recent mail"
+              >
+                {rescanning ? 'Resetting…' : 'Re-scan'}
+              </button>
+            )}
+          </div>
           <div className="flex gap-2">
             <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover">
               Cancel
