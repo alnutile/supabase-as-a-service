@@ -139,6 +139,23 @@ untouched. **Re-scan:** the editor's **Re-scan** button resets the ingest cursor
 handy after a config change, or to pull the messages that were already in the box
 when you connected.
 
+**Route new mail deterministically (0105):** the inbox editor has a **"When mail
+arrives here"** section mirroring the webhook's route options — **Save to a table**,
+**Run an agent**, or **Run a function** — while the message still lands in the
+Inbox. It's not a parallel engine: the editor manages **one per-inbox
+`event_listener`** (scoped by `match.account_id`), so routing runs through the same
+`event-dispatch` path as every other listener and shows up (editable) on the
+Listeners page. "Save to a table" is a **`run_tool → add_table_row`** action — **no
+model in the loop**, the same determinism as the webhook's direct-tool mode — so
+webhook, cron/scheduler, and inbox all share one deterministic spine into a user's
+`ut_*` table (the table is just an id in the rule's config; each tenant points at
+its own). Column mapping uses **dot-path tokens** (`{{event.data.subject}}`,
+`{{event.data.body}}`, …) resolved by `substituteEvent` — which is why 0105 also
+adds `body` (an 8k preview) and `received_at` to the `message.received` event.
+`email_accounts.routing_listener_id` links the inbox to its rule (re-populates the
+editor; `delete_email_account` cleans it up). Pick "Just add it to the Inbox" to
+detach.
+
 **Route one inbox, not all (0104):** every incoming message emits a single
 `message.received` event; to automate on just one mailbox, the event data carries
 `account_id` (the originating `email_accounts` id, stamped on `raw.account_id` by

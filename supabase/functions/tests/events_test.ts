@@ -106,3 +106,38 @@ Deno.test('substituteEvent: replaces {{event}} deep in the input', () => {
   assertEquals(out.nested.x[0], json)
   assertEquals(out.num, 3)
 })
+
+Deno.test('substituteEvent: dot-path tokens map single fields (inbox → table column)', () => {
+  const ev: EventRow = {
+    type: 'message.received',
+    entity_id: 'm1',
+    summary: 'Hello there',
+    data: { source: 'email', from_address: 'a@b.com', subject: 'Hi', account_id: 'inbox-a', body: 'line1\nline2' },
+  }
+  // the exact shape a "Save to table" listener stores
+  const input = {
+    table: 'Emails',
+    values: {
+      sender: '{{event.data.from_address}}',
+      subject: '{{ event.data.subject }}',
+      body: '{{event.data.body}}',
+      summary: '{{event.summary}}',
+    },
+  }
+  const out = substituteEvent(input, ev) as { table: string; values: Record<string, string> }
+  assertEquals(out.values.sender, 'a@b.com')
+  assertEquals(out.values.subject, 'Hi')
+  assertEquals(out.values.body, 'line1\nline2')
+  assertEquals(out.values.summary, 'Hello there')
+  assertEquals(out.table, 'Emails')
+})
+
+Deno.test('substituteEvent: missing dot-path resolves to empty string', () => {
+  const ev: EventRow = { type: 'message.received', data: { source: 'slack' } }
+  const out = substituteEvent({ col: '{{event.data.subject}}', who: '{{event.data.from_address}}' }, ev) as {
+    col: string
+    who: string
+  }
+  assertEquals(out.col, '')
+  assertEquals(out.who, '')
+})

@@ -1448,6 +1448,7 @@ export interface Database {
           last_checked_at: string | null
           last_error: string | null
           mark_seen: boolean
+          routing_listener_id: string | null
           created_at: string
           updated_at: string
         }
@@ -1468,6 +1469,7 @@ export interface Database {
           last_checked_at?: string | null
           last_error?: string | null
           mark_seen?: boolean
+          routing_listener_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1911,6 +1913,10 @@ export interface Database {
       }
       reset_email_account_cursor: {
         Args: { p_account_id: string }
+        Returns: undefined
+      }
+      set_email_account_routing: {
+        Args: { p_account_id: string; p_listener_id: string | null }
         Returns: undefined
       }
       set_slack_integration: {
