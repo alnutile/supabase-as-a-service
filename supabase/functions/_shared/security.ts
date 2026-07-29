@@ -207,7 +207,7 @@ export async function gatherPosture(db: DB): Promise<PostureSnapshot> {
     db.from('tools').select('name, kind').eq('is_active', true),
     db.from('integrations').select('kind, allowed_recipients').eq('kind', 'email').maybeSingle(),
     db.from('vault_secrets').select('name, scope'),
-    db.from('artifacts').select('visibility').neq('visibility', 'private'),
+    db.from('artifacts').select('visibility').neq('visibility', 'private').is('deleted_at', null),
     db.from('mcp_tokens').select('name, created_at, last_used_at'),
     db.from('profiles').select('id').eq('is_admin', true),
   ])

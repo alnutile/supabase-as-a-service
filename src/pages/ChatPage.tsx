@@ -338,6 +338,7 @@ export default function ChatPage() {
     supabase
       .from('skills')
       .select('*')
+      .is('deleted_at', null)
       .order('updated_at', { ascending: false })
       .then(({ data }) => setSkills(data ?? []))
   }, [])

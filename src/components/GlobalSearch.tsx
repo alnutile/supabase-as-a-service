@@ -100,6 +100,7 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
         .from('artifacts')
         .select('id, title, type, updated_at')
         .or(orIlike(q, ['title', 'content']))
+        .is('deleted_at', null)
         .order('updated_at', { ascending: false })
         .limit(PER_SOURCE),
       supabase
@@ -137,6 +138,7 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
         .from('skills')
         .select('id, name, description')
         .or(orIlike(q, ['name', 'description']))
+        .is('deleted_at', null)
         .limit(PER_SOURCE),
       supabase
         .from('tools')

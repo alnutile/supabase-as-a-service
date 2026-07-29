@@ -92,7 +92,8 @@ export default function ArtifactsPage() {
 
   const load = useCallback(async () => {
     const [aRes, cRes, mRes] = await Promise.all([
-      supabase.from('artifacts').select('*').order('updated_at', { ascending: false }),
+      // Only live artifacts in the grid — archived ones live in the Trash panel.
+      supabase.from('artifacts').select('*').is('deleted_at', null).order('updated_at', { ascending: false }),
       supabase.from('collections').select('*').order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id, artifact_id'),
     ])
@@ -138,6 +139,7 @@ export default function ArtifactsPage() {
         .from('artifacts')
         .select('*')
         .or(`title.ilike.${pattern},content.ilike.${pattern}`)
+        .is('deleted_at', null)
         .order('updated_at', { ascending: false })
         .limit(200)
       setSearchResults(data ?? [])
@@ -335,20 +337,49 @@ export default function ArtifactsPage() {
       .eq('id', id)
   }
 
+  // Soft delete (archive) the selected artifacts. They move to Trash — hidden
+  // from every normal view but recoverable — instead of being destroyed.
   async function deleteSelected() {
     if (!selectedIds.length) return
     const count = selectedIds.length
     const noun = count === 1 ? 'artifact' : 'artifacts'
-    if (!confirm(`Delete ${count} ${noun}? This cannot be undone.`)) return
+    if (!confirm(`Archive ${count} ${noun}? They move to Trash and can be restored later.`)) return
 
-    // Delete from database
-    await supabase.from('artifacts').delete().in('id', selectedIds)
-
-    // Update local state
+    await supabase.from('artifacts').update({ deleted_at: new Date().toISOString() }).in('id', selectedIds)
     setArtifacts((prev) => prev.filter((a) => !selected.has(a.id)))
-
-    // Clear selection
     clearSelection()
+    loadTrash()
+  }
+
+  // --- Trash / recovery area ---
+  const [showTrash, setShowTrash] = useState(false)
+  const [trash, setTrash] = useState<Artifact[]>([])
+
+  const loadTrash = useCallback(async () => {
+    if (!user) return
+    const { data } = await supabase
+      .from('artifacts')
+      .select('*')
+      .eq('owner_id', user.id)
+      .not('deleted_at', 'is', null)
+      .order('updated_at', { ascending: false })
+    setTrash(data ?? [])
+  }, [user])
+
+  useEffect(() => {
+    loadTrash()
+  }, [loadTrash])
+
+  async function restoreArtifact(id: string) {
+    await supabase.from('artifacts').update({ deleted_at: null }).eq('id', id)
+    setTrash((prev) => prev.filter((a) => a.id !== id))
+    load()
+  }
+
+  async function destroyArtifact(a: Artifact) {
+    if (!confirm(`Permanently delete “${a.title}”? This cannot be undone.`)) return
+    await supabase.from('artifacts').delete().eq('id', a.id)
+    setTrash((prev) => prev.filter((x) => x.id !== a.id))
   }
 
   return (
@@ -361,13 +392,65 @@ export default function ArtifactsPage() {
               Documents and snippets. Group them into collections to chat with a focused set.
             </p>
           </div>
-          <button
-            onClick={create}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
-          >
-            <PlusIcon className="h-4 w-4" /> New artifact
-          </button>
+          <div className="flex items-center gap-2">
+            {trash.length > 0 && (
+              <button
+                onClick={() => setShowTrash((v) => !v)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                  showTrash
+                    ? 'border-border-strong bg-surface-hover text-text'
+                    : 'border-border bg-surface text-muted hover:text-text'
+                }`}
+              >
+                <TrashIcon className="h-4 w-4" /> Trash ({trash.length})
+              </button>
+            )}
+            <button
+              onClick={create}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
+            >
+              <PlusIcon className="h-4 w-4" /> New artifact
+            </button>
+          </div>
         </div>
+
+        {/* Trash / recovery area: archived artifacts, restore or delete forever. */}
+        {showTrash && (
+          <div className="mb-5 rounded-xl border border-border bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text">Trash</h2>
+              <p className="text-xs text-muted">Archived artifacts — restore them or delete permanently.</p>
+            </div>
+            {trash.length === 0
+              ? <p className="text-sm text-muted">Trash is empty.</p>
+              : (
+                <ul className="divide-y divide-border">
+                  {trash.map((a) => (
+                    <li key={a.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-text">{a.title}</p>
+                        <p className="text-xs text-muted">{a.type} · archived {formatDate(a.updated_at)}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={() => restoreArtifact(a.id)}
+                          className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface-hover"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => destroyArtifact(a)}
+                          className="rounded-lg border border-red-200 bg-surface px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                        >
+                          Delete forever
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+          </div>
+        )}
 
         {/* Search the whole DB by title or body */}
         <div className="relative mb-5">
@@ -659,7 +742,7 @@ export default function ArtifactsPage() {
               onClick={deleteSelected}
               className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-surface px-3 py-1.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             >
-              <TrashIcon className="h-4 w-4" /> Delete
+              <TrashIcon className="h-4 w-4" /> Archive
             </button>
             <button
               onClick={clearSelection}

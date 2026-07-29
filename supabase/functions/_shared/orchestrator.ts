@@ -48,6 +48,7 @@ async function loadAlwaysOnSystem(db: DB): Promise<string> {
       .from('skills')
       .select('instructions, is_builtin, created_at')
       .eq('auto_apply', true)
+      .is('deleted_at', null)
       .order('is_builtin', { ascending: false })
       .order('created_at', { ascending: true })
     const parts = (data ?? [])

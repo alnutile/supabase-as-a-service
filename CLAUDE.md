@@ -101,6 +101,20 @@ PR workflows — GITHUB_TOKEN anti-recursion).
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
+  **Soft delete / archive + recovery (migration 0101):** artifacts (and skills) carry a
+  nullable `deleted_at`. Deleting ARCHIVES by default (sets `deleted_at`) — the row is
+  hidden from every normal view (grids, search, `p`/share pages, collections context) but
+  stays recoverable; a real row DELETE is the permanent removal. The owner still sees their
+  own archived rows over RLS (that's the recovery area — the SELECT policy hides archived
+  only from non-owner branches, and the security-definer share RPCs got the same guard);
+  service-role edge reads (`chat`/`orchestrator` always-on prompts, `collections.ts`,
+  `security.ts`, the REST list) filter `deleted_at is null` in code since RLS is bypassed.
+  The `Trash` panel on `ArtifactsPage`/`SkillsPage` restores or deletes-for-good; the
+  editor/bulk "delete" buttons archive. Both the internal assistant and the external MCP
+  server get the lifecycle: `delete_artifact` / `delete_skill` (archive by default,
+  `permanent:true` to destroy), `restore_artifact` / `restore_skill`, and an `archived`
+  filter on `list_artifacts` / `list_skills` (the recovery area). Handlers in
+  `_shared/builtins.ts`; the MCP server delegates via `runBuiltin`.
   **Optional share password (migration 0062):** when an artifact is unlisted/public the
   editor's Sharing panel (`VisibilityControl`) can require a password before a viewer sees
   it — for handing a customer a link + password. This is NOT client-side theater: setting a

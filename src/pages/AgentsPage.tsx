@@ -443,6 +443,7 @@ function AgentEditor({
       .from('skills')
       .select('*')
       .eq('is_builtin', false)
+      .is('deleted_at', null)
       .order('name')
       .then(({ data }) => setSkills(data ?? []))
   }, [])

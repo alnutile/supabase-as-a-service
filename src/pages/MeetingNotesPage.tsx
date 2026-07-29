@@ -439,6 +439,7 @@ export default function MeetingNotesPage() {
       .from('skills')
       .select('id, name, instructions')
       .eq('auto_apply', false)
+      .is('deleted_at', null)
       .order('name', { ascending: true })
       .then(({ data }) => {
         if (active && data) setSkills(data)
@@ -511,6 +512,7 @@ export default function MeetingNotesPage() {
       .from('artifacts')
       .select('id, title, created_at, data')
       .contains('data', { meeting_notes: true })
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(100)
       .then(({ data }) => {
