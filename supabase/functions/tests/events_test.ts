@@ -97,14 +97,33 @@ Deno.test('matchListener: empty match object matches any of that type', () => {
   assertEquals(matchListener(ev, { event_type: 'todo.completed' }), true)
 })
 
-Deno.test('substituteEvent: replaces {{event}} deep in the input', () => {
+Deno.test('substituteEvent: embedded {{event}} stringifies; exact token → object', () => {
   const ev: EventRow = { type: 'message.received', entity_id: 'm1', data: { source: 'email' } }
   const input = { note: 'Got {{event}}', nested: { x: ['{{event}}'] }, num: 3 }
-  const out = substituteEvent(input, ev) as { note: string; nested: { x: string[] }; num: number }
-  const json = JSON.stringify(ev)
-  assertEquals(out.note, `Got ${json}`)
-  assertEquals(out.nested.x[0], json)
+  const out = substituteEvent(input, ev) as { note: string; nested: { x: unknown[] }; num: number }
+  // embedded in a larger string → JSON text
+  assertEquals(out.note, `Got ${JSON.stringify(ev)}`)
+  // a string that is EXACTLY the token → the real event object (whole-value)
+  assertEquals(out.nested.x[0], ev)
   assertEquals(out.num, 3)
+})
+
+Deno.test('substituteEvent: whole-message JSON dump lands a real object in one column', () => {
+  const ev: EventRow = {
+    type: 'message.received',
+    entity_id: 'm1',
+    data: { source: 'email', from_address: 'a@b.com', subject: 'Hi', body: 'hello' },
+  }
+  // the shape a "Save to table as JSON" listener stores — one column gets {{event}}
+  const out = substituteEvent({ table: 'Emails', values: { payload: '{{event}}' } }, ev) as {
+    table: string
+    values: { payload: unknown }
+  }
+  assertEquals(out.values.payload, ev) // deep object, not a JSON string
+  assertEquals(out.table, 'Emails')
+  // and the nested data object is reachable as a whole value too
+  const dataOut = substituteEvent({ values: { blob: '{{event.data}}' } }, ev) as { values: { blob: unknown } }
+  assertEquals(dataOut.values.blob, ev.data)
 })
 
 Deno.test('substituteEvent: dot-path tokens map single fields (inbox → table column)', () => {

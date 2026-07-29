@@ -70,7 +70,17 @@ export function matchListener(event: EventRow, listener: ListenerRow): boolean {
 // A dot path resolves into the event; a scalar is inserted as-is, an object/array
 // as JSON, and a missing/null path as an empty string — so a table-column mapping
 // like values.subject = "{{event.data.subject}}" fills deterministically.
+// The value at a dot path, coerced to a string (for embedding inside a larger
+// string — a scalar as-is, an object/array as JSON, a miss as '').
 export function resolveEventPath(event: EventRow, path: string): string {
+  const v = resolveEventValue(event, path)
+  if (v === '' || v === null || v === undefined) return ''
+  return typeof v === 'object' ? JSON.stringify(v) : String(v)
+}
+
+// The RAW value at a dot path (object/scalar preserved), '' if missing — used by
+// whole-value token replacement so an object can land in a json column intact.
+export function resolveEventValue(event: EventRow, path: string): unknown {
   let cur: unknown = event
   for (const key of path.split('.')) {
     if (cur && typeof cur === 'object' && key in (cur as Record<string, unknown>)) {
@@ -79,16 +89,29 @@ export function resolveEventPath(event: EventRow, path: string): string {
       return ''
     }
   }
-  if (cur === null || cur === undefined) return ''
-  return typeof cur === 'object' ? JSON.stringify(cur) : String(cur)
+  return cur ?? ''
 }
 
+// Replace {{event}} tokens in the input (deep) so a run_tool action can feed
+// event context to a tool input. Two forms:
+//   • A string that is EXACTLY one token ("{{event}}" or "{{event.data}}") is
+//     replaced by the ACTUAL value — the event object / a nested object / a
+//     scalar — so "save the whole message as JSON into one column" lands a real
+//     object in a json column (not a double-encoded string), and a scalar field
+//     ("{{event.data.subject}}") lands as a plain string in a text column.
+//   • A token EMBEDDED in a larger string ("Got {{event}}") is replaced by the
+//     JSON / scalar text, as before.
 export function substituteEvent<T>(input: T, event: EventRow): T {
   const full = JSON.stringify(event)
-  const sub = (s: string) =>
+  const embed = (s: string) =>
     s.replace(/\{\{\s*event(?:\.([\w.]+))?\s*\}\}/g, (_m, path) => (path ? resolveEventPath(event, path) : full))
+  const exact = /^\s*\{\{\s*event(?:\.([\w.]+))?\s*\}\}\s*$/
   const walk = (v: unknown): unknown => {
-    if (typeof v === 'string') return sub(v)
+    if (typeof v === 'string') {
+      const m = exact.exec(v)
+      if (m) return m[1] ? resolveEventValue(event, m[1]) : event
+      return embed(v)
+    }
     if (Array.isArray(v)) return v.map(walk)
     if (v && typeof v === 'object') {
       const out: Record<string, unknown> = {}

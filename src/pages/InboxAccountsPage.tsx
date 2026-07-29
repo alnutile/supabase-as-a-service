@@ -220,16 +220,17 @@ function AccountEditor({
   const [rescanning, setRescanning] = useState(false)
 
   // "When mail arrives here → do X" — one managed per-inbox listener.
-  type TableRow = { id: string; name: string; columns: { key: string; label?: string }[] }
+  type TableRow = { id: string; name: string; columns: { key: string; label?: string; type?: string }[] }
   const [tables, setTables] = useState<TableRow[]>([])
   const [agentList, setAgentList] = useState<{ id: string; name: string }[]>([])
   const [toolList, setToolList] = useState<{ id: string; name: string }[]>([])
-  const [routeAction, setRouteAction] = useState<'none' | 'table' | 'agent' | 'function'>('none')
+  const [routeAction, setRouteAction] = useState<'none' | 'table' | 'table_json' | 'agent' | 'function'>('none')
   const [routeTable, setRouteTable] = useState('') // table name
   const [colFrom, setColFrom] = useState('')
   const [colSubject, setColSubject] = useState('')
   const [colBody, setColBody] = useState('')
   const [colReceived, setColReceived] = useState('')
+  const [jsonCol, setJsonCol] = useState('') // whole-message-as-JSON target column
   const [routeAgent, setRouteAgent] = useState('')
   const [routeTool, setRouteTool] = useState('') // tool name
 
@@ -265,14 +266,21 @@ function AccountEditor({
           setRouteAction('agent')
           setRouteAgent(cfg.agent_id ?? '')
         } else if (data.action_type === 'run_tool' && cfg.tool === 'add_table_row') {
-          setRouteAction('table')
           setRouteTable(cfg.input?.table ?? '')
-          for (const [col, tok] of Object.entries(cfg.input?.values ?? {})) {
-            const f = /event\.data\.(\w+)/.exec(tok || '')?.[1]
-            if (f === 'from_address') setColFrom(col)
-            else if (f === 'subject') setColSubject(col)
-            else if (f === 'body') setColBody(col)
-            else if (f === 'received_at') setColReceived(col)
+          const values = cfg.input?.values ?? {}
+          const jsonEntry = Object.entries(values).find(([, tok]) => /^\s*\{\{\s*event\s*\}\}\s*$/.test(tok || ''))
+          if (jsonEntry) {
+            setRouteAction('table_json')
+            setJsonCol(jsonEntry[0])
+          } else {
+            setRouteAction('table')
+            for (const [col, tok] of Object.entries(values)) {
+              const f = /event\.data\.(\w+)/.exec(tok || '')?.[1]
+              if (f === 'from_address') setColFrom(col)
+              else if (f === 'subject') setColSubject(col)
+              else if (f === 'body') setColBody(col)
+              else if (f === 'received_at') setColReceived(col)
+            }
           }
         } else if (data.action_type === 'run_tool') {
           setRouteAction('function')
@@ -402,6 +410,10 @@ function AccountEditor({
       if (colReceived) values[colReceived] = '{{event.data.received_at}}'
       action_type = 'run_tool'
       action_config = { tool: 'add_table_row', input: { table: routeTable, values } }
+    } else if (routeAction === 'table_json') {
+      // whole message as JSON into one (json) column
+      action_type = 'run_tool'
+      action_config = { tool: 'add_table_row', input: { table: routeTable, values: { [jsonCol]: '{{event}}' } } }
     } else if (routeAction === 'agent') {
       action_type = 'run_agent'
       action_config = { agent_id: routeAgent }
@@ -559,7 +571,8 @@ function AccountEditor({
               className={field}
             >
               <option value="none">Just add it to the Inbox</option>
-              <option value="table">Also save it to a table</option>
+              <option value="table">Also save it to a table (map fields to columns)</option>
+              <option value="table_json">Also save it to a table (whole message as JSON in one column)</option>
               <option value="agent">Also run an agent</option>
               <option value="function">Also run a function</option>
             </select>
@@ -597,6 +610,45 @@ function AccountEditor({
                         {colSelect(colBody, setColBody, 'Body')}
                         {colSelect(colReceived, setColReceived, 'Received')}
                       </div>
+                    )
+                  })()}
+              </div>
+            )}
+
+            {routeAction === 'table_json' && (
+              <div className="space-y-2">
+                <select value={routeTable} onChange={(e) => setRouteTable(e.target.value)} className={field}>
+                  <option value="">Choose a table…</option>
+                  {tables.map((t) => (
+                    <option key={t.id} value={t.name}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                {routeTable &&
+                  (() => {
+                    const jsonCols = (tables.find((t) => t.name === routeTable)?.columns ?? []).filter(
+                      (c) => c.type === 'json',
+                    )
+                    if (!jsonCols.length)
+                      return (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                          This table has no JSON column. Add one (type “json”) on the{' '}
+                          <Link to="/tables" className="underline">Tables</Link> page, then pick it here.
+                        </p>
+                      )
+                    return (
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] text-faint">Store the whole message in →</span>
+                        <select value={jsonCol} onChange={(e) => setJsonCol(e.target.value)} className={field}>
+                          <option value="">Choose a JSON column…</option>
+                          {jsonCols.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.label || c.key}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     )
                   })()}
               </div>
