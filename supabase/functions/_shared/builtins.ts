@@ -96,6 +96,10 @@ export async function runBuiltin(
       return getArtifact(db, input, userId)
     case 'update_artifact':
       return updateArtifact(db, input, userId)
+    case 'delete_artifact':
+      return deleteArtifact(db, input, userId)
+    case 'restore_artifact':
+      return restoreArtifact(db, input, userId)
     case 'list_collections':
       return listCollections(db, userId)
     case 'create_collection':
@@ -222,6 +226,8 @@ export async function runBuiltin(
       return updateSkill(db, input, userId)
     case 'delete_skill':
       return deleteSkill(db, input, userId)
+    case 'restore_skill':
+      return restoreSkill(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -985,12 +991,17 @@ async function listArtifacts(
     if (!memberIds.length) return `No artifacts in collection "${col.name}".`
   }
 
+  // `archived:true` is the recovery area — only the caller's archived artifacts
+  // (nobody else's trash is visible); otherwise only live (non-archived) rows.
+  const wantArchived = input?.archived === true
   let query = db
     .from('artifacts')
     .select('id, title, type, created_at')
-    .or(`owner_id.eq.${userId},visibility.neq.private`)
     .order('created_at', { ascending: false })
     .limit(limit)
+  query = wantArchived
+    ? query.eq('owner_id', userId).not('deleted_at', 'is', null)
+    : query.or(`owner_id.eq.${userId},visibility.neq.private`).is('deleted_at', null)
   const titleContains = typeof input?.title_contains === 'string' ? input.title_contains.trim() : ''
   if (titleContains) query = query.ilike('title', `%${titleContains}%`)
   // Artifacts have a `type` (markdown|code|html|text), not a MIME type; accept
@@ -1039,16 +1050,21 @@ const ARTIFACT_CONTENT_CAP = 16_000
 // Find one artifact by id or exact title (case-insensitive). `ownOnly` mirrors
 // the write rule: reads follow the RLS shape (owner OR shared), updates are
 // owner-only — builtins run as the service role, so this re-check is the gate.
+// `archived` picks the trash state: 'live' (default, not archived), 'archived'
+// (only archived — for restore), or 'any' (either — for a permanent delete).
 async function resolveArtifact(
   db: DB,
   userId: string,
   ref: string,
   ownOnly: boolean,
+  archived: 'live' | 'archived' | 'any' = 'live',
 ): Promise<{ id: string; title: string; type: string; content: string; data: unknown } | null> {
   let q = db
     .from('artifacts')
     .select('id, title, type, content, data, owner_id, visibility, updated_at')
   q = ownOnly ? q.eq('owner_id', userId) : q.or(`owner_id.eq.${userId},visibility.neq.private`)
+  if (archived === 'live') q = q.is('deleted_at', null)
+  else if (archived === 'archived') q = q.not('deleted_at', 'is', null)
   q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('title', ref)
   const { data } = await q.order('updated_at', { ascending: false }).limit(1)
   return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
@@ -1111,6 +1127,57 @@ async function updateArtifact(
     userId,
   )
   return `Updated artifact "${(patch.title as string) ?? art.title}" (/artifacts/${art.id}). Open views refresh live.`
+}
+
+// Archive (soft delete) by default — hides the artifact from every normal view
+// but keeps it recoverable; permanent:true removes the row for good. Owner only.
+async function deleteArtifact(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Artifacts are unavailable.'
+  const ref = String(input?.artifact ?? '').trim()
+  if (!ref) return 'Pass the artifact id or its exact title.'
+  const permanent = input?.permanent === true
+  // Resolve across any trash state so a second "delete" on an already-archived
+  // artifact can still escalate to a permanent removal.
+  const art = await resolveArtifact(db, userId, ref, true, 'any')
+  if (!art) return `No artifact you own matches "${ref}".`
+  if (permanent) {
+    const { error } = await db.from('artifacts').delete().eq('id', art.id).eq('owner_id', userId)
+    if (error) return `Could not delete the artifact: ${error.message}`
+    await logActivity(db, 'artifact.deleted', `Permanently deleted artifact "${art.title}"`, { id: art.id, permanent: true }, userId)
+    return `Permanently deleted artifact "${art.title}". This cannot be undone.`
+  }
+  const { error } = await db
+    .from('artifacts')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', art.id)
+    .eq('owner_id', userId)
+  if (error) return `Could not archive the artifact: ${error.message}`
+  await logActivity(db, 'artifact.archived', `Archived artifact "${art.title}"`, { id: art.id }, userId)
+  return `Archived artifact "${art.title}". It's hidden from normal views but recoverable with restore_artifact (or delete it for good with permanent:true).`
+}
+
+async function restoreArtifact(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Artifacts are unavailable.'
+  const ref = String(input?.artifact ?? '').trim()
+  if (!ref) return 'Pass the artifact id or its exact title.'
+  const art = await resolveArtifact(db, userId, ref, true, 'archived')
+  if (!art) return `No archived artifact you own matches "${ref}". Use list_artifacts with archived:true to see the recovery area.`
+  const { error } = await db
+    .from('artifacts')
+    .update({ deleted_at: null })
+    .eq('id', art.id)
+    .eq('owner_id', userId)
+  if (error) return `Could not restore the artifact: ${error.message}`
+  await logActivity(db, 'artifact.restored', `Restored artifact "${art.title}"`, { id: art.id }, userId)
+  return `Restored artifact "${art.title}" (/artifacts/${art.id}). It's visible again.`
 }
 
 async function listCollections(db: DB | null, userId: string | null): Promise<string> {
@@ -2277,6 +2344,7 @@ async function resolveSkill(
   db: DB,
   userId: string,
   ref: string,
+  archived: 'live' | 'archived' | 'any' = 'live',
 ): Promise<
   | {
     id: string
@@ -2294,6 +2362,8 @@ async function resolveSkill(
     .from('skills')
     .select('id, name, description, instructions, auto_apply, is_builtin, output_mode, owner_id')
     .or(`owner_id.eq.${userId},auto_apply.eq.true`)
+  if (archived === 'live') q = q.is('deleted_at', null)
+  else if (archived === 'archived') q = q.not('deleted_at', 'is', null)
   q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('name', ref)
   const { data } = await q.order('updated_at', { ascending: false }).limit(1)
   // deno-lint-ignore no-explicit-any
@@ -2346,6 +2416,8 @@ async function listSkills(
     .limit(limit)
   if (input?.always_on === true) q = q.eq('auto_apply', true)
   else if (input?.always_on === false) q = q.eq('auto_apply', false)
+  // archived:true = the recovery area (only archived rows); else only live ones.
+  q = input?.archived === true ? q.not('deleted_at', 'is', null) : q.is('deleted_at', null)
   const query = typeof input?.query === 'string' ? input.query.trim() : ''
   if (query) q = q.or(`name.ilike.%${query}%,description.ilike.%${query}%`)
   const { data, error } = await q
@@ -2412,6 +2484,9 @@ async function updateSkill(
   return `Updated ${wantAlwaysOn ? 'always-on prompt' : 'on-demand skill'} "${(patch.name as string) ?? skill.name}" (id ${skill.id}).`
 }
 
+// Archive (soft delete) by default so a skill/prompt is recoverable; permanent
+// removes the row for good. Built-ins are never deletable; always-on prompts
+// are admin-gated (both archive and permanent).
 async function deleteSkill(
   db: DB | null,
   input: Record<string, unknown>,
@@ -2420,13 +2495,36 @@ async function deleteSkill(
   if (!db || !userId) return 'Skills are unavailable.'
   const ref = String(input?.skill ?? '').trim()
   if (!ref) return 'delete_skill needs a skill id or exact name.'
-  const skill = await resolveSkill(db, userId, ref)
+  const permanent = input?.permanent === true
+  const skill = await resolveSkill(db, userId, ref, 'any')
   if (!skill) return `No skill or prompt matches "${ref}".`
   if (skill.is_builtin) return `"${skill.name}" is a built-in prompt and can't be deleted (edit it with update_skill instead).`
   if (skill.auto_apply && !(await isAdmin(db, userId))) return 'Only admins can delete always-on prompts.'
-  const { error } = await db.from('skills').delete().eq('id', skill.id)
-  if (error) return `Could not delete the skill: ${error.message}`
-  return `Deleted ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'} "${skill.name}".`
+  const kind = skill.auto_apply ? 'always-on prompt' : 'on-demand skill'
+  if (permanent) {
+    const { error } = await db.from('skills').delete().eq('id', skill.id)
+    if (error) return `Could not delete the skill: ${error.message}`
+    return `Permanently deleted ${kind} "${skill.name}". This cannot be undone.`
+  }
+  const { error } = await db.from('skills').update({ deleted_at: new Date().toISOString() }).eq('id', skill.id)
+  if (error) return `Could not archive the skill: ${error.message}`
+  return `Archived ${kind} "${skill.name}". It's hidden but recoverable with restore_skill (or delete it for good with permanent:true).`
+}
+
+async function restoreSkill(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Skills are unavailable.'
+  const ref = String(input?.skill ?? '').trim()
+  if (!ref) return 'restore_skill needs a skill id or exact name.'
+  const skill = await resolveSkill(db, userId, ref, 'archived')
+  if (!skill) return `No archived skill or prompt matches "${ref}". Use list_skills with archived:true to see the recovery area.`
+  if (skill.auto_apply && !(await isAdmin(db, userId))) return 'Only admins can restore always-on prompts.'
+  const { error } = await db.from('skills').update({ deleted_at: null }).eq('id', skill.id)
+  if (error) return `Could not restore the skill: ${error.message}`
+  return `Restored ${skill.auto_apply ? 'always-on prompt' : 'on-demand skill'} "${skill.name}". It's active again.`
 }
 
 async function isAdmin(db: DB, userId: string): Promise<boolean> {

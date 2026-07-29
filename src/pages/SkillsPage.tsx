@@ -50,19 +50,47 @@ export default function SkillsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [uploadError, setUploadError] = useState<string | null>(null)
 
+  const [showTrash, setShowTrash] = useState(false)
+  const [trash, setTrash] = useState<Skill[]>([])
+
   const load = useCallback(async () => {
     const { data } = await supabase
       .from('skills')
       .select('*')
+      .is('deleted_at', null)
       .order('auto_apply', { ascending: false })
       .order('updated_at', { ascending: false })
     setSkills(data ?? [])
     setLoading(false)
   }, [])
 
+  const loadTrash = useCallback(async () => {
+    if (!user) return
+    const { data } = await supabase
+      .from('skills')
+      .select('*')
+      .eq('owner_id', user.id)
+      .not('deleted_at', 'is', null)
+      .order('updated_at', { ascending: false })
+    setTrash(data ?? [])
+  }, [user])
+
   useEffect(() => {
     load()
-  }, [load])
+    loadTrash()
+  }, [load, loadTrash])
+
+  async function restoreSkillRow(id: string) {
+    await supabase.from('skills').update({ deleted_at: null }).eq('id', id)
+    setTrash((prev) => prev.filter((s) => s.id !== id))
+    load()
+  }
+
+  async function destroySkillRow(s: Skill) {
+    if (!confirm(`Permanently delete “${s.name}”? This cannot be undone.`)) return
+    await supabase.from('skills').delete().eq('id', s.id)
+    setTrash((prev) => prev.filter((x) => x.id !== s.id))
+  }
 
   useEffect(() => {
     if (!user) return
@@ -179,6 +207,18 @@ export default function SkillsPage() {
               </p>
             </div>
             <div className="flex gap-2">
+              {trash.length > 0 && (
+                <button
+                  onClick={() => setShowTrash((v) => !v)}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                    showTrash
+                      ? 'border-border-strong bg-surface-hover text-text'
+                      : 'border-border text-muted hover:text-text'
+                  }`}
+                >
+                  <TrashIcon className="h-4 w-4" /> Trash ({trash.length})
+                </button>
+              )}
               <label
                 htmlFor="skill-upload"
                 className="flex cursor-pointer items-center gap-2 rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-text transition hover:border-primary hover:text-primary"
@@ -223,6 +263,46 @@ export default function SkillsPage() {
             </div>
           )}
         </div>
+
+        {/* Trash / recovery area: archived skills, restore or delete forever. */}
+        {showTrash && (
+          <div className="mb-6 rounded-xl border border-border bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text">Trash</h2>
+              <p className="text-xs text-muted">Archived skills &amp; prompts — restore or delete permanently.</p>
+            </div>
+            {trash.length === 0
+              ? <p className="text-sm text-muted">Trash is empty.</p>
+              : (
+                <ul className="divide-y divide-border">
+                  {trash.map((s) => (
+                    <li key={s.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-text">{s.name}</p>
+                        <p className="text-xs text-muted">
+                          {s.auto_apply ? 'always-on prompt' : 'on-demand skill'} · archived {formatDate(s.updated_at)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={() => restoreSkillRow(s.id)}
+                          className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface-hover"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => destroySkillRow(s)}
+                          className="rounded-lg border border-red-200 bg-surface px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                        >
+                          Delete forever
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+          </div>
+        )}
 
         {loading ? (
           <p className="text-sm text-faint">Loading…</p>
@@ -295,6 +375,7 @@ export default function SkillsPage() {
           onSaved={() => {
             setEditing(null)
             load()
+            loadTrash()
           }}
         />
       )}
@@ -447,8 +528,13 @@ function SkillEditor({
   }
 
   async function remove() {
-    if (!confirm(`Delete “${draft.name}”?`)) return
-    await supabase.from('skills').delete().eq('id', draft.id)
+    if (draft.is_builtin) {
+      alert('Built-in prompts can’t be deleted — edit them instead.')
+      return
+    }
+    // Soft delete: archive to the recovery area rather than destroy.
+    if (!confirm(`Archive “${draft.name}”? It moves to Trash and can be restored later.`)) return
+    await supabase.from('skills').update({ deleted_at: new Date().toISOString() }).eq('id', draft.id)
     onSaved()
   }
 
@@ -468,7 +554,7 @@ function SkillEditor({
             <button
               onClick={remove}
               className="rounded-md p-1.5 text-faint hover:bg-red-50 hover:text-red-600"
-              title="Delete"
+              title="Archive"
             >
               <TrashIcon className="h-[18px] w-[18px]" />
             </button>

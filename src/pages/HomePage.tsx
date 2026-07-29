@@ -133,7 +133,7 @@ export default function HomePage() {
     Promise.all([
       supabase.from('todos').select('id', head).eq('done', false),
       supabase.from('todos').select('id', head).eq('done', true),
-      supabase.from('artifacts').select('id', head),
+      supabase.from('artifacts').select('id', head).is('deleted_at', null),
       supabase.from('files').select('id', head),
       supabase.from('activity_log').select('id', head).gte('created_at', sinceWeek.toISOString()),
       supabase
@@ -147,6 +147,7 @@ export default function HomePage() {
         .from('artifacts')
         .select('*')
         .eq('pinned', true)
+        .is('deleted_at', null)
         .order('updated_at', { ascending: false })
         .limit(12),
     ]).then(([oTodos, dTodos, arts, fls, wk, td, pinned]) => {

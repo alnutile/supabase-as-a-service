@@ -21,6 +21,7 @@ const mockArtifact = (overrides: Partial<Artifact> = {}): Artifact => ({
   share_password_hash: null,
   data: null,
   pinned: false,
+  deleted_at: null,
   ...overrides,
 })
 
