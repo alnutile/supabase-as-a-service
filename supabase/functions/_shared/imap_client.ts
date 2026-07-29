@@ -150,6 +150,13 @@ export class ImapClient {
     return null
   }
 
+  // Mark a message \Seen (read) on the server. Best-effort — a STORE failure must
+  // not lose an already-ingested message, so callers ignore the boolean.
+  async markSeen(uid: number): Promise<boolean> {
+    const r = await this.command(`UID STORE ${uid} +FLAGS (\\Seen)`)
+    return r.ok
+  }
+
   async logout(): Promise<void> {
     try {
       await this.command('LOGOUT')

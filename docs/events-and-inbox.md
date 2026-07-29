@@ -131,6 +131,32 @@ firing `message.received` — so you can wire and verify a Listener end-to-end w
 waiting for real mail. (A fresh inbox is also polled on the next 1-minute tick, not
 after its full interval, since it has no `last_checked_at` yet.)
 
+**Mark as read:** by default the poller marks each imported message `\Seen` on the
+IMAP server (`mark_seen`, 0103) so the mailbox reflects what's been pulled; untick
+"Mark messages read on the server after importing" in the editor to leave the folder
+untouched. **Re-scan:** the editor's **Re-scan** button resets the ingest cursor
+(`reset_email_account_cursor`) so the next poll re-imports the most recent mail —
+handy after a config change, or to pull the messages that were already in the box
+when you connected.
+
+**Route one inbox, not all (0104):** every incoming message emits a single
+`message.received` event; to automate on just one mailbox, the event data carries
+`account_id` (the originating `email_accounts` id, stamped on `raw.account_id` by
+the poller and the Test-message button). A Listener's `match` can filter on it —
+the **Inbox** picker on the Listeners page (beside the existing **From source**
+filter) sets `match.account_id`, so "when mail arrives in *this* inbox → run_tool"
+targets exactly that mailbox. No inbox picked = every message, unchanged. This is a
+filter on the existing event (like `source`/`collection_id`), not a per-inbox event
+type — so there's no UUID in the event name and no duplicate events.
+
+*Note on dedupe (0103 fix):* the poller inserts each message with a plain `insert`
+and treats a `23505` unique violation on `(source, external_id)` as "already
+ingested". It does **not** use `upsert(..., {onConflict})`, because the unique index
+is **partial** (`where external_id is not null`) and Postgres can't infer a partial
+index for `ON CONFLICT` — the original upsert silently failed on every row while
+advancing the cursor, so nothing landed in the inbox. A real (non-duplicate) insert
+error now surfaces on the account's `last_error` and does not advance the cursor.
+
 **How it runs:** the `email-poll` edge function is cron-ticked every minute (added
 to `_automation_cron_jobs()`, so every tenant self-schedules it — no manual step),
 but each mailbox is only checked at most once per its **Check every N minutes**

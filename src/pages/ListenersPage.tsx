@@ -44,7 +44,7 @@ type Draft = {
   event_type: string
   is_active: boolean
   visibility: 'private' | 'workspace'
-  match: { entity_type?: string; collection_id?: string; source?: string }
+  match: { entity_type?: string; collection_id?: string; source?: string; account_id?: string }
   action_type: string
   action_config: Record<string, unknown>
 }
@@ -83,6 +83,7 @@ export default function ListenersPage() {
   const [agents, setAgents] = useState<NamedRow[]>([])
   const [tools, setTools] = useState<NamedRow[]>([])
   const [collections, setCollections] = useState<NamedRow[]>([])
+  const [inboxes, setInboxes] = useState<NamedRow[]>([])
   const [tableEvents, setTableEvents] = useState<{ value: string; label: string }[]>([])
   const [seenEvents, setSeenEvents] = useState<string[]>([])
   const [cronStatus, setCronStatus] = useState<{ name: string; scheduled: boolean }[] | null>(null)
@@ -102,6 +103,15 @@ export default function ListenersPage() {
     supabase.from('agents').select('id, name').eq('is_active', true).order('name').then(({ data }) => setAgents((data as NamedRow[]) ?? []))
     supabase.from('tools').select('id, name').eq('is_active', true).order('name').then(({ data }) => setTools((data as NamedRow[]) ?? []))
     supabase.from('collections').select('id, name').order('name').then(({ data }) => setCollections((data as NamedRow[]) ?? []))
+    // Inboxes, so a message.received rule can be scoped to one mailbox (label falls
+    // back to the username when there's no display name).
+    supabase
+      .from('email_accounts')
+      .select('id, label, username')
+      .order('created_at')
+      .then(({ data }) =>
+        setInboxes(((data ?? []) as { id: string; label: string; username: string }[]).map((a) => ({ id: a.id, name: a.label || a.username }))),
+      )
     // Event-source tables: each contributes its frozen event_type so it's pickable
     // even before the first event fires.
     supabase
@@ -461,6 +471,23 @@ export default function ListenersPage() {
                         {SOURCES.map((s) => (
                           <option key={s} value={s}>
                             {s}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {draft.event_type.startsWith('message') && inboxes.length > 0 && (
+                    <label className="block">
+                      <span className="text-xs font-medium text-muted">Inbox</span>
+                      <select
+                        value={draft.match.account_id ?? ''}
+                        onChange={(e) => patchMatch({ account_id: e.target.value || undefined })}
+                        className="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text"
+                      >
+                        <option value="">Any inbox</option>
+                        {inboxes.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.name}
                           </option>
                         ))}
                       </select>

@@ -38,6 +38,7 @@ interface Account {
   owner_id: string | null
   active: boolean
   last_checked_at: string | null
+  mark_seen: boolean
 }
 
 async function pollAccount(db: DB, acct: Account): Promise<{ ingested: number }> {
@@ -65,26 +66,42 @@ async function pollAccount(db: DB, acct: Account): Promise<{ ingested: number }>
     let highest = acct.last_seen_uid
     for (const uid of uids) {
       const fetched = await withTimeout(client.fetchRaw(uid), SOCKET_TIMEOUT_MS, 'fetch')
-      highest = Math.max(highest, uid)
-      if (!fetched || !fetched.raw.trim()) continue
+      if (!fetched || !fetched.raw.trim()) {
+        highest = Math.max(highest, uid) // nothing to store, but don't re-fetch it
+        continue
+      }
       const msg = parseEmailMessage(fetched.raw)
       const externalId = msg.messageId || `${acct.id}:${uid}`
-      const { error } = await db.from('inbox_messages').upsert(
-        {
-          owner_id: acct.owner_id,
-          source: 'email',
-          external_id: externalId,
-          from_address: msg.from || '(unknown)',
-          from_name: msg.fromName || null,
-          to_address: msg.to || acct.username,
-          subject: msg.subject || '(no subject)',
-          body_text: msg.text.slice(0, MAX_BODY),
-          visibility: acct.visibility,
-          raw: { provider: 'imap', account_id: acct.id, uid, date: msg.date },
-        },
-        { onConflict: 'source,external_id', ignoreDuplicates: true },
-      )
+      // Plain insert (NOT upsert): the (source, external_id) unique index is
+      // PARTIAL (where external_id is not null), which ON CONFLICT can't infer —
+      // so a 23505 duplicate is the "already ingested" signal we treat as success;
+      // any OTHER error must surface (throw) instead of being silently swallowed,
+      // and must NOT advance the cursor past unstored mail.
+      const { error } = await db.from('inbox_messages').insert({
+        owner_id: acct.owner_id,
+        source: 'email',
+        external_id: externalId,
+        from_address: msg.from || '(unknown)',
+        from_name: msg.fromName || null,
+        to_address: msg.to || acct.username,
+        subject: msg.subject || '(no subject)',
+        body_text: msg.text.slice(0, MAX_BODY),
+        visibility: acct.visibility,
+        raw: { provider: 'imap', account_id: acct.id, uid, date: msg.date },
+      })
+      if (error && error.code !== '23505') {
+        throw new Error(`inbox insert failed (uid ${uid}): ${error.message}`)
+      }
       if (!error) ingested++
+      // Mark read on the server once the row is safely persisted (or already was).
+      if (acct.mark_seen) {
+        try {
+          await withTimeout(client.markSeen(uid), SOCKET_TIMEOUT_MS, 'store')
+        } catch {
+          // marking read is best-effort; never fail the poll over it
+        }
+      }
+      highest = Math.max(highest, uid)
     }
 
     await client.logout()
@@ -115,7 +132,7 @@ Deno.serve(async (req: Request) => {
   const { data: accounts } = await db
     .from('email_accounts')
     .select(
-      'id, label, host, port, secure, username, folder, last_seen_uid, poll_interval_minutes, visibility, owner_id, active, last_checked_at',
+      'id, label, host, port, secure, username, folder, last_seen_uid, poll_interval_minutes, visibility, owner_id, active, last_checked_at, mark_seen',
     )
     .eq('active', true)
     .order('last_checked_at', { ascending: true, nullsFirst: true })
