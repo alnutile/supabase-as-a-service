@@ -52,10 +52,22 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   dashboard (`DashboardWidget`) renders each by querying its `source` (a fixed allow-list:
   todos/artifacts/files/links/collections/activity) under the caller's RLS — so a stored
   spec **can never read another user's rows**, and a customer adds widgets without forking
-  the code (configuration-as-data, like tools/agents/forge). The allow-list + spec
-  sanitizing lives in `src/lib/widgets.ts` (browser) and `_shared/widgets.ts` (the
-  create_widget validator), both unit-tested. *(Planned: drag-reorder, workspace-shared
-  widgets, more sources, a REST/MCP surface for widgets.)*
+  the code (configuration-as-data, like tools/agents/forge). **Chart widgets (migration
+  0106):** a `chart` widget's `spec` also carries `viz` (`bar`|`line`|`area`|`donut`) and
+  an optional `groupBy` — a per-source **allow-listed dimension** (todos→`done`,
+  artifacts→`type`, files→`mime_type`, activity→`type`). Without `groupBy` a chart is the
+  per-day time series (bar/line/area, last 14 days); with it the chart is a category
+  **breakdown** (donut or horizontal bars) built by the pure `bucketByCategory`. The charts
+  are dependency-free SVG (`src/components/widgetCharts.tsx`, single-accent opacity ramp,
+  theme-aware) — deliberately no chart library, matching the trend-chart/card-canvas ethos.
+  A `groupBy` is validated against the source's dimension list on **both** sides
+  (`normalizeSpec` in the browser, `validateWidget` in `_shared/widgets.ts`), so the value
+  passed to `.select()` is always one of our own column names, never free-form; the schema
+  is unchanged (all new fields ride in the existing `spec` jsonb), so 0106 only re-teaches
+  the seeded `create_widget` tool the options. The allow-list + spec sanitizing lives in
+  `src/lib/widgets.ts` (browser) and `_shared/widgets.ts` (the create_widget validator),
+  both unit-tested. *(Planned: drag-reorder, workspace-shared widgets, charting user
+  `ut_*` tables, a REST/MCP surface for widgets.)*
 - **Chat:** `src/pages/ChatPage.tsx` writes user/assistant messages to Postgres and
   subscribes to `messages` via Supabase Realtime (websockets) for cross-device sync.
   The composer can **attach files** (📎): they upload to the `files` bucket (and show in
