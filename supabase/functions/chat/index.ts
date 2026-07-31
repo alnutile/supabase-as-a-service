@@ -17,6 +17,7 @@ import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { parseArtifactBlocks } from '../_shared/artifacts.ts'
 import { cardsToText } from '../_shared/card_board.ts'
+import { tableToText } from '../_shared/user_table.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
 import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
@@ -279,6 +280,7 @@ Deno.serve(async (req: Request) => {
   let toolIds: string[] | undefined
   let collectionIds: string[] = []
   let cardBoardId = ''
+  let tableId = ''
   // Server-side persistence: the main chat composer passes conversationId +
   // persist so the assistant reply is written HERE (in a background task that
   // survives the browser navigating away / reloading), plus a per-send runId
@@ -301,6 +303,8 @@ Deno.serve(async (req: Request) => {
     else if (typeof body.collectionId === 'string' && body.collectionId) collectionIds = [body.collectionId]
     // Scope a chat directly to one card board (the Cards editor's chat panel).
     if (typeof body.cardBoardId === 'string') cardBoardId = body.cardBoardId
+    // Scope a chat directly to one user table (the Tables grid's chat dock).
+    if (typeof body.tableId === 'string') tableId = body.tableId
     if (typeof body.conversationId === 'string') conversationId = body.conversationId
     persist = body.persist === true
     if (typeof body.runId === 'string') runId = body.runId
@@ -360,6 +364,34 @@ Deno.serve(async (req: Request) => {
         `To add ideas as cards, call add_cards with id "${cardBoardId}" and a cards array of {text, color?}; ` +
         `to re-read it call get_card_board with that id. The board updates live as you add cards.\n\n` +
         cardsToText({ cards: cb.cards })
+    }
+  }
+
+  // Table scope (the Tables grid's chat dock): inject THIS table's schema + a
+  // preview of its rows as primary context. Re-enforce access in code (service
+  // role bypasses RLS): the caller must own the table or it must be
+  // workspace-visible. Row preview reads the physical ut_* table.
+  if (tableId) {
+    const { data: t } = await db
+      .from('user_tables')
+      .select('name, physical_name, columns, owner_id, visibility')
+      .eq('id', tableId)
+      .maybeSingle()
+    if (t && (t.owner_id === userId || t.visibility === 'workspace')) {
+      let rows: unknown[] = []
+      try {
+        const { data: r } = await db.from(t.physical_name).select('*').limit(50)
+        if (Array.isArray(r)) rows = r
+      } catch {
+        // unreadable table (schema cache lag / dropped) — inject schema only
+      }
+      system +=
+        `\n\n---\n\n# Table: "${t.name}" (id ${tableId})\n` +
+        `The user is chatting from this data table. Treat it as the primary reference. ` +
+        `To read the latest rows call query_table with table "${t.name}" (or id "${tableId}"); ` +
+        `to add a row call add_table_row; to change a row call update_table_row with a match filter. ` +
+        `The grid updates live as you write. Here is a snapshot:\n\n` +
+        tableToText({ name: t.name, columns: t.columns, rows })
     }
   }
 

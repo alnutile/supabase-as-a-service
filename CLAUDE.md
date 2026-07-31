@@ -435,8 +435,22 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   get them; `update_table_row` seeded in migration 0044) run with the service role and
   **re-enforce the private/workspace rule in code** — and `update_table_row` requires a
   `match` filter so it can't rewrite a whole table; MCP exposes `list_tables` / `create_table` /
-  `add_table_row` / `update_table_row` for an external Claude. *(Planned: a
-  fuller query surface — sorting, richer filters/joins — and column reordering/rename.)*
+  `add_table_row` / `update_table_row` for an external Claude.
+  **Table-level chat dock ("Ask AI", migration 0107):** the grid header's **Ask AI** button
+  toggles a persistent, table-scoped chat panel (`src/components/TableChatPanel.tsx`) — a side
+  column on md+, a full-screen overlay on mobile. Like the Cards editor's `BoardChatPanel`, it's
+  backed by a REAL conversation found-or-created for (owner, `conversations.table_id`) in the same
+  conversations/messages tables the main Chat uses, so history persists, syncs over Realtime, and
+  shows up in the chat list. It streams via `streamChat({ tableId })`; the chat function injects
+  THAT table's schema + a preview of its rows as primary context (access re-enforced: own or
+  workspace; the pure, unit-tested `_shared/user_table.ts` `tableToText` renders the schema + a
+  budgeted row grid) and tells the assistant to `query_table`/`add_table_row`/`update_table_row`
+  by name — so "add a row for X" / "summarize this table" writes to (or reads) the table, and the
+  grid reloads its rows when the reply finishes. All the existing grid features are untouched —
+  bulk-select + bulk-delete, drag-to-resize, sort, the expand-a-row `RecordModal`, add-field, and
+  Table settings. *(Planned: a
+  fuller query surface — sorting, richer filters/joins — and column reordering/rename; a live
+  row-append over Realtime instead of a reload; the chat dock on the Tables list level too.)*
 - **PDF knowledge (RAG):** uploading a PDF enqueues a `documents` row (trigger on
   `files`). A `pg_cron` tick calls the `ingest` edge function, which extracts the
   text layer (`unpdf`), chunks it, embeds each chunk **free** with the in-edge
