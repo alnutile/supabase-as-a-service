@@ -9,6 +9,7 @@ import {
   serializeSkillMarkdown,
   skillFilename,
 } from '../lib/skillFormat'
+import { normalizeGitHubUrl } from '../lib/githubUrl'
 import {
   ArtifactIcon,
   ChatIcon,
@@ -49,6 +50,9 @@ export default function SkillsPage() {
   const [editing, setEditing] = useState<Skill | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [showUrlImport, setShowUrlImport] = useState(false)
+  const [importUrl, setImportUrl] = useState('')
+  const [importing, setImporting] = useState(false)
 
   const [showTrash, setShowTrash] = useState(false)
   const [trash, setTrash] = useState<Skill[]>([])
@@ -179,6 +183,83 @@ export default function SkillsPage() {
     }
   }
 
+  async function handleUrlImport() {
+    if (!importUrl.trim()) {
+      setUploadError('Please enter a URL')
+      return
+    }
+
+    setImporting(true)
+    setUploadError(null)
+
+    try {
+      // Normalize the GitHub URL to raw content
+      let fetchUrl = normalizeGitHubUrl(importUrl.trim())
+
+      // Try fetching from the normalized URL
+      let response = await fetch(fetchUrl)
+
+      // If main branch fails for repo root, try master
+      if (!response.ok && fetchUrl.includes('/main/README.md')) {
+        fetchUrl = fetchUrl.replace('/main/README.md', '/master/README.md')
+        response = await fetch(fetchUrl)
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`)
+      }
+
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('text') && !contentType.includes('markdown')) {
+        throw new Error('URL must point to a text or markdown file')
+      }
+
+      const text = await response.text()
+      const parsed = parseSkillMarkdown(text)
+
+      // Validate required fields
+      if (!parsed.name?.trim() && !parsed.instructions?.trim()) {
+        setUploadError(
+          'Could not extract a valid skill from this URL. The file should contain either a name in frontmatter or skill instructions.'
+        )
+        return
+      }
+
+      // If no name in frontmatter, try to extract from URL or use a default
+      const extractedName = parsed.name?.trim() ||
+        importUrl.split('/').pop()?.replace(/\.md$/i, '').replace(/[-_]/g, ' ') ||
+        'Imported skill'
+
+      // Create the skill from the imported content
+      const { data, error } = await supabase
+        .from('skills')
+        .insert({
+          owner_id: user!.id,
+          name: extractedName,
+          description: parsed.description || `Imported from ${new URL(importUrl).hostname}`,
+          instructions: parsed.instructions || text,
+          auto_apply: false,
+          output_mode: 'artifact',
+          artifact_type: 'markdown',
+        })
+        .select()
+        .single()
+
+      if (error) {
+        setUploadError(error.message)
+      } else if (data) {
+        await load()
+        setEditing(data)
+        setShowUrlImport(false)
+        setImportUrl('')
+      }
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Failed to import skill from URL')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   // Filter skills based on search query
   const filterSkills = (skillList: Skill[]) => {
     if (!searchQuery.trim()) return skillList
@@ -219,6 +300,13 @@ export default function SkillsPage() {
                   <TrashIcon className="h-4 w-4" /> Trash ({trash.length})
                 </button>
               )}
+              <button
+                onClick={() => setShowUrlImport(true)}
+                className="flex items-center gap-2 rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-text transition hover:border-primary hover:text-primary"
+                title="Import skill from GitHub URL"
+              >
+                <DownloadIcon className="h-4 w-4" /> Import URL
+              </button>
               <label
                 htmlFor="skill-upload"
                 className="flex cursor-pointer items-center gap-2 rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-text transition hover:border-primary hover:text-primary"
@@ -378,6 +466,78 @@ export default function SkillsPage() {
             loadTrash()
           }}
         />
+      )}
+
+      {showUrlImport && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
+          <div className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <h2 className="text-sm font-semibold text-text">Import skill from URL</h2>
+              <button
+                onClick={() => {
+                  setShowUrlImport(false)
+                  setImportUrl('')
+                  setUploadError(null)
+                }}
+                className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-text"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div>
+                <label className="mb-2 block text-sm text-muted">
+                  Enter a GitHub URL (file, repo, or gist)
+                </label>
+                <input
+                  type="text"
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !importing) {
+                      handleUrlImport()
+                    }
+                  }}
+                  placeholder="https://github.com/user/repo/blob/main/skill.md"
+                  className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                  autoFocus
+                />
+                <p className="mt-2 text-xs text-muted">
+                  Supports GitHub file URLs, repo URLs (imports README), and gists.
+                  The file should be in Markdown format with skill instructions.
+                </p>
+              </div>
+
+              {uploadError && (
+                <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {uploadError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+              <button
+                onClick={() => {
+                  setShowUrlImport(false)
+                  setImportUrl('')
+                  setUploadError(null)
+                }}
+                disabled={importing}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-surface-hover disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUrlImport}
+                disabled={importing || !importUrl.trim()}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+              >
+                {importing ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -67,3 +67,10 @@ export const slackEventsUrl = `${supabaseUrl}/functions/v1/slack-events`
 
 /** Transcribe audio to text using OpenAI Whisper API. */
 export const transcribeFunctionUrl = () => `${supabaseUrl}/functions/v1/transcribe`
+
+/**
+ * Stable, non-expiring public URL for a file published to the `public-files`
+ * bucket (see migration 0106). Safe to bake into an artifact / static page.
+ */
+export const publicFileUrl = (publicPath: string) =>
+  supabase.storage.from('public-files').getPublicUrl(publicPath).data.publicUrl
