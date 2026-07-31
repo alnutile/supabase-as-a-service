@@ -381,6 +381,21 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   `screenshot_path`; a REST API + MCP tools like artifacts/to-dos.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
+  **Bulk sharing + public files (migration 0106):** select any number of files and share
+  them in one action from the selection toolbar — a **permanent public link** or a signed
+  link scoped to **1 hour / 1 day / 1 week** (the pure mode→expiry mapping lives in
+  `src/lib/fileShare.ts`, unit-tested). A results modal lists each file's link with per-file
+  copy + "Copy all". "Public" **publishes** the file: because the `files` bucket is private
+  (signed URLs expire, max 7 days), publishing COPIES the bytes into a separate **public
+  `public-files` bucket** (public read, owner-folder writes — same model as `artifact-images`)
+  under the mirrored `‹owner›/‹uuid›/‹name›` path and records it on the nullable
+  `files.public_path` column; the resulting stable, non-expiring URL (`publicFileUrl()` in
+  `src/lib/supabase.ts`) is safe to bake into a **public artifact / static HTML page** whose
+  images must load for anonymous visitors forever. A "Public" badge on a published file copies
+  the URL (click) or unpublishes it (×, which drops the public copy — the private original is
+  untouched); deleting a file removes both copies. Signed-link sharing still only flips
+  `files.visibility` to `unlisted`; the private raw blob never leaves the `files` bucket unless
+  explicitly published.
   **AI-writable Files (CRUD):** seeded `is_builtin` tools `create_file` / `list_files` /
   `get_file` / `delete_file` / `add_file_to_collection` (shared executor in
   `_shared/files.ts`, run by all three agent loops via `runBuiltin`; the MCP server exposes

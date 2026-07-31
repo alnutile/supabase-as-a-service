@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Database } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
+import { publicFileUrl, supabase } from '../lib/supabase'
 import { uploadPickedFile } from '../lib/upload'
 import { useAuth } from '../contexts/AuthContext'
 import { formatBytes, formatDate } from '../lib/util'
-import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon, GridIcon, ListIcon, DownloadIcon, PencilIcon } from '../components/icons'
+import { CheckIcon, FileIcon, LinkIcon, TrashIcon, UploadIcon, GridIcon, ListIcon, DownloadIcon, PencilIcon, GlobeIcon, CopyIcon, CloseIcon } from '../components/icons'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
+import {
+  PUBLIC_FILES_BUCKET,
+  SHARE_MODES,
+  shareExpirySeconds,
+  shareModeLabel,
+  shareValidityNote,
+  type ShareMode,
+} from '../lib/fileShare'
+
+type ShareResult = { mode: ShareMode; items: { name: string; url: string }[] }
 
 type FileRow = Database['public']['Tables']['files']['Row']
 type Doc = Database['public']['Tables']['documents']['Row']
@@ -20,6 +30,9 @@ export default function FilesPage() {
   const [error, setError] = useState<string | null>(null)
   const [linkFor, setLinkFor] = useState<{ id: string; url: string } | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [shareResult, setShareResult] = useState<ShareResult | null>(null)
+  const [shareBusy, setShareBusy] = useState<ShareMode | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     const saved = localStorage.getItem('files-view-mode')
@@ -149,9 +162,101 @@ export default function FilesPage() {
     load()
   }
 
+  function flashToast(msg: string) {
+    setToast(msg)
+    window.setTimeout(() => setToast(null), 2500)
+  }
+
+  async function copyText(text: string) {
+    await navigator.clipboard.writeText(text).catch(() => {})
+    flashToast('Copied to clipboard')
+  }
+
+  // Publish a file to the public bucket: copy the bytes over (private bucket
+  // objects can't be served publicly), then flag the row. Returns the stable
+  // public URL. Idempotent — re-publishing just upserts and re-derives the URL.
+  async function publishFile(f: FileRow): Promise<string> {
+    if (!f.public_path) {
+      const { data: blob, error: dlErr } = await supabase.storage.from(f.bucket).download(f.path)
+      if (dlErr || !blob) throw dlErr ?? new Error('Could not read the file')
+      const { error: upErr } = await supabase.storage
+        .from(PUBLIC_FILES_BUCKET)
+        .upload(f.path, blob, { upsert: true, contentType: f.mime_type || undefined })
+      if (upErr) throw upErr
+      await supabase.from('files').update({ visibility: 'public', public_path: f.path }).eq('id', f.id)
+      setFiles((prev) =>
+        prev.map((x) => (x.id === f.id ? { ...x, visibility: 'public', public_path: f.path } : x)),
+      )
+    }
+    return publicFileUrl(f.public_path ?? f.path)
+  }
+
+  // Unpublish: drop the public copy and revert the row to private. The private
+  // original in the `files` bucket is untouched.
+  async function unpublishFile(f: FileRow) {
+    if (f.public_path) {
+      await supabase.storage.from(PUBLIC_FILES_BUCKET).remove([f.public_path])
+    }
+    await supabase.from('files').update({ visibility: 'private', public_path: null }).eq('id', f.id)
+    setFiles((prev) =>
+      prev.map((x) => (x.id === f.id ? { ...x, visibility: 'private', public_path: null } : x)),
+    )
+  }
+
+  // Share every selected file at once in the chosen mode. 'public' publishes for
+  // a permanent URL; the timed modes mint signed URLs of the matching window.
+  async function bulkShare(mode: ShareMode) {
+    const chosen = files.filter((f) => selected.has(f.id))
+    if (!chosen.length || shareBusy) return
+    setShareBusy(mode)
+    setError(null)
+    try {
+      const items: { name: string; url: string }[] = []
+      if (mode === 'public') {
+        for (const f of chosen) {
+          try {
+            items.push({ name: f.title || f.name, url: await publishFile(f) })
+          } catch (err) {
+            setError(err instanceof Error ? err.message : `Could not publish "${f.name}"`)
+          }
+        }
+      } else {
+        const expiry = shareExpirySeconds(mode)!
+        const { data, error: err } = await supabase.storage
+          .from(BUCKET)
+          .createSignedUrls(
+            chosen.map((f) => f.path),
+            expiry,
+          )
+        if (err || !data) throw err ?? new Error('Could not create share links')
+        data.forEach((row, i) => {
+          if (row.signedUrl) items.push({ name: chosen[i].title || chosen[i].name, url: row.signedUrl })
+        })
+        // Signed sharing flips still-private files to 'unlisted' (the "link
+        // shared" label); published files keep their 'public' state.
+        const toMark = chosen.filter((f) => f.visibility === 'private').map((f) => f.id)
+        if (toMark.length) {
+          await supabase.from('files').update({ visibility: 'unlisted' }).in('id', toMark)
+          setFiles((prev) =>
+            prev.map((x) => (toMark.includes(x.id) ? { ...x, visibility: 'unlisted' } : x)),
+          )
+        }
+      }
+      if (items.length) {
+        setShareResult({ mode, items })
+        if (items.length === 1) await copyText(items[0].url)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create share links')
+    } finally {
+      setShareBusy(null)
+    }
+  }
+
   async function remove(f: FileRow) {
     if (!confirm(`Delete "${f.name}"?`)) return
     await supabase.storage.from(f.bucket).remove([f.path])
+    if (f.public_path) await supabase.storage.from(PUBLIC_FILES_BUCKET).remove([f.public_path])
     await supabase.from('files').delete().eq('id', f.id)
     load()
   }
@@ -172,7 +277,8 @@ export default function FilesPage() {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-text">Files</h1>
               <p className="mt-1 text-sm text-muted">
-                Private by default. Create a share link, or select files to add them to a collection to chat with.
+                Private by default. Select files to share in bulk — a permanent public link or a
+                signed link (1 hour / 1 day / 1 week) — or add them to a collection to chat with.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -222,6 +328,35 @@ export default function FilesPage() {
           <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
         )}
 
+        {selected.size > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2.5">
+            <span className="text-sm font-medium text-text">{selected.size} selected</span>
+            <span className="text-sm text-muted">Share:</span>
+            {SHARE_MODES.map((mode) => (
+              <button
+                key={mode}
+                onClick={() => bulkShare(mode)}
+                disabled={shareBusy !== null}
+                title={shareValidityNote(mode)}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
+                  mode === 'public'
+                    ? 'border-primary bg-primary text-white hover:bg-primary-strong'
+                    : 'border-border-strong text-text hover:bg-surface-hover'
+                }`}
+              >
+                {mode === 'public' && <GlobeIcon className="h-4 w-4" />}
+                {shareBusy === mode ? 'Sharing…' : shareModeLabel(mode)}
+              </button>
+            ))}
+            <button
+              onClick={() => setSelected(new Set())}
+              className="ml-auto text-sm font-medium text-muted hover:text-text"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <p className="text-sm text-faint">Loading…</p>
         ) : files.length === 0 ? (
@@ -261,6 +396,12 @@ export default function FilesPage() {
                     {f.visibility !== 'private' && ' · link shared'}
                   </p>
                 </div>
+                {f.public_path && (
+                  <PublicBadge
+                    onCopy={() => copyText(publicFileUrl(f.public_path!))}
+                    onUnpublish={() => unpublishFile(f)}
+                  />
+                )}
                 {doc && <ScopeToggle doc={doc} onChange={(scope) => setScope(doc, scope)} />}
                 <IndexBadge doc={doc} />
                 <button
@@ -298,6 +439,8 @@ export default function FilesPage() {
                   onRemove={() => remove(f)}
                   onSetScope={(scope) => setScope(doc, scope)}
                   onUpdateMetadata={(title, description) => updateFileMetadata(f.id, title, description)}
+                  onCopyPublic={() => copyText(publicFileUrl(f.public_path!))}
+                  onUnpublish={() => unpublishFile(f)}
                 />
               )
             })}
@@ -316,6 +459,87 @@ export default function FilesPage() {
         selectedIds={[...selected]}
         onClear={() => setSelected(new Set())}
       />
+
+      {shareResult && (
+        <ShareResultModal
+          result={shareResult}
+          onClose={() => setShareResult(null)}
+          onCopy={copyText}
+        />
+      )}
+
+      {toast && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-text px-3 py-2 text-sm font-medium text-surface shadow-lg">
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Results of a bulk share: a copyable link per file, plus "Copy all". For a
+// single file the link is already on the clipboard, but the list still shows it.
+function ShareResultModal({
+  result,
+  onClose,
+  onCopy,
+}: {
+  result: ShareResult
+  onClose: () => void
+  onCopy: (text: string) => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text">
+              {result.items.length} {result.items.length === 1 ? 'link' : 'links'} ready
+            </h2>
+            <p className="text-xs text-muted">{shareValidityNote(result.mode)}</p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text"
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="max-h-[52vh] divide-y divide-border overflow-y-auto">
+          {result.items.map((it, i) => (
+            <div key={i} className="flex items-center gap-3 px-5 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-text">{it.name}</p>
+                <p className="truncate text-xs text-faint">{it.url}</p>
+              </div>
+              <button
+                onClick={() => onCopy(it.url)}
+                title="Copy link"
+                className="shrink-0 rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-primary"
+              >
+                <CopyIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+        {result.items.length > 1 && (
+          <div className="border-t border-border px-5 py-3">
+            <button
+              onClick={() => onCopy(result.items.map((it) => it.url).join('\n'))}
+              className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
+            >
+              Copy all {result.items.length} links
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -419,6 +643,8 @@ function FileCard({
   onRemove,
   onSetScope,
   onUpdateMetadata,
+  onCopyPublic,
+  onUnpublish,
 }: {
   file: FileRow
   doc?: Doc
@@ -430,6 +656,8 @@ function FileCard({
   onRemove: () => void
   onSetScope: (scope: string) => void
   onUpdateMetadata: (title: string | null, description: string | null) => void
+  onCopyPublic: () => void
+  onUnpublish: () => void
 }) {
   const isImage = file.mime_type?.startsWith('image/')
 
@@ -468,8 +696,10 @@ function FileCard({
         <p className="text-xs text-faint">
           {formatBytes(file.size_bytes)} · {formatDate(file.created_at)}
         </p>
-        {file.visibility !== 'private' && (
-          <p className="text-xs text-muted">Link shared</p>
+        {file.public_path ? (
+          <PublicBadge onCopy={onCopyPublic} onUnpublish={onUnpublish} />
+        ) : (
+          file.visibility !== 'private' && <p className="text-xs text-muted">Link shared</p>
         )}
         {doc && <IndexBadge doc={doc} />}
       </div>
@@ -532,6 +762,30 @@ function ScopeToggle({ doc, onChange }: { doc: Doc; onChange: (scope: string) =>
     >
       {shared ? 'Team knowledge' : 'Only me'}
     </button>
+  )
+}
+
+// A file published to the public bucket: click the pill to copy its permanent
+// URL, the × to unpublish (drops the public copy; the private original stays).
+function PublicBadge({ onCopy, onUnpublish }: { onCopy: () => void; onUnpublish: () => void }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 pl-2 pr-1 py-0.5 text-[10px] font-medium text-emerald-700">
+      <button
+        onClick={onCopy}
+        title="Copy the permanent public URL"
+        className="inline-flex items-center gap-1 hover:underline"
+      >
+        <GlobeIcon className="h-3 w-3" /> Public
+      </button>
+      <button
+        onClick={onUnpublish}
+        title="Make private again"
+        aria-label="Unpublish"
+        className="rounded-full p-0.5 hover:bg-emerald-200"
+      >
+        <CloseIcon className="h-2.5 w-2.5" />
+      </button>
+    </span>
   )
 }
 

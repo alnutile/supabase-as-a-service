@@ -711,6 +711,7 @@ export interface Database {
           size_bytes: number | null
           visibility: Visibility
           public_slug: string | null
+          public_path: string | null
           tags: string[] | null
           source: Json | null
           created_at: string
@@ -727,6 +728,7 @@ export interface Database {
           size_bytes?: number | null
           visibility?: Visibility
           public_slug?: string | null
+          public_path?: string | null
           tags?: string[] | null
           source?: Json | null
           created_at?: string
