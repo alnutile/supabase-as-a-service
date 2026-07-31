@@ -28,6 +28,7 @@ export async function streamChat(
     toolIds?: string[]
     collectionIds?: string[]
     cardBoardId?: string
+    tableId?: string
     // Server-side persistence (the main chat composer): the chat function writes
     // the assistant reply itself, in a background task that survives the browser
     // navigating away or reloading. `runId` (a fresh uuid per send) lets Stop
@@ -61,6 +62,7 @@ export async function streamChat(
       toolIds: options?.toolIds,
       collectionIds: options?.collectionIds,
       cardBoardId: options?.cardBoardId,
+      tableId: options?.tableId,
       conversationId: options?.conversationId,
       persist: options?.persist,
       runId: options?.runId,

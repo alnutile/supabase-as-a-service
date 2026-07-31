@@ -6,6 +6,7 @@ import { streamChat } from '../lib/chat'
 import {
   ArrowRightIcon,
   CalendarIcon,
+  ChatIcon,
   ChevronDownIcon,
   GlobeIcon,
   LockIcon,
@@ -15,6 +16,7 @@ import {
   TableIcon,
   TrashIcon,
 } from '../components/icons'
+import { TableChatPanel } from '../components/TableChatPanel'
 import {
   DEFAULT_COL_WIDTH,
   clampColWidth,
@@ -325,6 +327,7 @@ function TableGrid({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showChat, setShowChat] = useState(false)
 
   // Column widths (drag-to-resize), persisted per-table in localStorage.
   const widthsKey = `table-cols:${table.id}`
@@ -463,7 +466,8 @@ function TableGrid({
   const expandedRow = expandedRowId ? rows.find((r) => String(r.id) === expandedRowId) ?? null : null
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:px-5">
         <button
           onClick={onBack}
@@ -496,6 +500,18 @@ function TableGrid({
             />
           </div>
         )}
+        <button
+          onClick={() => setShowChat((v) => !v)}
+          title="Chat with this table"
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold shadow-sm transition ${
+            showChat
+              ? 'bg-primary-soft text-primary'
+              : 'bg-gradient-to-br from-primary to-primary-strong text-white hover:opacity-95'
+          }`}
+        >
+          <ChatIcon className="h-4 w-4" />
+          <span className="hidden sm:inline">Ask AI</span>
+        </button>
         <button
           onClick={() => setShowSettings(true)}
           className="rounded-lg border border-border-strong px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover"
@@ -691,6 +707,20 @@ function TableGrid({
           </table>
         )}
       </div>
+      </div>
+
+      {/* Table-level chat dock ("Ask AI"): a side column on md+, a full-screen
+          overlay on mobile. One panel instance keeps a single conversation. */}
+      {showChat && (
+        <div className="fixed inset-0 z-40 flex border-l border-border bg-surface md:static md:z-auto md:w-[380px] md:shrink-0">
+          <TableChatPanel
+            tableId={table.id}
+            tableName={table.name}
+            onClose={() => setShowChat(false)}
+            onWroteRows={loadRows}
+          />
+        </div>
+      )}
 
       {expandedRow && (
         <RecordModal
@@ -746,7 +776,7 @@ function TableGrid({
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
