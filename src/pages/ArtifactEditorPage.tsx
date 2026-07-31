@@ -10,6 +10,7 @@ import { ArtifactFrame } from '../components/ArtifactFrame'
 import { Markdown } from '../components/Markdown'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { VisibilityControl } from '../components/VisibilityControl'
+import { CollectionSelector } from '../components/CollectionSelector'
 import { CopyButton } from '../components/CopyButton'
 import { ChatIcon, PaperclipIcon, PinIcon, TrashIcon } from '../components/icons'
 
@@ -578,6 +579,12 @@ export default function ArtifactEditorPage() {
               Open as standalone page ↗
             </a>
           )}
+        </div>
+        <div className="border-b border-border p-4">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+            Collections
+          </h3>
+          <CollectionSelector itemId={artifact.id} itemType="artifact" />
         </div>
         <div
           className={
