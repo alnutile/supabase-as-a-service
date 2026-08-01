@@ -15,6 +15,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { loadAlwaysOnPrompts } from '../_shared/always_on.ts'
 import { parseArtifactBlocks } from '../_shared/artifacts.ts'
 import { cardsToText } from '../_shared/card_board.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
@@ -190,22 +191,8 @@ async function isRunCancelled(
 // agent's bound collections the same way.
 
 async function loadAlwaysOnSystem(db: ReturnType<typeof createClient> | null): Promise<string> {
-  if (!db) return DEFAULT_SYSTEM
-  try {
-    const { data } = await db
-      .from('skills')
-      .select('instructions, is_builtin, created_at')
-      .eq('auto_apply', true)
-      .is('deleted_at', null)
-      .order('is_builtin', { ascending: false })
-      .order('created_at', { ascending: true })
-    const parts = (data ?? [])
-      .map((r: { instructions: string }) => (r.instructions ?? '').trim())
-      .filter(Boolean)
-    return parts.length ? parts.join('\n\n---\n\n') : DEFAULT_SYSTEM
-  } catch {
-    return DEFAULT_SYSTEM
-  }
+  const joined = await loadAlwaysOnPrompts(db)
+  return joined || DEFAULT_SYSTEM
 }
 
 // Build the OpenAI/OpenRouter `tools` array from active rows, and a lookup of the
