@@ -1,5 +1,12 @@
 -- Agent runs & steps — an observability trace for one invocation of an agent.
 --
+-- NOTE: renumbered from a colliding 0107 that clashed with main's
+-- 0107_slack_message_builtin.sql (landed by the Slack-listener PR while this was
+-- in review) — prod recorded version 0107 from that file, so the duplicate-prefix
+-- 0107_agent_runs could never apply and `db push` failed on the collision. Made
+-- idempotent (create-if-not-exists everywhere + guarded publication adds) so
+-- re-applying against a workspace that partially has these objects is a no-op.
+--
 -- The four agent loops (chat, scheduler, webhook, slack) run a model→tool→model
 -- loop but persist almost nothing per step: a tool call logged only the tool NAME
 -- to activity_log, usage_events had no run/conversation grouping, and the
@@ -82,6 +89,20 @@ create policy "agent_run_steps read via run" on public.agent_run_steps
   );
 
 -- Realtime so the detail page ticks a running agent's steps live (same pattern as
--- security_scans / loop_runs / event_listener_runs).
-alter publication supabase_realtime add table public.agent_runs;
-alter publication supabase_realtime add table public.agent_run_steps;
+-- security_scans / loop_runs / event_listener_runs). Guarded so a re-apply after a
+-- partial run doesn't fail with "relation is already member of publication".
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'agent_runs'
+  ) then
+    alter publication supabase_realtime add table public.agent_runs;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'agent_run_steps'
+  ) then
+    alter publication supabase_realtime add table public.agent_run_steps;
+  end if;
+end $$;
