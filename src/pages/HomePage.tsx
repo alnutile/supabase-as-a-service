@@ -15,6 +15,7 @@ import {
   ArtifactIcon,
   ChatIcon,
   CheckIcon,
+  CloseIcon,
   FileIcon,
   ForgeIcon,
   GlobeIcon,
@@ -106,6 +107,9 @@ export default function HomePage() {
   // Custom widgets (owner-only rows; realtime so AI-added ones pop in live)
   const [widgets, setWidgets] = useState<WidgetRow[]>([])
   const [addOpen, setAddOpen] = useState(false)
+
+  // Quick todo modal
+  const [showTodoModal, setShowTodoModal] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -259,6 +263,21 @@ export default function HomePage() {
     await supabase.from('dashboard_widgets').delete().eq('id', id)
   }
 
+  const addQuickTodo = async (title: string) => {
+    if (!user) return
+    const { data, error } = await supabase
+      .from('todos')
+      .insert({ owner_id: user.id, title, position: 0, visibility: 'private' })
+      .select('id, title, due_date, done')
+      .single()
+
+    if (!error && data) {
+      setTodos((prev) => [data as TodoRow, ...prev.slice(0, 5)])
+      setStats((prev) => (prev ? { ...prev, todosOpen: prev.todosOpen + 1 } : prev))
+      setShowTodoModal(false)
+    }
+  }
+
   const pct = completionPct(stats?.todosDone ?? 0, (stats?.todosOpen ?? 0) + (stats?.todosDone ?? 0))
 
   const cards = CARDS.filter((c) => !c.adminOnly || isAdmin)
@@ -317,6 +336,7 @@ export default function HomePage() {
               navigate={navigate}
               quick={quick}
               onComplete={completeTodo}
+              onOpenTodoModal={() => setShowTodoModal(true)}
             />
             <WidgetsSection
               widgets={widgets}
@@ -330,6 +350,14 @@ export default function HomePage() {
           <Explore cards={cards} quick={quick} navigate={navigate} />
         )}
       </div>
+
+      {/* Quick todo modal */}
+      {showTodoModal && (
+        <QuickTodoModal
+          onClose={() => setShowTodoModal(false)}
+          onSave={addQuickTodo}
+        />
+      )}
     </div>
   )
 }
@@ -344,6 +372,7 @@ function Overview({
   navigate,
   quick,
   onComplete,
+  onOpenTodoModal,
 }: {
   loading: boolean
   stats: Stats | null
@@ -353,6 +382,7 @@ function Overview({
   navigate: (to: string) => void
   quick: string
   onComplete: (id: string) => void
+  onOpenTodoModal: () => void
 }) {
   return (
     <>
@@ -375,6 +405,12 @@ function Overview({
           className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
         >
           <AgentIcon className="h-[18px] w-[18px]" /> New agent
+        </button>
+        <button
+          onClick={onOpenTodoModal}
+          className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
+        >
+          <TodoIcon className="h-[18px] w-[18px]" /> New todo
         </button>
       </div>
 
@@ -704,5 +740,81 @@ function Explore({
         })}
       </div>
     </>
+  )
+}
+
+// ── Quick Todo Modal ────────────────────────────────────────────────────────
+function QuickTodoModal({ onClose, onSave }: { onClose: () => void; onSave: (title: string) => Promise<void> }) {
+  const [title, setTitle] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  async function handleSave() {
+    const trimmed = title.trim()
+    if (!trimmed || saving) return
+    setSaving(true)
+    try {
+      await onSave(trimmed)
+      setTitle('')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex w-full max-w-md flex-col rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <TodoIcon className="h-5 w-5 text-primary" />
+            <h3 className="text-base font-semibold text-text">Quick add to-do</h3>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text" aria-label="Close">
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4">
+          <label className="mb-2 block text-sm font-medium text-text">Title</label>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleSave()
+              }
+            }}
+            placeholder="What needs to be done?"
+            autoFocus
+            className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+          />
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-hover"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!title.trim() || saving}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+          >
+            <PlusIcon className="h-4 w-4" /> {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
