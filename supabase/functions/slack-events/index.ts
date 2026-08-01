@@ -20,6 +20,7 @@ import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
+import { loadAlwaysOnPrompts } from '../_shared/always_on.ts'
 import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
 import {
@@ -352,6 +353,12 @@ async function respondToMessage(
         }
       }
     }
+
+    // Layer the workspace's always-on prompts (skills.auto_apply) underneath the
+    // channel/agent instruction, the same base chat runs on — so the bot inherits
+    // workspace knowledge and persona, not just a bound agent's prompt.
+    const alwaysOn = await loadAlwaysOnPrompts(db)
+    if (alwaysOn) systemPrompt = `${alwaysOn}\n\n---\n\n${systemPrompt}`
 
     const collCtx = await loadCollectionsContext(db, collectionIds, binding.owner_id, MODEL)
     if (collCtx) systemPrompt += `\n\n---\n\n${collCtx}`
