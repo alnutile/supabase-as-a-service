@@ -19,6 +19,7 @@ import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
+import { RunRecorder } from '../_shared/run_recorder.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { loadAlwaysOnPrompts } from '../_shared/always_on.ts'
 import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
@@ -290,6 +291,8 @@ async function respondToMessage(
   const setStatus = async (patch: Record<string, unknown>) => {
     if (eventRowId) await db.from('slack_events').update(patch).eq('id', eventRowId)
   }
+  // Hoisted so the catch can finalize the run trace on failure.
+  let rec: RunRecorder | null = null
 
   try {
     // Guardrails: Slack messages are multi-user, semi-trusted input evaluated
@@ -388,6 +391,14 @@ async function respondToMessage(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ]
+    rec = await RunRecorder.open(db, {
+      agentId: binding.agent_id,
+      ownerId: binding.owner_id,
+      surface: 'slack',
+      triggerRef: { slack_event_id: eventRowId, channel },
+      model: MODEL,
+      input: userContent,
+    })
     let result = ''
     const startedAt = Date.now()
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
@@ -412,6 +423,7 @@ async function respondToMessage(
         agentId: binding.agent_id,
         usage: out.usage,
       })
+      await rec?.modelTurn(out.content, out.usage)
 
       if (out.toolCalls.length) {
         messages.push(assistantToolCallMsg(out.content, out.toolCalls))
@@ -420,16 +432,19 @@ async function respondToMessage(
           const input = parseToolArgs(call.function.arguments)
           const tool = httpTools.get(name)
           let output: string
+          const started = Date.now()
           if (tool) output = await runHttpTool(db, tool, input)
           else if (builtins.has(name)) output = await runBuiltin(db, name, input, binding.owner_id)
           else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
           else output = `Unknown tool: ${name}`
+          await rec?.toolStep({ name, input, output, durationMs: Date.now() - started })
           messages.push(toolResultMsg(call.id, output))
         }
         continue
       }
       break
     }
+    await rec?.finish({ status: 'done', finalOutput: result })
 
     const reply = toMrkdwn(result) || 'I couldn’t come up with a reply for that.'
     const posted = await postSlackMessage(secrets.bot_token, channel, reply, threadTs)
@@ -444,6 +459,7 @@ async function respondToMessage(
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'processing failed'
+    await rec?.finish({ status: 'error', error: message })
     await setStatus({ status: 'error', error: message })
   }
 }

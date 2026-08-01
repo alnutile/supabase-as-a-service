@@ -14,6 +14,7 @@ import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
+import { RunRecorder } from '../_shared/run_recorder.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { loadAlwaysOnPrompts } from '../_shared/always_on.ts'
 import { parseArtifactBlocks } from '../_shared/artifacts.ts'
@@ -274,6 +275,9 @@ Deno.serve(async (req: Request) => {
   let conversationId = ''
   let persist = false
   let runId = ''
+  // When the chat is driving a specific agent (?agent=id), record a run trace so
+  // it appears on the agent's observability page. Null for plain user chat.
+  let agentId = ''
   try {
     const body = await req.json()
     inMessages = body.messages
@@ -291,6 +295,7 @@ Deno.serve(async (req: Request) => {
     if (typeof body.conversationId === 'string') conversationId = body.conversationId
     persist = body.persist === true
     if (typeof body.runId === 'string') runId = body.runId
+    if (typeof body.agentId === 'string') agentId = body.agentId
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Bad request' }), {
       status: 400,
@@ -514,8 +519,27 @@ Deno.serve(async (req: Request) => {
     await db!.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId)
   }
 
+  // Attribute this run to its agent (if any) so it appears on /agents/:id. Uses
+  // the last user turn as the run's "input". Best-effort; null for plain chat.
+  const lastUserText = (() => {
+    for (let i = inMessages.length - 1; i >= 0; i--) {
+      const m = inMessages[i]
+      if (m?.role === 'user' && typeof m.content === 'string') return m.content
+    }
+    return ''
+  })()
+
   const task = (async () => {
     let full = ''
+    let runError: string | null = null
+    const rec = await RunRecorder.open(db, {
+      agentId: agentId || null,
+      ownerId: userId,
+      surface: 'chat',
+      triggerRef: { conversation_id: conversationId },
+      model: MODEL,
+      input: lastUserText,
+    })
     startHeartbeat()
     try {
       for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
@@ -533,6 +557,7 @@ Deno.serve(async (req: Request) => {
           },
         )
         await recordUsage(db, { context: 'chat', model: MODEL, actorId: userId, usage: result.usage })
+        await rec?.modelTurn(result.content, result.usage)
 
         // The user hit Stop mid-run: halt, save nothing, don't run more turns.
         if (doPersist && (await isRunCancelled(db, conversationId, runId))) {
@@ -548,12 +573,14 @@ Deno.serve(async (req: Request) => {
             const input = parseToolArgs(call.function.arguments)
             const tool = httpTools.get(name)
             let output: string
+            const started = Date.now()
             if (tool) output = await runHttpTool(db, tool, input)
             else if (builtins.has(name)) output = await runBuiltin(db, name, input, userId)
             else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
             else output = `Unknown tool: ${name}`
             if (tool || builtins.has(name) || mcpRouter.has(name)) {
               await logActivity(db, 'tool.call', `Used tool: ${name}`, { name }, userId)
+              await rec?.toolStep({ name, input, output, durationMs: Date.now() - started })
             }
             messages.push(toolResultMsg(call.id, output))
           }
@@ -582,6 +609,7 @@ Deno.serve(async (req: Request) => {
       // client (orStream already parses the raw OpenRouter blob into a friendly
       // line) AND record it in Activity so failures are visible after the fact.
       const message = err instanceof Error ? err.message : 'stream failed'
+      runError = message
       await logActivity(db, 'chat.error', `Chat failed — ${message}`.slice(0, 200), { error: message, model: MODEL }, userId)
       try {
         push(sse({ type: 'error', error: message }))
@@ -589,6 +617,9 @@ Deno.serve(async (req: Request) => {
         // client gone — the Activity log above is the durable record
       }
     } finally {
+      // Close the run trace exactly once, whatever exit path (done, Stop, error,
+      // client-gone) — so the row never stays stuck 'running'.
+      await rec?.finish({ status: runError ? 'error' : 'done', finalOutput: full, error: runError })
       stopHeartbeat()
       closeStream()
     }

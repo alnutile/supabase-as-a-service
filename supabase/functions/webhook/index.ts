@@ -9,6 +9,7 @@ import { runGuardrails } from '../_shared/guardrails.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
+import { RunRecorder } from '../_shared/run_recorder.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
 import { runHttpTool } from '../_shared/http_tool.ts'
@@ -222,6 +223,8 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Hoisted so the catch can finalize the run trace on failure.
+  let rec: RunRecorder | null = null
   try {
     const MODEL = await resolveModel(db, 'orchestrator')
 
@@ -281,6 +284,14 @@ Deno.serve(async (req: Request) => {
       { role: 'system', content: systemPrompt },
       { role: 'user', content: payloadText || '(empty payload)' },
     ]
+    rec = await RunRecorder.open(db, {
+      agentId: webhook.agent_id,
+      ownerId: webhook.owner_id,
+      surface: 'webhook',
+      triggerRef: { webhook_id: webhook.id, webhook_event_id: eventId },
+      model: MODEL,
+      input: payloadText,
+    })
     let result = ''
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
       const out = await orComplete({
@@ -292,6 +303,7 @@ Deno.serve(async (req: Request) => {
       })
       result = out.content || result
       await recordUsage(db, { context: 'webhook', model: MODEL, actorId: webhook.owner_id, agentId: webhook.agent_id, usage: out.usage })
+      await rec?.modelTurn(out.content, out.usage)
 
       if (out.toolCalls.length) {
         messages.push(assistantToolCallMsg(out.content, out.toolCalls))
@@ -300,10 +312,12 @@ Deno.serve(async (req: Request) => {
           const input = parseToolArgs(call.function.arguments)
           const tool = httpTools.get(name)
           let output: string
+          const started = Date.now()
           if (tool) output = await runHttpTool(db, tool, input)
           else if (builtins.has(name)) output = await runBuiltin(db, name, input, webhook.owner_id)
           else if (mcpRouter.has(name)) output = await runMcpTool(db, mcpRouter, name, input)
           else output = `Unknown tool: ${name}`
+          await rec?.toolStep({ name, input, output, durationMs: Date.now() - started })
           messages.push(toolResultMsg(call.id, output))
         }
         continue
@@ -311,10 +325,12 @@ Deno.serve(async (req: Request) => {
       break
     }
 
+    await rec?.finish({ status: 'done', finalOutput: result })
     if (eventId) await db.from('webhook_events').update({ status: 'ok', result }).eq('id', eventId)
     return json({ ok: true, event_id: eventId, result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'processing failed'
+    await rec?.finish({ status: 'error', error: message })
     if (eventId) await db.from('webhook_events').update({ status: 'error', error: message }).eq('id', eventId)
     return json({ ok: false, event_id: eventId, error: message }, 502)
   }

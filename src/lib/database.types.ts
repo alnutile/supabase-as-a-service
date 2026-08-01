@@ -1104,6 +1104,80 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['agents']['Insert']>
         Relationships: []
       }
+      agent_runs: {
+        Row: {
+          id: string
+          agent_id: string | null
+          owner_id: string
+          surface: string
+          trigger_ref: Json
+          status: string
+          model: string | null
+          input: string | null
+          final_output: string | null
+          error: string | null
+          turns: number
+          tool_calls: number
+          total_tokens: number
+          cost: number
+          started_at: string
+          ended_at: string | null
+        }
+        Insert: {
+          id?: string
+          agent_id?: string | null
+          owner_id: string
+          surface: string
+          trigger_ref?: Json
+          status?: string
+          model?: string | null
+          input?: string | null
+          final_output?: string | null
+          error?: string | null
+          turns?: number
+          tool_calls?: number
+          total_tokens?: number
+          cost?: number
+          started_at?: string
+          ended_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['agent_runs']['Insert']>
+        Relationships: []
+      }
+      agent_run_steps: {
+        Row: {
+          id: string
+          run_id: string
+          seq: number
+          kind: string
+          tool_name: string | null
+          input: Json | null
+          output: string | null
+          error: string | null
+          sandboxed: boolean
+          tokens: number | null
+          cost: number | null
+          duration_ms: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          run_id: string
+          seq: number
+          kind: string
+          tool_name?: string | null
+          input?: Json | null
+          output?: string | null
+          error?: string | null
+          sandboxed?: boolean
+          tokens?: number | null
+          cost?: number | null
+          duration_ms?: number | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['agent_run_steps']['Insert']>
+        Relationships: []
+      }
       mcp_tokens: {
         Row: {
           id: string
