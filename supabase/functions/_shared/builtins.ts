@@ -28,6 +28,7 @@ import { runSecurityScan } from './security_scan.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
+import { postSlackMessage, toMrkdwn } from './slack.ts'
 import { buildCards, cardCount, cardsToText } from './card_board.ts'
 import { validateWidget } from './widgets.ts'
 import {
@@ -57,6 +58,8 @@ type DB = ReturnType<typeof createClient>
 
 const EMAIL_NOT_CONFIGURED = "Email isn't configured. An admin can set it up in Settings → Email."
 const SEND_LIMIT_PER_HOUR = 20
+const SLACK_NOT_CONFIGURED = "Slack isn't connected. An admin can set it up in Settings → Slack."
+const SLACK_SEND_LIMIT_PER_HOUR = 30
 const MAX_BODY_PREVIEW = 500
 
 export async function runBuiltin(
@@ -70,6 +73,8 @@ export async function runBuiltin(
       return searchDocuments(db, input, userId)
     case 'send_email':
       return sendEmail(db, input, userId)
+    case 'send_slack_message':
+      return sendSlackMessage(db, input, userId)
     case 'check_email':
       return checkEmail(db, input)
     case 'list_tables':
@@ -513,6 +518,51 @@ async function sendEmail(
 
   await logActivity(db, 'email.sent', `Emailed ${to}: ${subject || '(no subject)'}`, { to, subject }, userId)
   return `Email sent to ${to}.`
+}
+
+// Post a message into Slack. This is the proactive counterpart to the reactive
+// slack-events reply path: a scheduled/loop/webhook/chat agent can now initiate
+// a message (e.g. post a daily summary to #standup) instead of only answering an
+// @mention. Exfiltration-capable like send_email — gated the same way (admin
+// activation, agent tool_ids scoping, webhooks.allow_tools) — so every post is
+// rate-limited and written to the activity log. Reads the bot token from Vault
+// via the same service-role-only RPC slack-events uses.
+async function sendSlackMessage(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db) return SLACK_NOT_CONFIGURED
+  const channel = String(input?.channel ?? '').trim()
+  const text = String(input?.text ?? '')
+  const threadTs = input?.thread_ts ? String(input.thread_ts).trim() : null
+  if (!channel) return 'No Slack channel was provided (pass a channel id like C0123456 or a name like #general).'
+  if (!text.trim()) return 'No message text was provided.'
+
+  // Rate limit: cap posts per rolling hour across the workspace so a runaway
+  // loop or misfiring schedule can't spam a channel.
+  const since = new Date(Date.now() - 3_600_000).toISOString()
+  const { count } = await db
+    .from('activity_log')
+    .select('id', { count: 'exact', head: true })
+    .eq('type', 'slack.sent')
+    .gte('created_at', since)
+  if ((count ?? 0) >= SLACK_SEND_LIMIT_PER_HOUR) {
+    return `Slack rate limit reached (${SLACK_SEND_LIMIT_PER_HOUR} per hour). Try again later.`
+  }
+
+  // Decrypt the bot token from Vault (service-role-only RPC; returns a row set).
+  const { data: secretRows } = await db.rpc('read_slack_secrets')
+  const secrets = (secretRows?.[0] ?? null) as { bot_token?: string } | null
+  if (!secrets?.bot_token) return SLACK_NOT_CONFIGURED
+
+  const posted = await postSlackMessage(secrets.bot_token, channel, toMrkdwn(text), threadTs)
+  if (!posted.ok) {
+    await logActivity(db, 'slack.error', `Slack post to ${channel} failed`, { channel, error: posted.error ?? null }, userId)
+    return `Slack rejected the message: ${posted.error ?? 'unknown error'}.`
+  }
+  await logActivity(db, 'slack.sent', `Posted to Slack ${channel}`, { channel, thread_ts: threadTs }, userId)
+  return `Message posted to Slack channel ${channel}.`
 }
 
 // --- Team secrets vault ------------------------------------------------------
