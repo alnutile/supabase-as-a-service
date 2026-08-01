@@ -52,7 +52,25 @@ import {
   type ORTool,
 } from '../_shared/openrouter.ts'
 
-const MAX_TOOL_TURNS = 6
+// How many model→tool→model round-trips one reply may take. A Slack @mention
+// comes from an authenticated workspace member (not an anonymous webhook
+// caller), so the loop gets chat-sized runway — a real "search → read →
+// cross-reference → write" task needs more than a handful, and hitting the cap
+// ends the reply mid-work. Kept bounded so a misbehaving loop can't run away;
+// the wall-clock guard below finalizes the run before the platform kills it.
+const MAX_TOOL_TURNS = 16
+
+// Per-completion output budget. Slack truncates a posted message at
+// SLACK_TEXT_LIMIT (12000 chars) anyway, so this sits above the delivery cap
+// without matching chat's 16000 (which would only be wasted here).
+const MAX_TOKENS = 8000
+
+// Stop the tool loop this many ms in, before the platform wall-clock limit
+// (150s free / 400s paid) would kill the worker. Unlike chat (which streams and
+// persists incrementally) the Slack bot posts only once, at the end — so a run
+// killed mid-loop would post NOTHING. Instead we break early and post whatever
+// the model has produced so far. Override with SLACK_MAX_WALL_MS on paid plans.
+const WALL_CLOCK_MS = Number(Deno.env.get('SLACK_MAX_WALL_MS') ?? 130_000)
 
 interface ToolRow {
   id: string
@@ -364,13 +382,20 @@ async function respondToMessage(
       { role: 'user', content: userContent },
     ]
     let result = ''
+    const startedAt = Date.now()
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      // Finalize before the platform wall-clock limit kills the worker: post
+      // what we have rather than dropping the reply entirely mid-loop.
+      if (Date.now() - startedAt > WALL_CLOCK_MS) {
+        if (!result) result = 'This took longer than I could spend on it — try narrowing the request.'
+        break
+      }
       const out = await orComplete({
         model: MODEL,
         messages,
         tools: tools.length ? tools : undefined,
         reasoning,
-        maxTokens: 4096,
+        maxTokens: MAX_TOKENS,
       })
       result = out.content || result
       await recordUsage(db, {
