@@ -7,6 +7,7 @@ import { nextCronRun } from '../_shared/cron.ts'
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, runMcpTool, type McpRouter } from '../_shared/mcp.ts'
 import { recordUsage } from '../_shared/usage.ts'
+import { RunRecorder } from '../_shared/run_recorder.ts'
 import { loadCollectionsContext } from '../_shared/collections.ts'
 import { loadUserMemories } from '../_shared/memory.ts'
 import { currentTimeSection, resolveWorkspaceTimezone } from '../_shared/timezone.ts'
@@ -80,7 +81,7 @@ function scheduledRunGuidance(ownerEmail: string | null): string {
 }
 
 // deno-lint-ignore no-explicit-any
-async function runAgent(db: any, agent: { instructions: string; tool_ids: string[]; collection_ids?: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null, timezone: string) {
+async function runAgent(db: any, agent: { instructions: string; tool_ids: string[]; collection_ids?: string[] }, input: string, model: string, ownerId: string | null, ownerEmail: string | null, agentId: string | null, timezone: string, scheduleId: string | null) {
   const { tools, httpTools, builtins, mcpRouter, webEnabled } = await loadAgentTools(db, agent.tool_ids ?? [])
   // Inject the agent's bound collections (artifacts/files/to-dos) as context.
   const collCtx = await loadCollectionsContext(db, agent.collection_ids ?? [], ownerId, model)
@@ -105,34 +106,51 @@ async function runAgent(db: any, agent: { instructions: string; tool_ids: string
   ]
   if (webEnabled) tools.push(WEB_SEARCH_TOOL)
   const reasoning = reasoningParam()
+  const rec = await RunRecorder.open(db, {
+    agentId,
+    ownerId,
+    surface: 'schedule',
+    triggerRef: { schedule_id: scheduleId },
+    model,
+    input,
+  })
   let result = ''
-  for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-    const out = await orComplete({
-      model,
-      messages,
-      tools: tools.length ? tools : undefined,
-      reasoning,
-      maxTokens: 4096,
-    })
-    result = out.content || result
-    await recordUsage(db, { context: 'scheduler', model, actorId: ownerId, agentId, usage: out.usage })
-    if (out.toolCalls.length) {
-      messages.push(assistantToolCallMsg(out.content, out.toolCalls))
-      for (const call of out.toolCalls) {
-        const name = call.function.name
-        const input = parseToolArgs(call.function.arguments)
-        const tool = httpTools.get(name)
-        let res: string
-        if (tool) res = await runHttpTool(db, tool, input)
-        else if (builtins.has(name)) res = await runBuiltin(db, name, input, ownerId)
-        else if (mcpRouter.has(name)) res = await runMcpTool(db, mcpRouter, name, input)
-        else res = `Unknown tool: ${name}`
-        messages.push(toolResultMsg(call.id, res))
+  try {
+    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      const out = await orComplete({
+        model,
+        messages,
+        tools: tools.length ? tools : undefined,
+        reasoning,
+        maxTokens: 4096,
+      })
+      result = out.content || result
+      await recordUsage(db, { context: 'scheduler', model, actorId: ownerId, agentId, usage: out.usage })
+      await rec?.modelTurn(out.content, out.usage)
+      if (out.toolCalls.length) {
+        messages.push(assistantToolCallMsg(out.content, out.toolCalls))
+        for (const call of out.toolCalls) {
+          const name = call.function.name
+          const input = parseToolArgs(call.function.arguments)
+          const tool = httpTools.get(name)
+          let res: string
+          const started = Date.now()
+          if (tool) res = await runHttpTool(db, tool, input)
+          else if (builtins.has(name)) res = await runBuiltin(db, name, input, ownerId)
+          else if (mcpRouter.has(name)) res = await runMcpTool(db, mcpRouter, name, input)
+          else res = `Unknown tool: ${name}`
+          await rec?.toolStep({ name, input, output: res, durationMs: Date.now() - started })
+          messages.push(toolResultMsg(call.id, res))
+        }
+        continue
       }
-      continue
+      break
     }
-    break
+  } catch (err) {
+    await rec?.finish({ status: 'error', finalOutput: result, error: err instanceof Error ? err.message : 'error' })
+    throw err
   }
+  await rec?.finish({ status: 'done', finalOutput: result })
   return result
 }
 
@@ -205,7 +223,7 @@ Deno.serve(async (req: Request) => {
         // from an untouched 'UTC') fall back to the workspace timezone, so setting
         // the workspace zone fixes the "wrong UTC" for every existing schedule.
         const runTz = s.timezone && s.timezone !== 'UTC' ? s.timezone : workspaceTz
-        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id, runTz)
+        const result = await runAgent(db, agent, s.input, model, s.owner_id, owner?.email ?? null, s.agent_id, runTz, s.id)
         await db.from('activity_log').insert({
           type: 'schedule.run',
           summary: `Ran agent ${agent.name} (scheduled)`,

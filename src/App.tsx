@@ -37,6 +37,7 @@ import EvalsPage from './pages/EvalsPage'
 import VaultPage from './pages/VaultPage'
 import SecurityPage from './pages/SecurityPage'
 import AgentsPage from './pages/AgentsPage'
+import AgentDetailPage from './pages/AgentDetailPage'
 import LoopsPage from './pages/LoopsPage'
 import ActivityPage from './pages/ActivityPage'
 import ApiPage from './pages/ApiPage'
@@ -123,6 +124,7 @@ export default function App() {
         <Route path="vault" element={<VaultPage />} />
         <Route path="security" element={<SecurityPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="agents/:agentId" element={<AgentDetailPage />} />
         <Route path="loops" element={<LoopsPage />} />
         <Route path="listeners" element={<ListenersPage />} />
         <Route path="events" element={<EventsPage />} />
