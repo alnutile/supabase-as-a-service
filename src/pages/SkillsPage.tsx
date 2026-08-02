@@ -320,18 +320,6 @@ export default function SkillsPage() {
               </p>
             </div>
             <div className="flex gap-2">
-              {trash.length > 0 && (
-                <button
-                  onClick={() => setShowTrash((v) => !v)}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                    showTrash
-                      ? 'border-border-strong bg-surface-hover text-text'
-                      : 'border-border text-muted hover:text-text'
-                  }`}
-                >
-                  <TrashIcon className="h-4 w-4" /> Trash ({trash.length})
-                </button>
-              )}
               <button
                 onClick={() => setShowUrlImport(true)}
                 className="flex items-center gap-2 rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-text transition hover:border-primary hover:text-primary"
@@ -492,6 +480,22 @@ export default function SkillsPage() {
                 </div>
               )}
             </section>
+          </div>
+        )}
+
+        {/* Trash button at bottom */}
+        {trash.length > 0 && (
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={() => setShowTrash((v) => !v)}
+              className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition ${
+                showTrash
+                  ? 'border-border-strong bg-surface-hover text-text'
+                  : 'border-border text-muted hover:text-text'
+              }`}
+            >
+              <TrashIcon className="h-4 w-4" /> Trash ({trash.length})
+            </button>
           </div>
         )}
       </div>
