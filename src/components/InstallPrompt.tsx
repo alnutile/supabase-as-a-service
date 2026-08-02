@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CloseIcon, DownloadIcon } from './icons'
-import { isStandalone, readDismissedAt, recordDismissed, shouldPromptInstall } from '../lib/pwa'
+import { isStandalone, readDismissedAt, recordDismissed, shouldPromptInstall, SHOW_INSTALL_EVENT } from '../lib/pwa'
 
 // The Chrome/Edge/Android `beforeinstallprompt` event — not in lib.dom yet.
 interface BeforeInstallPromptEvent extends Event {
@@ -34,14 +34,22 @@ export function InstallPrompt() {
       setVisible(false)
       setDeferred(null)
     }
+    const onShowInstall = () => {
+      // Manual trigger from Profile settings — re-check whether to show
+      if (deferred && shouldPromptInstall({ dismissedAt: readDismissedAt(), now: Date.now(), installed: false })) {
+        setVisible(true)
+      }
+    }
 
     window.addEventListener('beforeinstallprompt', onBeforeInstall)
     window.addEventListener('appinstalled', onInstalled)
+    window.addEventListener(SHOW_INSTALL_EVENT, onShowInstall)
     return () => {
       window.removeEventListener('beforeinstallprompt', onBeforeInstall)
       window.removeEventListener('appinstalled', onInstalled)
+      window.removeEventListener(SHOW_INSTALL_EVENT, onShowInstall)
     }
-  }, [])
+  }, [deferred])
 
   if (!visible || !deferred) return null
 
