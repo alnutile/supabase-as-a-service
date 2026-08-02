@@ -251,7 +251,8 @@ export default function AgentDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-4 sm:p-6">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-4xl p-4 sm:p-6">
       <button
         onClick={() => navigate('/agents')}
         className="mb-3 inline-flex items-center gap-1 text-sm text-muted hover:text-text"
@@ -336,6 +337,7 @@ export default function AgentDetailPage() {
         ) : (
           runs.map((r) => <RunCard key={r.id} run={r} advanced={advanced} />)
         )}
+      </div>
       </div>
     </div>
   )
