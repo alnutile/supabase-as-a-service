@@ -972,6 +972,36 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['user_tables']['Insert']>
         Relationships: []
       }
+      table_forms: {
+        Row: {
+          id: string
+          table_id: string
+          owner_id: string
+          name: string
+          token: string
+          fields: Json
+          active: boolean
+          max_per_hour: number
+          submission_count: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          table_id: string
+          owner_id: string
+          name?: string
+          token?: string
+          fields?: Json
+          active?: boolean
+          max_per_hour?: number
+          submission_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['table_forms']['Insert']>
+        Relationships: []
+      }
       forged_functions: {
         Row: {
           id: string

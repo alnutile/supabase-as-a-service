@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Database, UserTableColumn, UserTableColumnType } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
+import { formSubmitUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { streamChat } from '../lib/chat'
+import { buildFormSnippet, type FormField } from '../lib/forms'
+import { CopyButton } from '../components/CopyButton'
 import {
   ArrowRightIcon,
   CalendarIcon,
@@ -320,6 +322,7 @@ function TableGrid({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showForms, setShowForms] = useState(false)
   const [showAddField, setShowAddField] = useState(false)
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -496,6 +499,13 @@ function TableGrid({
             />
           </div>
         )}
+        <button
+          onClick={() => setShowForms(true)}
+          title="Public forms — collect submissions into this table"
+          className="hidden rounded-lg border border-border-strong px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover sm:block"
+        >
+          Forms
+        </button>
         <button
           onClick={() => setShowSettings(true)}
           className="rounded-lg border border-border-strong px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover"
@@ -724,6 +734,10 @@ function TableGrid({
           }}
           onDeleted={onDeleted}
         />
+      )}
+
+      {showForms && (
+        <FormsModal table={table} userId={userId} onClose={() => setShowForms(false)} />
       )}
 
       {selected.size > 0 && (
@@ -1530,6 +1544,314 @@ function TableSettingsModal({
           >
             {busy ? 'Saving…' : 'Save'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Public forms: collect anonymous submissions into this table
+// ---------------------------------------------------------------------------
+type TableForm = Database['public']['Tables']['table_forms']['Row']
+interface FormFieldSpec {
+  key: string
+  required?: boolean
+}
+
+function fieldsOf(f: TableForm): FormFieldSpec[] {
+  return (Array.isArray(f.fields) ? f.fields : []) as unknown as FormFieldSpec[]
+}
+
+function FormsModal({
+  table,
+  userId,
+  onClose,
+}: {
+  table: UserTable
+  userId: string
+  onClose: () => void
+}) {
+  const cols = columnsOf(table)
+  const [forms, setForms] = useState<TableForm[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
+
+  // Draft state for the "new form" panel.
+  const [name, setName] = useState(`${table.name} form`)
+  const [picked, setPicked] = useState<Record<string, { on: boolean; required: boolean }>>(() =>
+    Object.fromEntries(cols.map((c) => [c.key, { on: false, required: false }])),
+  )
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    const { data, error: e } = await supabase
+      .from('table_forms')
+      .select('*')
+      .eq('table_id', table.id)
+      .order('created_at', { ascending: true })
+    setError(e ? e.message : null)
+    setForms(data ?? [])
+    setLoading(false)
+  }, [table.id])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function createForm() {
+    const fields = cols
+      .filter((c) => picked[c.key]?.on)
+      .map((c) => ({ key: c.key, required: !!picked[c.key]?.required }))
+    if (fields.length === 0) {
+      setError('Pick at least one field to collect.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const { data, error: e } = await supabase
+      .from('table_forms')
+      .insert({ table_id: table.id, owner_id: userId, name: name.trim() || 'Untitled form', fields })
+      .select('*')
+      .single()
+    setSaving(false)
+    if (e) {
+      setError(e.message)
+      return
+    }
+    setCreating(false)
+    setPicked(Object.fromEntries(cols.map((c) => [c.key, { on: false, required: false }])))
+    setName(`${table.name} form`)
+    setForms((fs) => [...fs, data as TableForm])
+    setOpenId((data as TableForm).id)
+  }
+
+  async function toggleActive(f: TableForm) {
+    const { error: e } = await supabase.from('table_forms').update({ active: !f.active }).eq('id', f.id)
+    if (e) {
+      setError(e.message)
+      return
+    }
+    setForms((fs) => fs.map((x) => (x.id === f.id ? { ...x, active: !f.active } : x)))
+  }
+
+  async function deleteForm(f: TableForm) {
+    if (!confirm(`Delete the form “${f.name}”? Any page using its link will stop working.`)) return
+    const { error: e } = await supabase.from('table_forms').delete().eq('id', f.id)
+    if (e) {
+      setError(e.message)
+      return
+    }
+    setForms((fs) => fs.filter((x) => x.id !== f.id))
+    if (openId === f.id) setOpenId(null)
+  }
+
+  // Resolve a stored form's allow-list against the table's real columns so the
+  // snippet gets each field's label + input type.
+  function snippetFor(f: TableForm): string {
+    const byKey = new Map(cols.map((c) => [c.key, c]))
+    const fields: FormField[] = fieldsOf(f)
+      .map((spec): FormField | null => {
+        const c = byKey.get(spec.key)
+        return c ? { key: c.key, label: c.label, type: c.type, required: !!spec.required } : null
+      })
+      .filter((x): x is FormField => x !== null)
+    return buildFormSnippet({ endpoint: formSubmitUrl, token: f.token, title: f.name, fields })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text">Public forms</h2>
+            <p className="text-xs text-faint">Collect submissions into “{table.name}” from a shared page.</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-hover"
+          >
+            Done
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {cols.length === 0 && (
+            <p className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
+              Add at least one field to the table first — a form needs columns to collect.
+            </p>
+          )}
+
+          {loading ? (
+            <p className="text-sm text-faint">Loading…</p>
+          ) : (
+            <>
+              {forms.length === 0 && !creating && cols.length > 0 && (
+                <div className="rounded-xl border border-dashed border-border p-4 text-center">
+                  <p className="text-sm font-medium text-text">No forms yet</p>
+                  <p className="mx-auto mt-1 max-w-xs text-xs text-muted">
+                    Create a form to accept anonymous submissions. Only the fields you choose are
+                    ever written — nothing else is exposed, and no one can read the table.
+                  </p>
+                </div>
+              )}
+
+              {forms.map((f) => (
+                <div key={f.id} className="rounded-xl border border-border">
+                  <div className="flex items-center gap-2 px-3.5 py-2.5">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-text">{f.name}</span>
+                      <span className="text-[11px] text-faint">
+                        {fieldsOf(f).length} field{fieldsOf(f).length === 1 ? '' : 's'} ·{' '}
+                        {f.submission_count} submission{f.submission_count === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => toggleActive(f)}
+                      title={f.active ? 'Active — click to pause' : 'Paused — click to activate'}
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        f.active
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-surface-2 text-faint'
+                      }`}
+                    >
+                      {f.active ? 'Active' : 'Paused'}
+                    </button>
+                    <button
+                      onClick={() => setOpenId(openId === f.id ? null : f.id)}
+                      className="rounded-lg border border-border-strong px-2.5 py-1 text-xs font-medium text-muted hover:bg-surface-hover"
+                    >
+                      {openId === f.id ? 'Hide' : 'Embed'}
+                    </button>
+                    <button
+                      onClick={() => deleteForm(f)}
+                      className="rounded p-1 text-faint hover:bg-red-50 hover:text-red-600"
+                      title="Delete form"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {openId === f.id && (
+                    <div className="space-y-2 border-t border-border bg-surface-2/50 p-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted">
+                          Paste this into an HTML artifact, then share it.
+                        </span>
+                        <CopyButton
+                          text={snippetFor(f)}
+                          label="Copy HTML"
+                          className="flex items-center gap-1.5 rounded-lg border border-border-strong px-2.5 py-1 text-xs font-medium text-muted hover:border-primary hover:text-primary"
+                        />
+                      </div>
+                      <pre className="max-h-40 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">
+                        {snippetFor(f)}
+                      </pre>
+                      <div className="flex items-center justify-between gap-2">
+                        <code className="min-w-0 flex-1 truncate rounded bg-surface-2 px-2 py-1 font-mono text-[11px] text-muted">
+                          {formSubmitUrl}
+                        </code>
+                        <CopyButton
+                          text={f.token}
+                          label="Copy token"
+                          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border-strong px-2.5 py-1 text-xs font-medium text-muted hover:border-primary hover:text-primary"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {creating ? (
+                <div className="space-y-3 rounded-xl border border-primary-soft-border bg-primary-soft/30 p-3.5">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-muted">Form name</span>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+                    />
+                  </label>
+                  <div>
+                    <span className="mb-1 block text-xs font-medium text-muted">
+                      Fields to collect <span className="font-normal text-faint">(only these get written)</span>
+                    </span>
+                    <div className="space-y-1">
+                      {cols.map((c) => (
+                        <div
+                          key={c.key}
+                          className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!picked[c.key]?.on}
+                            onChange={(e) =>
+                              setPicked((p) => ({
+                                ...p,
+                                [c.key]: { on: e.target.checked, required: !!p[c.key]?.required },
+                              }))
+                            }
+                            className="h-4 w-4 accent-primary"
+                          />
+                          <TypeGlyph type={c.type} />
+                          <span className="flex-1 text-sm text-text">{c.label}</span>
+                          <label
+                            className={`flex items-center gap-1 text-[11px] ${
+                              picked[c.key]?.on ? 'text-muted' : 'text-faint opacity-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={!picked[c.key]?.on}
+                              checked={!!picked[c.key]?.required}
+                              onChange={(e) =>
+                                setPicked((p) => ({
+                                  ...p,
+                                  [c.key]: { on: !!p[c.key]?.on, required: e.target.checked },
+                                }))
+                              }
+                              className="h-3.5 w-3.5 accent-primary"
+                            />
+                            required
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setCreating(false)}
+                      className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={createForm}
+                      disabled={saving}
+                      className="rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+                    >
+                      {saving ? 'Creating…' : 'Create form'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                cols.length > 0 && (
+                  <button
+                    onClick={() => setCreating(true)}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-2 text-sm font-medium text-primary hover:bg-primary-soft/40"
+                  >
+                    <PlusIcon className="h-4 w-4" /> New form
+                  </button>
+                )
+              )}
+
+              {error && <p className="text-sm text-red-600">{error}</p>}
+            </>
+          )}
         </div>
       </div>
     </div>

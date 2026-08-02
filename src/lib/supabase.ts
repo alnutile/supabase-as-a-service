@@ -65,6 +65,14 @@ export const runToolUrl = `${supabaseUrl}/functions/v1/run-tool`
 /** Slack Events API endpoint — paste into the Slack app's Event Subscriptions. */
 export const slackEventsUrl = `${supabaseUrl}/functions/v1/slack-events`
 
+/**
+ * Public write-form endpoint. A form baked into a shared artifact/page POSTs
+ * { token, values } here and one row lands in the owner's table (see the
+ * `form-submit` edge function). The token is a secret-URL capability — safe to
+ * embed in public HTML.
+ */
+export const formSubmitUrl = `${supabaseUrl}/functions/v1/form-submit`
+
 /** Transcribe audio to text using OpenAI Whisper API. */
 export const transcribeFunctionUrl = () => `${supabaseUrl}/functions/v1/transcribe`
 
