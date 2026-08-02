@@ -157,6 +157,13 @@ Deno.serve(async (req: Request) => {
   }
   const action = String(body.action ?? '')
 
+  // --- status: report whether in-app deploy is available on this project.
+  // Returns only a boolean (never the PAT) so the UI can show the deploy
+  // controls on a self-managed project and a calm "managed" note on a tenant. ---
+  if (action === 'status') {
+    return json({ management_configured: managementConfigured() })
+  }
+
   // --- generate: produce a preview from a spec, no deploy ---
   if (action === 'generate') {
     const spec = String(body.spec ?? '').trim()

@@ -38,6 +38,15 @@ export function generateFunction(spec: string) {
   return call<GeneratedPreview>({ action: 'generate', spec })
 }
 
+/**
+ * Whether in-app edge-function deploy is available on this project (i.e. a
+ * FORGE_PAT is set). It's false on managed tenants, where functions are
+ * deployed centrally — so the UI shows a calm note instead of a broken button.
+ */
+export function forgeStatus() {
+  return call<{ management_configured: boolean }>({ action: 'status' })
+}
+
 export function deployFunction(input: {
   slug: string
   name: string
