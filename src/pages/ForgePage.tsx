@@ -226,9 +226,14 @@ function DeployMaintenance({ onForgedRedeployed }: { onForgedRedeployed: () => v
     <div className="mt-10 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Deploy maintenance</h2>
       <p className="mt-1 text-xs text-muted">
-        Edge functions don’t auto-deploy when you push to <code>main</code>. Redeploy them here:
-        “core” pushes this app’s built-in functions from the current build; “forged” re-pushes every
-        vibe-coded function’s stored source.
+        Redeploy edge functions from inside the app: “core” pushes this app’s built-in functions from
+        the current build; “forged” re-pushes every vibe-coded function’s stored source.
+      </p>
+      <p className="mt-2 text-xs text-muted">
+        This is a manual fallback and is <strong>optional</strong>: pushing to the <code>release</code>{' '}
+        branch already deploys edge functions to every tenant automatically. To enable the buttons
+        below, add a <code>FORGE_PAT</code> edge-function secret (a Supabase Management API access
+        token) to this project — without it you’ll see “In-app deploy is not set up on this project”.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
