@@ -6,6 +6,7 @@ import {
   deleteForgedFunction,
   deployCore,
   deployFunction,
+  forgeStatus,
   generateFunction,
   redeployAllForged,
   redeployFunction,
@@ -203,6 +204,19 @@ function DeployMaintenance({ onForgedRedeployed }: { onForgedRedeployed: () => v
   const [busy, setBusy] = useState<null | 'core' | 'forged'>(null)
   const [results, setResults] = useState<{ label: string; rows: DeployResultRow[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // null = still checking; on a managed tenant this stays false and we show a
+  // calm "managed" note instead of buttons that can only ever error.
+  const [configured, setConfigured] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    forgeStatus()
+      .then((s) => alive && setConfigured(s.management_configured))
+      .catch(() => alive && setConfigured(false))
+    return () => {
+      alive = false
+    }
+  }, [])
 
   async function run(kind: 'core' | 'forged') {
     if (kind === 'core' && !confirm('Redeploy all core edge functions (chat, mcp, webhook, scheduler, …) from the current app build?')) return
@@ -222,18 +236,31 @@ function DeployMaintenance({ onForgedRedeployed }: { onForgedRedeployed: () => v
   const failed = results?.rows.filter((r) => !r.ok) ?? []
   const okCount = (results?.rows.length ?? 0) - failed.length
 
+  // Still checking whether in-app deploy is available — hold the space quietly so
+  // the deploy buttons don't flash before we know it's a managed tenant.
+  if (configured === null) {
+    return <div className="mt-10 h-24 rounded-xl border border-border bg-surface" />
+  }
+
+  // Managed tenant: no in-app deploy access. Show a calm note, not a dead button.
+  if (configured === false) {
+    return (
+      <div className="mt-10 rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Edge functions</h2>
+        <p className="mt-1 text-xs text-muted">
+          Edge functions for this workspace are managed for you and update automatically — there’s
+          nothing to deploy here. The built-in functions below are shown for reference.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="mt-10 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Deploy maintenance</h2>
       <p className="mt-1 text-xs text-muted">
         Redeploy edge functions from inside the app: “core” pushes this app’s built-in functions from
         the current build; “forged” re-pushes every vibe-coded function’s stored source.
-      </p>
-      <p className="mt-2 text-xs text-muted">
-        This is a manual fallback and is <strong>optional</strong>: pushing to the <code>release</code>{' '}
-        branch already deploys edge functions to every tenant automatically. To enable the buttons
-        below, add a <code>FORGE_PAT</code> edge-function secret (a Supabase Management API access
-        token) to this project — without it you’ll see “In-app deploy is not set up on this project”.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
