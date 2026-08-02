@@ -28,6 +28,15 @@ const CORS = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 
+// Shown whenever an in-app deploy action runs without the Management API PAT.
+// Kept clear + actionable (one place) so admins know exactly what to set — and
+// that in-app deploy is optional: tenants get functions from the CI fan-out.
+const DEPLOY_NOT_CONFIGURED =
+  'In-app deploy is not set up on this project: add the FORGE_PAT edge-function secret ' +
+  '(a Supabase Management API access token; the project ref auto-derives from SUPABASE_URL). ' +
+  'This is only needed to redeploy from inside the app — pushing to the release branch ' +
+  'already deploys edge functions to every tenant automatically.'
+
 // The app's own repo functions that `deploy_core` is allowed to (re)deploy.
 // An allow-list so this admin path can never deploy an arbitrary slug.
 const CORE_SLUGS = new Set([
@@ -148,6 +157,13 @@ Deno.serve(async (req: Request) => {
   }
   const action = String(body.action ?? '')
 
+  // --- status: report whether in-app deploy is available on this project.
+  // Returns only a boolean (never the PAT) so the UI can show the deploy
+  // controls on a self-managed project and a calm "managed" note on a tenant. ---
+  if (action === 'status') {
+    return json({ management_configured: managementConfigured() })
+  }
+
   // --- generate: produce a preview from a spec, no deploy ---
   if (action === 'generate') {
     const spec = String(body.spec ?? '').trim()
@@ -165,9 +181,7 @@ Deno.serve(async (req: Request) => {
 
   // --- deploy: validate + deploy caller-provided (possibly edited) code ---
   if (action === 'deploy') {
-    if (!managementConfigured()) {
-      return json({ error: 'Deploy is not configured: set the FORGE_PAT edge secret (project ref auto-derives from SUPABASE_URL).' }, 500)
-    }
+    if (!managementConfigured()) return json({ error: DEPLOY_NOT_CONFIGURED }, 500)
     const slug = String(body.slug ?? '').trim()
     const name = String(body.name ?? slug).trim()
     const spec = String(body.spec ?? '')
@@ -257,7 +271,7 @@ Deno.serve(async (req: Request) => {
 
   // --- redeploy: push the stored source again ---
   if (action === 'redeploy') {
-    if (!managementConfigured()) return json({ error: 'Deploy not configured.' }, 500)
+    if (!managementConfigured()) return json({ error: DEPLOY_NOT_CONFIGURED }, 500)
     const id = String(body.id ?? '')
     const { data: row } = await db.from('forged_functions').select('*').eq('id', id).maybeSingle()
     if (!row) return json({ error: 'Unknown function.' }, 404)
@@ -273,7 +287,7 @@ Deno.serve(async (req: Request) => {
 
   // --- redeploy_all_forged: re-push every forged function's stored source ---
   if (action === 'redeploy_all_forged') {
-    if (!managementConfigured()) return json({ error: 'Deploy not configured.' }, 500)
+    if (!managementConfigured()) return json({ error: DEPLOY_NOT_CONFIGURED }, 500)
     const { data: fns } = await db.from('forged_functions').select('*')
     const results: Array<{ slug: string; ok: boolean; status?: number; error?: string | null }> = []
     for (const row of fns ?? []) {
@@ -303,7 +317,7 @@ Deno.serve(async (req: Request) => {
   // can only (re)deploy the known core functions, never arbitrary ones. No lint:
   // core functions legitimately use Deno.env + the service role. ---
   if (action === 'deploy_core') {
-    if (!managementConfigured()) return json({ error: 'Deploy not configured.' }, 500)
+    if (!managementConfigured()) return json({ error: DEPLOY_NOT_CONFIGURED }, 500)
     const fns = Array.isArray(body.functions) ? (body.functions as Array<Record<string, unknown>>) : []
     if (!fns.length) return json({ error: 'No functions provided.' }, 400)
     const results: Array<{ slug: string; ok: boolean; status?: number; error?: string | null }> = []

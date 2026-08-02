@@ -113,3 +113,10 @@ verify_jwt = false
 # reports success. verify_jwt = true so only a signed-in user can trigger it.
 [functions.imap-test]
 verify_jwt = true
+
+# Public write-form endpoint for user tables: an anonymous visitor submits a form
+# (baked into a shared artifact/page) and one row lands in the owner's table.
+# Public because the browser has no session; gated in code by an opaque form
+# token + a per-form column allow-list + rate limit (runs as the service role).
+[functions.form-submit]
+verify_jwt = false

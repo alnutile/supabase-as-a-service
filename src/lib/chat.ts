@@ -28,6 +28,9 @@ export async function streamChat(
     toolIds?: string[]
     collectionIds?: string[]
     cardBoardId?: string
+    // When the chat is driving a specific agent (?agent=id), attribute the run to
+    // it so it shows up on the agent's runs/observability page.
+    agentId?: string
     // Server-side persistence (the main chat composer): the chat function writes
     // the assistant reply itself, in a background task that survives the browser
     // navigating away or reloading. `runId` (a fresh uuid per send) lets Stop
@@ -61,6 +64,7 @@ export async function streamChat(
       toolIds: options?.toolIds,
       collectionIds: options?.collectionIds,
       cardBoardId: options?.cardBoardId,
+      agentId: options?.agentId,
       conversationId: options?.conversationId,
       persist: options?.persist,
       runId: options?.runId,

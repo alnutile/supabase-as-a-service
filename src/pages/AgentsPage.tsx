@@ -7,7 +7,7 @@ import { formatDate } from '../lib/util'
 import { CRON_EXAMPLES, describeCron, isValidCron, localTimezone, nextCronRuns } from '../lib/cron'
 import { allToolsSelected as allSelected, toggleAllTools } from '../lib/agentTools'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
-import { AgentIcon, ChatIcon, CheckIcon, CloseIcon, CollectionIcon, PlayIcon, PlusIcon, SearchIcon, SkillIcon, TrashIcon } from '../components/icons'
+import { ActivityIcon, AgentIcon, ChatIcon, CheckIcon, CloseIcon, CollectionIcon, PlayIcon, PlusIcon, SearchIcon, SkillIcon, TrashIcon } from '../components/icons'
 
 type Agent = Database['public']['Tables']['agents']['Row']
 type Tool = Database['public']['Tables']['tools']['Row']
@@ -364,6 +364,13 @@ export default function AgentsPage() {
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-strong"
                   >
                     <PlayIcon className="h-3.5 w-3.5" /> Run
+                  </button>
+                  <button
+                    onClick={() => navigate(`/agents/${a.id}`)}
+                    title="See this agent's runs, tool calls, and outcomes"
+                    className="flex items-center gap-1.5 rounded-lg border border-border-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
+                  >
+                    <ActivityIcon className="h-3.5 w-3.5" /> Runs
                   </button>
                   <button
                     onClick={() => navigate(`/chat?agent=${a.id}`)}

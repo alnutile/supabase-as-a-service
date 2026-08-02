@@ -768,6 +768,22 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['skills']['Insert']>
         Relationships: []
       }
+      skill_runs: {
+        Row: {
+          id: string
+          skill_id: string
+          actor_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          skill_id: string
+          actor_id?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['skill_runs']['Insert']>
+        Relationships: []
+      }
       allowed_emails: {
         Row: {
           email: string
@@ -956,6 +972,36 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['user_tables']['Insert']>
         Relationships: []
       }
+      table_forms: {
+        Row: {
+          id: string
+          table_id: string
+          owner_id: string
+          name: string
+          token: string
+          fields: Json
+          active: boolean
+          max_per_hour: number
+          submission_count: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          table_id: string
+          owner_id: string
+          name?: string
+          token?: string
+          fields?: Json
+          active?: boolean
+          max_per_hour?: number
+          submission_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['table_forms']['Insert']>
+        Relationships: []
+      }
       forged_functions: {
         Row: {
           id: string
@@ -1102,6 +1148,80 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['agents']['Insert']>
+        Relationships: []
+      }
+      agent_runs: {
+        Row: {
+          id: string
+          agent_id: string | null
+          owner_id: string
+          surface: string
+          trigger_ref: Json
+          status: string
+          model: string | null
+          input: string | null
+          final_output: string | null
+          error: string | null
+          turns: number
+          tool_calls: number
+          total_tokens: number
+          cost: number
+          started_at: string
+          ended_at: string | null
+        }
+        Insert: {
+          id?: string
+          agent_id?: string | null
+          owner_id: string
+          surface: string
+          trigger_ref?: Json
+          status?: string
+          model?: string | null
+          input?: string | null
+          final_output?: string | null
+          error?: string | null
+          turns?: number
+          tool_calls?: number
+          total_tokens?: number
+          cost?: number
+          started_at?: string
+          ended_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['agent_runs']['Insert']>
+        Relationships: []
+      }
+      agent_run_steps: {
+        Row: {
+          id: string
+          run_id: string
+          seq: number
+          kind: string
+          tool_name: string | null
+          input: Json | null
+          output: string | null
+          error: string | null
+          sandboxed: boolean
+          tokens: number | null
+          cost: number | null
+          duration_ms: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          run_id: string
+          seq: number
+          kind: string
+          tool_name?: string | null
+          input?: Json | null
+          output?: string | null
+          error?: string | null
+          sandboxed?: boolean
+          tokens?: number | null
+          cost?: number | null
+          duration_ms?: number | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['agent_run_steps']['Insert']>
         Relationships: []
       }
       mcp_tokens: {
@@ -1948,6 +2068,14 @@ export interface Database {
       collection_token_stats: {
         Args: Record<PropertyKey, never>
         Returns: { collection_id: string; artifact_count: number; char_total: number }[]
+      }
+      record_skill_run: {
+        Args: { p_skill_id: string }
+        Returns: undefined
+      }
+      skill_usage_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: { skill_id: string; run_count: number; last_used_at: string | null }[]
       }
       list_workspace_members: {
         Args: Record<PropertyKey, never>

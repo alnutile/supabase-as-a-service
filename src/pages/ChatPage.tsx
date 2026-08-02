@@ -696,7 +696,7 @@ export default function ChatPage() {
           const system = [agent?.instructions, groupNote, artifactNote].filter(Boolean).join('\n\n')
           return {
             ...(system ? { system } : {}),
-            ...(agent ? { toolIds: agent.tool_ids } : {}),
+            ...(agent ? { toolIds: agent.tool_ids, agentId: agent.id } : {}),
             ...(merged.length ? { collectionIds: merged } : {}),
             // Persist the reply server-side so a reload / navigating away mid-
             // stream no longer loses it: the chat function finishes the run in a
@@ -892,6 +892,10 @@ export default function ChatPage() {
         .update({ updated_at: new Date().toISOString() })
         .eq('id', convId)
       loadConversations()
+      // Best-effort usage log: powers the Skills page "used N× / last used" stats
+      // and lets a future job prune skills that have gone stale. Only successful
+      // runs count (this is past the stream + insert). Never blocks the reply.
+      void supabase.rpc('record_skill_run', { p_skill_id: skill.id })
     } catch (err) {
       setStreaming(null)
       if (!isAbortError(err)) setError(friendlyChatError(err, 'Skill failed'))
