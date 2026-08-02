@@ -10,6 +10,9 @@ const DISMISS_KEY = 'pwa.installDismissedAt'
 // browser's own address-bar install affordance is unaffected either way.
 export const INSTALL_SNOOZE_MS = 14 * 24 * 60 * 60 * 1000
 
+// Custom event name for manually triggering the install prompt to reappear
+export const SHOW_INSTALL_EVENT = 'pwa:show-install'
+
 /**
  * Whether to surface our own install banner. Pure so the snooze window is
  * testable. `dismissedAt`/`now` are epoch milliseconds.
@@ -37,6 +40,22 @@ export function readDismissedAt(): number | null {
 export function recordDismissed(now: number): void {
   try {
     localStorage.setItem(DISMISS_KEY, String(now))
+  } catch {
+    // ignore — a full/blocked storage must never break the UI
+  }
+}
+
+/**
+ * Clear the dismiss timestamp and dispatch an event to show the install prompt
+ * again. Called from the Profile settings when the user wants to manually
+ * trigger the install prompt after dismissing it.
+ */
+export function clearDismissed(): void {
+  try {
+    localStorage.removeItem(DISMISS_KEY)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(SHOW_INSTALL_EVENT))
+    }
   } catch {
     // ignore — a full/blocked storage must never break the UI
   }

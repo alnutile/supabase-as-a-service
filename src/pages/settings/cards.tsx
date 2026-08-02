@@ -3,8 +3,9 @@ import type { Database } from '../../lib/database.types'
 import { emailInboundUrl, inviteLinkUrl, slackEventsUrl, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate } from '../../lib/util'
-import { CheckIcon, CopyIcon, LinkIcon, PlusIcon, TrashIcon } from '../../components/icons'
+import { CheckIcon, CopyIcon, DownloadIcon, LinkIcon, PlusIcon, TrashIcon } from '../../components/icons'
 import { bindingToForm, buildSlackBindingPayload } from '../../lib/slackBinding'
+import { clearDismissed, isStandalone } from '../../lib/pwa'
 
 export { ConnectClaude } from './ConnectClaudeCard'
 
@@ -154,6 +155,70 @@ export function AboutCard() {
         assistant is powered by a Supabase Edge Function that keeps the model API key on
         the server.
       </p>
+    </section>
+  )
+}
+
+// Install app as PWA — shows installation status and a button to trigger the
+// install prompt after it's been dismissed.
+export function InstallAppCard() {
+  const [installed, setInstalled] = useState(false)
+  const [canInstall, setCanInstall] = useState(false)
+  const [triggered, setTriggered] = useState(false)
+
+  useEffect(() => {
+    setInstalled(isStandalone())
+    // Check if the browser has already captured the beforeinstallprompt event
+    // (we can't directly check this, but if we're not standalone, the browser
+    // might support it)
+    setCanInstall(!isStandalone())
+  }, [])
+
+  function handleShowInstall() {
+    clearDismissed()
+    setTriggered(true)
+    setTimeout(() => setTriggered(false), 2000)
+  }
+
+  if (installed) {
+    return (
+      <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text">Install app</h2>
+        <div className="mt-3 flex items-center gap-3 rounded-lg border border-primary/20 bg-primary-soft/30 p-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white">
+            <CheckIcon className="h-5 w-5" />
+          </div>
+          <p className="text-sm text-text">
+            <strong>Already installed</strong> — you're running as a standalone app.
+          </p>
+        </div>
+      </section>
+    )
+  }
+
+  if (!canInstall) {
+    return null
+  }
+
+  return (
+    <section className="mt-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Install app</h2>
+      <p className="mt-2 text-sm text-muted">
+        Install this workspace as an app on your device for quick access and a full-screen
+        experience. Dismissed the install prompt? Bring it back here.
+      </p>
+      <button
+        onClick={handleShowInstall}
+        className="mt-4 flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong"
+      >
+        <DownloadIcon className="h-4 w-4" />
+        {triggered ? 'Install prompt shown' : 'Show install prompt'}
+      </button>
+      {triggered && (
+        <p className="mt-2 text-xs text-muted">
+          Look for the install notification at the bottom-right of the page.
+        </p>
+      )}
     </section>
   )
 }
