@@ -768,6 +768,22 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['skills']['Insert']>
         Relationships: []
       }
+      skill_runs: {
+        Row: {
+          id: string
+          skill_id: string
+          actor_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          skill_id: string
+          actor_id?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['skill_runs']['Insert']>
+        Relationships: []
+      }
       allowed_emails: {
         Row: {
           email: string
@@ -2022,6 +2038,14 @@ export interface Database {
       collection_token_stats: {
         Args: Record<PropertyKey, never>
         Returns: { collection_id: string; artifact_count: number; char_total: number }[]
+      }
+      record_skill_run: {
+        Args: { p_skill_id: string }
+        Returns: undefined
+      }
+      skill_usage_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: { skill_id: string; run_count: number; last_used_at: string | null }[]
       }
       list_workspace_members: {
         Args: Record<PropertyKey, never>

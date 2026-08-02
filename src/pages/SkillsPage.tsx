@@ -4,6 +4,16 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { streamChat } from '../lib/chat'
 import { formatDate } from '../lib/util'
+import { timeAgo } from '../lib/dashboard'
+import {
+  indexUsage,
+  isStale,
+  staleCount,
+  usageLabel,
+  DEFAULT_STALE_DAYS,
+  type SkillUsageStat,
+  type UsageMap,
+} from '../lib/skillUsage'
 import {
   parseSkillMarkdown,
   serializeSkillMarkdown,
@@ -56,6 +66,12 @@ export default function SkillsPage() {
 
   const [showTrash, setShowTrash] = useState(false)
   const [trash, setTrash] = useState<Skill[]>([])
+  const [usage, setUsage] = useState<UsageMap>({})
+
+  const loadUsage = useCallback(async () => {
+    const { data } = await supabase.rpc('skill_usage_stats')
+    setUsage(indexUsage(data as SkillUsageStat[] | null))
+  }, [])
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -82,7 +98,19 @@ export default function SkillsPage() {
   useEffect(() => {
     load()
     loadTrash()
-  }, [load, loadTrash])
+    loadUsage()
+  }, [load, loadTrash, loadUsage])
+
+  // Reflect new skill runs live (own runs for members, all runs for admins).
+  useEffect(() => {
+    const ch = supabase
+      .channel('skill-runs')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'skill_runs' }, loadUsage)
+      .subscribe()
+    return () => {
+      supabase.removeChannel(ch)
+    }
+  }, [loadUsage])
 
   async function restoreSkillRow(id: string) {
     await supabase.from('skills').update({ deleted_at: null }).eq('id', id)
@@ -274,6 +302,10 @@ export default function SkillsPage() {
 
   const alwaysOn = filterSkills(skills.filter((s) => s.auto_apply))
   const onDemand = filterSkills(skills.filter((s) => !s.auto_apply))
+  // Prune candidates among the on-demand skills currently shown: never used, or
+  // idle for DEFAULT_STALE_DAYS+. Surfaced as a count so unused skills are easy
+  // to spot (and a future cleanup job keys off the same signal).
+  const onDemandStale = staleCount(onDemand.map((s) => s.id), usage)
 
   return (
     <div className="h-full overflow-y-auto">
@@ -433,9 +465,19 @@ export default function SkillsPage() {
 
             {/* On-demand */}
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                On demand · run with /
-              </h2>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  On demand · run with /
+                </h2>
+                {onDemandStale > 0 && (
+                  <span
+                    className="text-[11px] text-amber-600 dark:text-amber-400"
+                    title={`Never used, or not used in ${DEFAULT_STALE_DAYS}+ days`}
+                  >
+                    {onDemandStale} unused
+                  </span>
+                )}
+              </div>
               {onDemand.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-border-strong py-8 text-center text-sm text-faint">
                   {searchQuery.trim()
@@ -445,7 +487,7 @@ export default function SkillsPage() {
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {onDemand.map((s) => (
-                    <SkillCard key={s.id} skill={s} onClick={() => setEditing(s)} />
+                    <SkillCard key={s.id} skill={s} onClick={() => setEditing(s)} usage={usage[s.id]} showUsage />
                   ))}
                 </div>
               )}
@@ -547,11 +589,16 @@ function SkillCard({
   skill,
   onClick,
   alwaysOn,
+  usage,
+  showUsage,
 }: {
   skill: Skill
   onClick: () => void
   alwaysOn?: boolean
+  usage?: SkillUsageStat
+  showUsage?: boolean
 }) {
+  const stale = showUsage && isStale(usage)
   return (
     <div
       role="button"
@@ -602,9 +649,22 @@ function SkillCard({
       <p className="mt-1 line-clamp-2 text-xs text-muted">
         {skill.description || skill.instructions.slice(0, 120) || 'No description'}
       </p>
-      <p className="mt-3 text-[11px] uppercase tracking-wide text-faint">
-        Updated {formatDate(skill.updated_at)}
-      </p>
+      <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-faint">
+        <span className="uppercase tracking-wide">Updated {formatDate(skill.updated_at)}</span>
+        {showUsage && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            {stale && (
+              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-600 dark:text-amber-400">
+                Unused
+              </span>
+            )}
+            <span>
+              {usageLabel(usage)}
+              {usage?.last_used_at ? ` · ${timeAgo(usage.last_used_at)}` : ''}
+            </span>
+          </span>
+        )}
+      </div>
     </div>
   )
 }
