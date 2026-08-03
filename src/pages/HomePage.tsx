@@ -8,6 +8,7 @@ import { DashboardWidget } from '../components/DashboardWidget'
 import { AddWidgetPanel } from '../components/AddWidgetPanel'
 import type { Database } from '../lib/database.types'
 import { completionPct } from '../lib/dashboard'
+import { normalizeUrl } from '../lib/linkEdit'
 import {
   ActivityIcon,
   AgentIcon,
@@ -110,6 +111,9 @@ export default function HomePage() {
 
   // Quick todo modal
   const [showTodoModal, setShowTodoModal] = useState(false)
+
+  // Quick link modal
+  const [showLinkModal, setShowLinkModal] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -278,6 +282,33 @@ export default function HomePage() {
     }
   }
 
+  const addQuickLink = async (rawUrl: string) => {
+    if (!user) return null
+    const url = normalizeUrl(rawUrl)
+    if (!url) return null
+
+    // Extract hostname as temporary title
+    const hostOf = (u: string): string => {
+      try {
+        return new URL(u).hostname.replace(/^www\./, '')
+      } catch {
+        return u
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('links')
+      .insert({ owner_id: user.id, url, title: hostOf(url), visibility: 'private' })
+      .select('*')
+      .single()
+
+    if (!error && data) {
+      setShowLinkModal(false)
+      return data
+    }
+    return null
+  }
+
   const pct = completionPct(stats?.todosDone ?? 0, (stats?.todosOpen ?? 0) + (stats?.todosDone ?? 0))
 
   const cards = CARDS.filter((c) => !c.adminOnly || isAdmin)
@@ -337,6 +368,7 @@ export default function HomePage() {
               quick={quick}
               onComplete={completeTodo}
               onOpenTodoModal={() => setShowTodoModal(true)}
+              onOpenLinkModal={() => setShowLinkModal(true)}
             />
             <WidgetsSection
               widgets={widgets}
@@ -358,6 +390,14 @@ export default function HomePage() {
           onSave={addQuickTodo}
         />
       )}
+
+      {/* Quick link modal */}
+      {showLinkModal && (
+        <QuickLinkModal
+          onClose={() => setShowLinkModal(false)}
+          onSave={addQuickLink}
+        />
+      )}
     </div>
   )
 }
@@ -373,6 +413,7 @@ function Overview({
   quick,
   onComplete,
   onOpenTodoModal,
+  onOpenLinkModal,
 }: {
   loading: boolean
   stats: Stats | null
@@ -383,6 +424,7 @@ function Overview({
   quick: string
   onComplete: (id: string) => void
   onOpenTodoModal: () => void
+  onOpenLinkModal: () => void
 }) {
   return (
     <>
@@ -411,6 +453,12 @@ function Overview({
           className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
         >
           <TodoIcon className="h-[18px] w-[18px]" /> New todo
+        </button>
+        <button
+          onClick={onOpenLinkModal}
+          className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
+        >
+          <LinkIcon className="h-[18px] w-[18px]" /> New link
         </button>
       </div>
 
@@ -809,6 +857,92 @@ function QuickTodoModal({ onClose, onSave }: { onClose: () => void; onSave: (tit
           <button
             onClick={handleSave}
             disabled={!title.trim() || saving}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
+          >
+            <PlusIcon className="h-4 w-4" /> {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Quick Link Modal ────────────────────────────────────────────────────────
+function QuickLinkModal({ onClose, onSave }: { onClose: () => void; onSave: (url: string) => Promise<unknown> }) {
+  const [url, setUrl] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  async function handleSave() {
+    const trimmed = url.trim()
+    if (!trimmed || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const result = await onSave(trimmed)
+      if (result) {
+        setUrl('')
+      } else {
+        setError('Invalid URL. Please enter a valid web address.')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex w-full max-w-md flex-col rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <LinkIcon className="h-5 w-5 text-primary" />
+            <h3 className="text-base font-semibold text-text">Quick add link</h3>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1.5 text-faint hover:bg-surface-hover hover:text-text" aria-label="Close">
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4">
+          <label className="mb-2 block text-sm font-medium text-text">URL</label>
+          <input
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value)
+              setError('')
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleSave()
+              }
+            }}
+            placeholder="https://example.com or example.com"
+            autoFocus
+            className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+          />
+          {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-hover"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!url.trim() || saving}
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-50"
           >
             <PlusIcon className="h-4 w-4" /> {saving ? 'Saving…' : 'Save'}
