@@ -5,21 +5,37 @@
 
 export const WIDGET_KINDS = ['stat', 'list', 'chart'] as const
 export const WIDGET_SOURCES = ['todos', 'artifacts', 'files', 'links', 'collections', 'activity'] as const
+export const WIDGET_VIZ = ['bar', 'line', 'area', 'donut'] as const
 
 export type WidgetKind = (typeof WIDGET_KINDS)[number]
 export type WidgetSource = (typeof WIDGET_SOURCES)[number]
+export type WidgetViz = (typeof WIDGET_VIZ)[number]
 
 export type WidgetSpec = {
   window?: 'today' | '7d' | '30d' | 'all'
   mine?: boolean
   status?: 'open' | 'done'
   limit?: number
+  viz?: WidgetViz
+  groupBy?: string
 }
 
 export type ValidWidget = { title: string; kind: WidgetKind; source: WidgetSource; spec: WidgetSpec }
 
 // Only `todos` carries a done/open status.
 const STATUS_SOURCES = new Set<WidgetSource>(['todos'])
+
+// Allow-listed groupBy dimensions per source (mirror of src/lib/widgets.ts). A
+// stored `groupBy` is always one of these — the dashboard passes it straight to
+// `.select()`, so it must never be free-form.
+const DIMENSIONS: Record<WidgetSource, string[]> = {
+  todos: ['done'],
+  artifacts: ['type'],
+  files: ['mime_type'],
+  links: [],
+  collections: [],
+  activity: ['type'],
+}
 
 function clampLimit(n: unknown): number | undefined {
   if (n === undefined || n === null) return undefined
@@ -54,5 +70,13 @@ export function validateWidget(input: Record<string, unknown>): ValidWidget | st
   }
   const lim = clampLimit(raw.limit)
   if (lim !== undefined) spec.limit = lim
+  // groupBy: only an allow-listed dimension for this source survives.
+  if (typeof raw.groupBy === 'string' && DIMENSIONS[source as WidgetSource].includes(raw.groupBy)) {
+    spec.groupBy = raw.groupBy
+  }
+  if (typeof raw.viz === 'string' && (WIDGET_VIZ as readonly string[]).includes(raw.viz)) {
+    // A donut needs a grouping; without one it degrades to the bar time-series.
+    spec.viz = raw.viz === 'donut' && !spec.groupBy ? 'bar' : (raw.viz as WidgetViz)
+  }
   return { title: title.slice(0, 80), kind: kind as WidgetKind, source: source as WidgetSource, spec }
 }
