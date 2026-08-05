@@ -316,12 +316,15 @@ function ModelProfileRow({ profile }: { profile: ModelProfile }) {
 // become callable by chat, scheduled agents, and webhook agents. Each bearer token
 // is write-only — stored in Vault via set_mcp_server, never read back into the
 // browser. "Connect & list tools" validates a server and caches its toolset.
+type McpOAuthMeta = { status?: string; expires_at?: string } | null
 type McpServer = {
   id: string
   label: string
   url: string
   tool_id: string | null
   cached_tools: { name: string }[] | null
+  auth_type: 'bearer' | 'oauth'
+  oauth: McpOAuthMeta
   is_active: boolean
 }
 
@@ -334,7 +337,7 @@ export function McpCard() {
   const load = useCallback(async () => {
     const { data: srv } = await supabase
       .from('mcp_servers')
-      .select('id, label, url, tool_id, cached_tools')
+      .select('id, label, url, tool_id, cached_tools, auth_type, oauth')
       .order('created_at', { ascending: true })
     const rows = (srv ?? []) as Omit<McpServer, 'is_active'>[]
     const toolIds = rows.map((r) => r.tool_id).filter((id): id is string => Boolean(id))
@@ -386,6 +389,32 @@ export function McpCard() {
     load()
   }
 
+  // Kick off (or re-run) the OAuth authorization flow for an existing server: get
+  // the /authorize URL from mcp-connect, then send the browser there. It returns
+  // to mcp-oauth-callback, which stores the tokens and bounces back here.
+  async function startOAuth(id: string) {
+    setResults((r) => ({ ...r, [id]: { ok: false, message: 'Starting OAuth…' } }))
+    const { data, error: invokeErr } = await supabase.functions.invoke('mcp-connect', {
+      body: { action: 'start', server_id: id, return_to: window.location.href },
+    })
+    if (invokeErr) {
+      const ctx = (invokeErr as { context?: Response }).context
+      let message = invokeErr.message
+      try {
+        if (ctx) message = (await ctx.json())?.message ?? message
+      } catch {
+        // keep the generic message
+      }
+      setResults((r) => ({ ...r, [id]: { ok: false, message } }))
+      return
+    }
+    if (data?.ok && data?.authorize_url) {
+      window.location.href = data.authorize_url as string
+      return
+    }
+    setResults((r) => ({ ...r, [id]: { ok: false, message: data?.message ?? 'Could not start OAuth.' } }))
+  }
+
   async function remove(s: McpServer) {
     if (!confirm(`Remove the MCP server "${s.label}"? Agents will lose its tools.`)) return
     await supabase.rpc('delete_mcp_server', { p_id: s.id })
@@ -400,8 +429,9 @@ export function McpCard() {
         <a href="https://mcp.zapier.com" target="_blank" rel="noreferrer" className="text-primary underline">
           Zapier MCP
         </a>{' '}
-        in front of Gmail, Calendar, and more. Each server's tools become callable by chat and your
-        agents. Tokens are stored in Supabase Vault, never in the browser.
+        in front of Gmail, Calendar, and more. Servers that require sign-in (Notion, Linear, GitHub, …)
+        connect via <span className="font-medium text-text">OAuth</span> — no token to paste. Each server's
+        tools become callable by chat and your agents. Tokens are stored in Supabase Vault, never in the browser.
       </p>
 
       {loading ? (
@@ -430,14 +460,33 @@ export function McpCard() {
                     <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition ${s.is_active ? 'left-[18px]' : 'left-0.5'}`} />
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-sm font-medium text-text">{s.label}</p>
+                    <p className="flex items-center gap-1.5 truncate font-mono text-sm font-medium text-text">
+                      {s.label}
+                      {s.auth_type === 'oauth' && (
+                        <span
+                          className={`shrink-0 rounded px-1.5 py-0.5 font-sans text-[10px] font-semibold ${
+                            s.oauth?.status === 'connected'
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {s.oauth?.status === 'connected' ? 'OAuth ✓' : 'OAuth — connect'}
+                        </span>
+                      )}
+                    </p>
                     <p className="truncate text-xs text-muted">
                       {(s.cached_tools ?? []).length} tools · {s.url}
                     </p>
                   </div>
-                  <button onClick={() => connect(s.id)} className="shrink-0 rounded-lg border border-border-strong px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface">
-                    Connect &amp; list
-                  </button>
+                  {s.auth_type === 'oauth' ? (
+                    <button onClick={() => startOAuth(s.id)} className="shrink-0 rounded-lg border border-border-strong px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface">
+                      {s.oauth?.status === 'connected' ? 'Reconnect' : 'Connect'}
+                    </button>
+                  ) : (
+                    <button onClick={() => connect(s.id)} className="shrink-0 rounded-lg border border-border-strong px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface">
+                      Connect &amp; list
+                    </button>
+                  )}
                   <button onClick={() => setEditing(s.id)} className="shrink-0 rounded-lg px-2 py-1 text-xs text-muted transition hover:text-text">
                     Edit
                   </button>
@@ -479,12 +528,19 @@ export function McpCard() {
   )
 }
 
-// Add/edit form for a single MCP server. The token is write-only: on edit, an
-// empty token keeps the existing one.
+// Add/edit form for a single MCP server. Two auth modes:
+//  - bearer: a write-only token stored in Vault via set_mcp_server (empty on edit
+//    keeps the current one).
+//  - oauth: no token — "Add" hands off to mcp-connect, which discovers the server's
+//    OAuth endpoints (or takes manual ones), registers a client, and redirects the
+//    browser through the authorization flow. Auth mode is fixed once created.
 function McpServerForm({ server, onDone, onCancel }: { server?: McpServer; onDone: () => void; onCancel: () => void }) {
+  const [authType, setAuthType] = useState<'bearer' | 'oauth'>(server?.auth_type ?? 'bearer')
   const [label, setLabel] = useState(server?.label ?? '')
   const [url, setUrl] = useState(server?.url ?? '')
   const [token, setToken] = useState('')
+  const [showManual, setShowManual] = useState(false)
+  const [manual, setManual] = useState({ authorization_endpoint: '', token_endpoint: '', client_id: '', client_secret: '', scope: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -494,7 +550,44 @@ function McpServerForm({ server, onDone, onCancel }: { server?: McpServer; onDon
       setError('An MCP endpoint URL is required.')
       return
     }
-    if (!server && !token.trim()) {
+
+    // OAuth, brand-new server: create it and start the authorization flow. This
+    // navigates away to the provider's consent page (and back via the callback).
+    if (authType === 'oauth' && !server) {
+      setSaving(true)
+      const manualCfg = showManual
+        ? Object.fromEntries(Object.entries(manual).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v))
+        : undefined
+      const { data, error: invokeErr } = await supabase.functions.invoke('mcp-connect', {
+        body: {
+          action: 'create',
+          label: label.trim() || 'mcp',
+          url: url.trim(),
+          manual: manualCfg,
+          return_to: window.location.href,
+        },
+      })
+      setSaving(false)
+      if (invokeErr) {
+        const ctx = (invokeErr as { context?: Response }).context
+        let message = invokeErr.message
+        try {
+          if (ctx) message = (await ctx.json())?.message ?? message
+        } catch {
+          // keep the generic message
+        }
+        setError(message)
+        return
+      }
+      if (data?.ok && data?.authorize_url) {
+        window.location.href = data.authorize_url as string
+        return
+      }
+      setError(data?.message ?? 'Could not start the OAuth connection.')
+      return
+    }
+
+    if (authType === 'bearer' && !server && !token.trim()) {
       setError('A bearer token is required to add a server.')
       return
     }
@@ -513,18 +606,32 @@ function McpServerForm({ server, onDone, onCancel }: { server?: McpServer; onDon
     onDone()
   }
 
+  const inputCls =
+    'w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft'
+
   return (
     <div className="space-y-3 rounded-lg border border-border-strong bg-surface-2 p-3">
+      {!server && (
+        <div className="flex gap-2">
+          {(['bearer', 'oauth'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setAuthType(t)}
+              className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                authType === t ? 'border-primary bg-primary-soft text-text' : 'border-border-strong text-muted hover:text-text'
+              }`}
+            >
+              {t === 'bearer' ? 'Bearer token' : 'OAuth (sign in)'}
+            </button>
+          ))}
+        </div>
+      )}
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-muted">Label</span>
-        <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="zapier"
-          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-        />
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="notion" className={inputCls} />
         <span className="mt-1 block text-xs text-faint">
-          Namespaces this server's tools (e.g. <code>zapier__gmail_find_email</code>).
+          Namespaces this server's tools (e.g. <code>notion__search</code>).
         </span>
       </label>
       <label className="block">
@@ -532,22 +639,54 @@ function McpServerForm({ server, onDone, onCancel }: { server?: McpServer; onDon
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://mcp.zapier.com/api/v1/connect"
-          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+          placeholder={authType === 'oauth' ? 'https://mcp.notion.com/mcp' : 'https://mcp.zapier.com/api/v1/connect'}
+          className={inputCls}
         />
       </label>
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-muted">
-          Bearer token {server && <span className="text-faint">(leave blank to keep current)</span>}
-        </span>
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder={server ? '••••••••' : 'Paste the MCP server token'}
-          className="w-full rounded-lg border border-border-strong px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
-        />
-      </label>
+      {authType === 'bearer' ? (
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-muted">
+            Bearer token {server && <span className="text-faint">(leave blank to keep current)</span>}
+          </span>
+          <input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={server ? '••••••••' : 'Paste the MCP server token'}
+            className={inputCls}
+          />
+        </label>
+      ) : server ? (
+        <p className="rounded-md border border-border bg-surface px-2.5 py-2 text-xs text-muted">
+          OAuth server. Use <span className="font-medium text-text">Connect</span> on the server row to sign in and authorize.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-muted">
+            Clicking <span className="font-medium text-text">Connect with OAuth</span> discovers the server's login, sends you to sign
+            in &amp; approve, then returns here. No token to copy.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowManual((v) => !v)}
+            className="text-xs font-medium text-primary underline"
+          >
+            {showManual ? 'Hide' : 'Advanced:'} enter endpoints manually
+          </button>
+          {showManual && (
+            <div className="space-y-2 rounded-md border border-border bg-surface p-2.5">
+              <p className="text-xs text-faint">
+                Only needed if the server can't be auto-discovered or doesn't support dynamic registration.
+              </p>
+              <input value={manual.authorization_endpoint} onChange={(e) => setManual((m) => ({ ...m, authorization_endpoint: e.target.value }))} placeholder="Authorization endpoint" className={inputCls} />
+              <input value={manual.token_endpoint} onChange={(e) => setManual((m) => ({ ...m, token_endpoint: e.target.value }))} placeholder="Token endpoint" className={inputCls} />
+              <input value={manual.client_id} onChange={(e) => setManual((m) => ({ ...m, client_id: e.target.value }))} placeholder="Client ID" className={inputCls} />
+              <input type="password" value={manual.client_secret} onChange={(e) => setManual((m) => ({ ...m, client_secret: e.target.value }))} placeholder="Client secret (optional)" className={inputCls} />
+              <input value={manual.scope} onChange={(e) => setManual((m) => ({ ...m, scope: e.target.value }))} placeholder="Scope (optional)" className={inputCls} />
+            </div>
+          )}
+        </div>
+      )}
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex items-center gap-2">
         <button
@@ -555,7 +694,7 @@ function McpServerForm({ server, onDone, onCancel }: { server?: McpServer; onDon
           disabled={saving}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-strong disabled:opacity-60"
         >
-          {saving ? 'Saving…' : server ? 'Update server' : 'Add server'}
+          {saving ? 'Saving…' : server ? 'Update server' : authType === 'oauth' ? 'Connect with OAuth' : 'Add server'}
         </button>
         <button onClick={onCancel} className="rounded-lg px-3 py-2 text-sm text-muted transition hover:text-text">
           Cancel

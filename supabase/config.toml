@@ -46,6 +46,12 @@ verify_jwt = false
 [functions.mcp-oauth]
 verify_jwt = false
 
+# OUTBOUND MCP OAuth callback — the redirect target when the workspace connects OUT
+# to an OAuth-protected external MCP server. Public: the redirect arrives with no
+# Supabase session (the mcp-connect starter that pairs with it stays verify_jwt=true).
+[functions.mcp-oauth-callback]
+verify_jwt = false
+
 [functions.email-inbound]
 verify_jwt = false
 

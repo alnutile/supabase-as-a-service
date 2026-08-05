@@ -1631,12 +1631,16 @@ export interface Database {
           id: string
           label: string
           url: string
-          secret_id: string
+          secret_id: string | null
           owner_id: string | null
           scope: 'workspace' | 'private'
           tool_id: string | null
           cached_tools: Json
           cached_at: string | null
+          auth_type: 'bearer' | 'oauth'
+          oauth: Json
+          refresh_secret_id: string | null
+          client_secret_id: string | null
           created_at: string
           updated_at: string
         }
@@ -1644,12 +1648,16 @@ export interface Database {
           id?: string
           label: string
           url: string
-          secret_id: string
+          secret_id?: string | null
           owner_id?: string | null
           scope?: 'workspace' | 'private'
           tool_id?: string | null
           cached_tools?: Json
           cached_at?: string | null
+          auth_type?: 'bearer' | 'oauth'
+          oauth?: Json
+          refresh_secret_id?: string | null
+          client_secret_id?: string | null
           created_at?: string
           updated_at?: string
         }

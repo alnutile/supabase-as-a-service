@@ -38,6 +38,14 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
+/** PKCE S256 (RFC 7636): the code_challenge for a verifier =
+ *  BASE64URL(SHA256(verifier)). Used by the outbound MCP OAuth *client*
+ *  (mcp-connect) to challenge an external authorization server; the inbound
+ *  server uses verifyPkceS256 to check the mirror. */
+export async function pkceChallengeS256(verifier: string): Promise<string> {
+  return base64urlFromBytes(await sha256(verifier))
+}
+
 /** PKCE S256 (RFC 7636): does BASE64URL(SHA256(verifier)) === challenge?
  *  We ONLY support S256 — callers must reject a missing/`plain` method before
  *  reaching here. Returns false for a malformed verifier. */
