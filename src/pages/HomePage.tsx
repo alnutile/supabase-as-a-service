@@ -71,6 +71,7 @@ function greetingForNow(): string {
 type TodoRow = { id: string; title: string; due_date: string | null; done: boolean }
 type WidgetRow = Database['public']['Tables']['dashboard_widgets']['Row']
 type ArtifactRow = Database['public']['Tables']['artifacts']['Row']
+type CollectionRow = Database['public']['Tables']['collections']['Row']
 
 type Stats = {
   todosOpen: number
@@ -103,6 +104,7 @@ export default function HomePage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [todos, setTodos] = useState<TodoRow[]>([])
   const [pinnedArtifacts, setPinnedArtifacts] = useState<ArtifactRow[]>([])
+  const [pinnedCollections, setPinnedCollections] = useState<CollectionRow[]>([])
   const [loading, setLoading] = useState(true)
 
   // Custom widgets (owner-only rows; realtime so AI-added ones pop in live)
@@ -158,7 +160,13 @@ export default function HomePage() {
         .is('deleted_at', null)
         .order('updated_at', { ascending: false })
         .limit(12),
-    ]).then(([oTodos, dTodos, arts, fls, wk, td, pinned]) => {
+      supabase
+        .from('collections')
+        .select('*')
+        .eq('pinned', true)
+        .order('updated_at', { ascending: false })
+        .limit(12),
+    ]).then(([oTodos, dTodos, arts, fls, wk, td, pinnedArts, pinnedColls]) => {
       if (!alive) return
       setStats({
         todosOpen: oTodos.count ?? 0,
@@ -168,7 +176,8 @@ export default function HomePage() {
         weekEvents: wk.count ?? 0,
       })
       setTodos((td.data ?? []) as TodoRow[])
-      setPinnedArtifacts((pinned.data ?? []) as ArtifactRow[])
+      setPinnedArtifacts((pinnedArts.data ?? []) as ArtifactRow[])
+      setPinnedCollections((pinnedColls.data ?? []) as CollectionRow[])
       setLoading(false)
     })
     return () => {
@@ -215,6 +224,37 @@ export default function HomePage() {
           } else if (payload.eventType === 'DELETE') {
             const old = payload.old as { id: string }
             setPinnedArtifacts((prev) => prev.filter((a) => a.id !== old.id))
+          }
+        },
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user])
+
+  // Subscribe to pinned collections changes
+  useEffect(() => {
+    if (!user) return
+    const channel = supabase
+      .channel('home_pinned_collections')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'collections', filter: `owner_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            const row = payload.new as CollectionRow
+            if (row.pinned) {
+              setPinnedCollections((prev) => {
+                const filtered = prev.filter((c) => c.id !== row.id)
+                return [row, ...filtered].slice(0, 12)
+              })
+            } else {
+              setPinnedCollections((prev) => prev.filter((c) => c.id !== row.id))
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const old = payload.old as { id: string }
+            setPinnedCollections((prev) => prev.filter((c) => c.id !== old.id))
           }
         },
       )
@@ -364,6 +404,7 @@ export default function HomePage() {
               pct={pct}
               todos={todos}
               pinnedArtifacts={pinnedArtifacts}
+              pinnedCollections={pinnedCollections}
               navigate={navigate}
               quick={quick}
               onComplete={completeTodo}
@@ -409,6 +450,7 @@ function Overview({
   pct,
   todos,
   pinnedArtifacts,
+  pinnedCollections,
   navigate,
   quick,
   onComplete,
@@ -420,6 +462,7 @@ function Overview({
   pct: number
   todos: TodoRow[]
   pinnedArtifacts: ArtifactRow[]
+  pinnedCollections: CollectionRow[]
   navigate: (to: string) => void
   quick: string
   onComplete: (id: string) => void
@@ -461,6 +504,11 @@ function Overview({
           <LinkIcon className="h-[18px] w-[18px]" /> New link
         </button>
       </div>
+
+      {/* Pinned collections */}
+      {pinnedCollections.length > 0 && (
+        <PinnedCollections collections={pinnedCollections} loading={loading} navigate={navigate} />
+      )}
 
       {/* Pinned artifacts */}
       {pinnedArtifacts.length > 0 && (
@@ -661,6 +709,63 @@ function TodoList({
             )
           })}
         </ul>
+      )}
+    </div>
+  )
+}
+
+function PinnedCollections({
+  collections,
+  loading,
+  navigate,
+}: {
+  collections: CollectionRow[]
+  loading: boolean
+  navigate: (to: string) => void
+}) {
+  const VIS_ICON = { private: LockIcon, workspace: UsersIcon }
+
+  return (
+    <div className="mb-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <PinIcon className="h-4 w-4 text-primary" />
+          <h2 className="text-[15px] font-bold tracking-tight text-text">Pinned collections</h2>
+        </div>
+        <Link to="/collections" className="flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">
+          View all <ArrowRightIcon className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+      {loading ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-28 animate-pulse rounded-xl bg-surface-2" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {collections.map((c) => {
+            const VisIcon = VIS_ICON[c.visibility]
+            return (
+              <button
+                key={c.id}
+                onClick={() => navigate(`/collections/${c.id}`)}
+                className="group rounded-xl border border-border bg-surface p-4 text-left shadow-soft transition hover:-translate-y-[2px] hover:border-border-strong hover:shadow-soft-lg"
+              >
+                <div className="flex items-start justify-between">
+                  <h3 className="truncate font-medium text-text group-hover:text-primary">{c.name}</h3>
+                  <VisIcon className="h-4 w-4 shrink-0 text-faint" />
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-muted">
+                  {c.description || 'No description'}
+                </p>
+                <p className="mt-3 text-[11px] uppercase tracking-wide text-faint">
+                  Collection · {formatDate(c.updated_at)}
+                </p>
+              </button>
+            )
+          })}
+        </div>
       )}
     </div>
   )

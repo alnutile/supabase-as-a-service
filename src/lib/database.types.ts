@@ -174,6 +174,7 @@ export interface Database {
           description: string
           color: string | null
           visibility: CollectionVisibility
+          pinned: boolean
           created_at: string
           updated_at: string
         }
@@ -184,6 +185,7 @@ export interface Database {
           description?: string
           color?: string | null
           visibility?: CollectionVisibility
+          pinned?: boolean
           created_at?: string
           updated_at?: string
         }

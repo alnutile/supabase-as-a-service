@@ -25,6 +25,7 @@ import {
   GlobeIcon,
   LinkIcon,
   LockIcon,
+  PinIcon,
   PlusIcon,
   SendIcon,
   TableIcon,
@@ -203,6 +204,7 @@ export default function CollectionsPage() {
                       {tokens[c.id] ? ` · ≈${Math.round(tokens[c.id] / 100) / 10}k tok` : ''}
                     </span>
                   </span>
+                  {c.pinned && <PinIcon className="h-3.5 w-3.5 shrink-0 text-primary" />}
                   {c.visibility === 'workspace' ? (
                     <GlobeIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
                   ) : (
@@ -372,6 +374,14 @@ function CollectionDashboard({
     if (data) onChanged()
   }
 
+  async function togglePin() {
+    await supabase
+      .from('collections')
+      .update({ pinned: !collection.pinned })
+      .eq('id', collection.id)
+    onChanged()
+  }
+
   async function removeItem(kind: Kind, id: string) {
     const cfg = KINDS[kind]
     await supabase
@@ -508,12 +518,24 @@ function CollectionDashboard({
             <ChatIcon className="h-4 w-4" /> Full chat
           </button>
           {isOwner && (
-            <button
-              onClick={() => setEditing((v) => !v)}
-              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover"
-            >
-              {editing ? 'Close' : 'Manage'}
-            </button>
+            <>
+              <button
+                onClick={togglePin}
+                className={`rounded-lg border border-border p-1.5 transition ${
+                  collection.pinned ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
+                }`}
+                title={collection.pinned ? 'Unpin from Home' : 'Pin to Home'}
+                aria-label={collection.pinned ? 'Unpin from Home' : 'Pin to Home'}
+              >
+                <PinIcon className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setEditing((v) => !v)}
+                className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-hover"
+              >
+                {editing ? 'Close' : 'Manage'}
+              </button>
+            </>
           )}
         </div>
         {collection.description && !editing && <p className="mt-1.5 text-sm text-muted">{collection.description}</p>}
