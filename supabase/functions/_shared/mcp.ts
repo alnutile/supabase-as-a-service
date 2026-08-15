@@ -11,6 +11,7 @@
 // time from Vault via the service-role-only `read_mcp_secret(server_id)` RPC; it
 // never lives in the tool row, the model context, or any log.
 import { toORTool, type ORTool } from './openrouter.ts'
+import { ensureAccessToken } from './mcp_oauth.ts'
 
 // deno-lint-ignore no-explicit-any
 type DB = any
@@ -148,14 +149,11 @@ function flattenContent(result: any): string {
   return JSON.stringify(result)
 }
 
-// Read one server's decrypted bearer token from Vault (service-role-only RPC).
+// Resolve one server's live bearer. For bearer servers this is the static Vault
+// token; for OAuth servers it's the stored access token, transparently refreshed
+// when expired. Both paths live in ensureAccessToken (_shared/mcp_oauth.ts).
 async function readToken(db: DB, serverId: string): Promise<string | null> {
-  try {
-    const { data } = await db.rpc('read_mcp_secret', { p_server_id: serverId })
-    return typeof data === 'string' && data ? data : null
-  } catch {
-    return null
-  }
+  return await ensureAccessToken(db, serverId)
 }
 
 // A short, function-name-safe namespace prefix from the tool row name.

@@ -22,6 +22,7 @@ const VERIFY_JWT: Record<string, boolean> = {
   webhook: false,
   mcp: false,
   'mcp-oauth': false,
+  'mcp-oauth-callback': false,
   'email-inbound': false,
   scheduler: false,
   ingest: false,

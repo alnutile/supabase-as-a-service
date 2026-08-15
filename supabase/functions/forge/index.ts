@@ -44,6 +44,8 @@ const CORE_SLUGS = new Set([
   'webhook',
   'mcp',
   'mcp-oauth',
+  'mcp-oauth-callback',
+  'mcp-connect',
   'scheduler',
   'ingest',
   'email-inbound',
