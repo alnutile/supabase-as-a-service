@@ -349,6 +349,22 @@ export default function HomePage() {
     return null
   }
 
+  const createArtifact = async () => {
+    if (!user) return
+    const { data, error } = await supabase
+      .from('artifacts')
+      .insert({
+        owner_id: user.id,
+        title: 'Untitled artifact',
+        type: 'markdown',
+        content: '# Untitled\n\nStart writing…',
+        visibility: 'private',
+      })
+      .select()
+      .single()
+    if (!error && data) navigate(`/artifacts/${data.id}`)
+  }
+
   const pct = completionPct(stats?.todosDone ?? 0, (stats?.todosOpen ?? 0) + (stats?.todosDone ?? 0))
 
   const cards = CARDS.filter((c) => !c.adminOnly || isAdmin)
@@ -410,6 +426,7 @@ export default function HomePage() {
               onComplete={completeTodo}
               onOpenTodoModal={() => setShowTodoModal(true)}
               onOpenLinkModal={() => setShowLinkModal(true)}
+              onCreateArtifact={createArtifact}
             />
             <WidgetsSection
               widgets={widgets}
@@ -456,6 +473,7 @@ function Overview({
   onComplete,
   onOpenTodoModal,
   onOpenLinkModal,
+  onCreateArtifact,
 }: {
   loading: boolean
   stats: Stats | null
@@ -468,6 +486,7 @@ function Overview({
   onComplete: (id: string) => void
   onOpenTodoModal: () => void
   onOpenLinkModal: () => void
+  onCreateArtifact: () => void
 }) {
   return (
     <>
@@ -484,6 +503,12 @@ function Overview({
           className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
         >
           <UploadIcon className="h-[18px] w-[18px]" /> Upload a file
+        </button>
+        <button
+          onClick={onCreateArtifact}
+          className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
+        >
+          <ArtifactIcon className="h-[18px] w-[18px]" /> New artifact
         </button>
         <button
           onClick={() => navigate('/agents')}
