@@ -8,7 +8,7 @@ import { DashboardWidget } from '../components/DashboardWidget'
 import { AddWidgetPanel } from '../components/AddWidgetPanel'
 import type { Database } from '../lib/database.types'
 import { completionPct } from '../lib/dashboard'
-import { normalizeUrl } from '../lib/linkEdit'
+import { fetchLinkMeta, normalizeUrl } from '../lib/links'
 import {
   ActivityIcon,
   AgentIcon,
@@ -344,6 +344,20 @@ export default function HomePage() {
 
     if (!error && data) {
       setShowLinkModal(false)
+      // Fetch metadata in the background to populate title, description, and preview
+      fetchLinkMeta(url).then((meta) => {
+        if (meta) {
+          const patch = {
+            title: meta.title || hostOf(url),
+            description: meta.description,
+            image_url: meta.image_url,
+            favicon_url: meta.favicon_url,
+          }
+          supabase.from('links').update(patch).eq('id', data.id).then(() => {
+            // Metadata updated successfully
+          })
+        }
+      })
       return data
     }
     return null
