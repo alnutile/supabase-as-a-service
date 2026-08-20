@@ -418,17 +418,16 @@ export default function ArtifactEditorPage() {
     <div className="flex h-full flex-col overflow-y-auto md:flex-row md:overflow-hidden">
       {/* Editor */}
       <div className="flex min-w-0 flex-1 flex-col border-b border-border md:border-b-0 md:border-r">
-        {/* Header. On mobile the title takes its own full-width row and the
-            controls wrap below it — otherwise the buttons squeeze the title
-            input to zero width and there's nowhere to type a name (issue #117).
-            md+ keeps the classic single row. */}
-        <div className="flex flex-col gap-3 border-b border-border bg-surface px-4 py-3 md:flex-row md:items-center md:px-5">
+        {/* Header. The title field is always on its own full-width row at the top,
+            with controls below — otherwise the buttons squeeze the title input
+            and it's hard to edit unless the screen is super wide (issue #326). */}
+        <div className="flex flex-col gap-3 border-b border-border bg-surface px-4 py-3 md:px-5">
           <input
             value={artifact.title}
             onChange={(e) => patch({ title: e.target.value })}
             placeholder="Untitled"
             aria-label="Artifact title"
-            className="w-full min-w-0 bg-transparent text-lg font-semibold outline-none placeholder:text-faint md:flex-1"
+            className="w-full bg-transparent text-lg font-semibold outline-none placeholder:text-faint"
           />
           <div className="flex flex-wrap items-center gap-2 md:gap-3">
             <select
