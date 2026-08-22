@@ -426,6 +426,15 @@ export const SlackIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+// Knowledge compiler: layered pages resolving into one maintained sheet.
+export const CompilerIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3 3 7.5l9 4.5 9-4.5L12 3z" />
+    <path d="M3 12.5 12 17l9-4.5" />
+    <path d="M3 17.5 12 22l9-4.5" />
+  </svg>
+)
+
 export const TerminologyIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />

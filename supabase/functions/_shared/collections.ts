@@ -1,6 +1,12 @@
 // Shared collection-context builder. Turns one or more collections into a single
-// text block (artifacts + files + tables + links + to-dos) that gets injected as
-// primary context.
+// text block that gets injected as primary context.
+//
+// COMPILED FIRST. A collection's maintained knowledge pages (see the knowledge
+// compiler, migration 0112) lead the block; its raw material — artifacts, files,
+// tables, links, to-dos — follows as the EVIDENCE behind them. That ordering is
+// the point: without it the model re-interprets raw documents on every question
+// and the compiled layer may as well not exist. Collections with nothing
+// compiled yet are unchanged — the raw block is simply all there is.
 // Lives here — not in the chat function — so ALL agent loops can use it: chat,
 // webhook, and scheduler all inject an agent's bound collections the same way.
 //
@@ -12,6 +18,7 @@
 
 import { sceneToText } from './whiteboard_scene.ts'
 import { cardsToText } from './card_board.ts'
+import { compiledContextBlock, type CompiledPage } from './compiler.ts'
 
 const CHARS_PER_TOKEN = 4
 
@@ -238,10 +245,15 @@ export async function loadCollectionsContext(
         .map((c) => ({ title: c.title, text: cardsToText({ cards: c.cards }) }))
     }
 
+    // Compiled knowledge pages — the MAINTAINED understanding of this subject.
+    // Loaded first and rendered first so the assistant answers from what the
+    // workspace knows, treating the raw items below as the evidence behind it.
+    const compiled = await loadCompiledBlock(db, visible, userId)
+
     if (
       !readable.length && !todos.length && !fileDocs.length && !tableDocs.length &&
       !webLinks.length && !agents.length && !whiteboards.length && !cardBoards.length
-    ) return ''
+    ) return compiled
 
     const parts: string[] = []
 
@@ -305,12 +317,56 @@ export async function loadCollectionsContext(
       whiteboards.length + cardBoards.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
-    return (
+    const raw =
       `# Collection context: ${names.map((n) => `"${n}"`).join(', ')}\n` +
       `Scoped to ${label} — ${itemCount} item(s) total. ` +
       `Treat the following as the primary reference content; ground your answers in it.\n\n` +
       parts.join('\n\n---\n\n')
+    return compiled ? `${compiled}\n\n---\n\n${raw}` : raw
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Load the compiled knowledge pages for the selected collections and render them
+ * as the leading context block. Runs with the service role like the rest of this
+ * module, so page visibility is re-enforced in code (own or workspace-shared).
+ */
+async function loadCompiledBlock(
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  collections: Array<{ id: string; name: string }>,
+  userId: string,
+): Promise<string> {
+  try {
+    const ids = collections.map((c) => c.id)
+    const { data } = await db
+      .from('knowledge_pages')
+      .select('id, key, kind, title, content, status, confidence, human_confirmed, labels, last_reviewed_at, updated_at, owner_id, visibility')
+      .in('collection_id', ids)
+      .neq('status', 'archived')
+      .order('updated_at', { ascending: false })
+      .limit(200)
+    const rows = ((data ?? []) as Array<Record<string, unknown>>).filter(
+      (p) => p.owner_id === userId || p.visibility === 'workspace',
     )
+    if (!rows.length) return ''
+    const pages: CompiledPage[] = rows.map((p) => ({
+      id: p.id as string,
+      key: p.key as string,
+      kind: p.kind as CompiledPage['kind'],
+      title: p.title as string,
+      content: (p.content as string) ?? '',
+      status: p.status as CompiledPage['status'],
+      confidence: Number(p.confidence ?? 0.5),
+      humanConfirmed: Boolean(p.human_confirmed),
+      labels: (p.labels as string[]) ?? [],
+      lastReviewedAt: (p.last_reviewed_at as string) ?? null,
+      updatedAt: (p.updated_at as string) ?? '',
+    }))
+    const label = collections.length === 1 ? collections[0].name : collections.map((c) => c.name).join(', ')
+    return compiledContextBlock(label, pages)
   } catch {
     return ''
   }
@@ -319,7 +375,7 @@ export async function loadCollectionsContext(
 // Turn a collection file into injectable text: an indexed PDF/doc → its
 // extracted knowledge text (chunks, scope re-enforced); a text-like file →
 // its decoded contents; anything else (images, binaries) → null (skipped).
-async function fileToText(
+export async function fileToText(
   // deno-lint-ignore no-explicit-any
   db: any,
   f: { id: string; name: string; mime_type: string | null; bucket: string | null; path: string },

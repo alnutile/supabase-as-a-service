@@ -120,3 +120,11 @@ verify_jwt = true
 # token + a per-form column allow-list + rate limit (runs as the service role).
 [functions.form-submit]
 verify_jwt = false
+
+# Knowledge compiler: runs a compilation pass over a collection (gather new
+# sources -> extract claims -> update compiled pages within the collection's
+# trust boundary -> flag conflicts -> write a change brief). Public because the
+# UI, agents, scripts and cron all trigger it; gated in code by a session JWT or
+# a personal mcp_tokens bearer, exactly like run-tool.
+[functions.compile]
+verify_jwt = false
