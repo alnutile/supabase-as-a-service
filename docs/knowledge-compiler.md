@@ -208,7 +208,7 @@ Eight builtin tools, available to every agent loop and over MCP:
 | Tool | What it does |
 | --- | --- |
 | `compile_collection` | Run a pass; returns the change brief |
-| `list_knowledge_pages` | The compiled layer — check here *before* searching raw docs |
+| `list_knowledge_pages` | The compiled layer — check here *before* searching raw docs. Archived pages excluded by default; `archived:true` for the recovery area |
 | `get_knowledge_page` | One page in full, with the claims behind it |
 | `update_knowledge_page` | Author or maintain a page directly |
 | `list_conflicts` | What is awaiting a human decision |
@@ -266,6 +266,23 @@ That is why the design is what it is:
 | `src/lib/compiler.ts` | Browser mirror (labels, policy round-trip, grouping) |
 | `src/pages/KnowledgePage.tsx` | The Knowledge dashboard |
 | `supabase/migrations/0112_knowledge_compiler.sql` | Schema, RLS, events, seeded tools + always-on prompt |
+
+## What compiling costs
+
+Worth being precise about, because it is easy to assume the opposite.
+`loadCollectionsContext` **prepends** the compiled block to the raw material; it
+does not replace it. A compiled collection therefore sends *more* context per
+query, not less.
+
+Measured on a 24-source collection with a Sonnet-4.5 judge: accuracy 92% → 100%,
+cost $0.0217 → $0.0312. Compiling bought a correct answer on a case the raw
+sources kept fluffing, and it cost 44% more to get it.
+
+So the compiled layer as built buys **accuracy, provenance and a reviewable
+audit trail**. It does not buy context savings. The "stop re-interpreting raw
+documents on every question" property needs retrieval over compiled pages —
+dropping raw when a compiled page already answers — which is the first item
+under *Not built yet*.
 
 ## Not built yet
 
