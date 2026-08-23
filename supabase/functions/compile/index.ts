@@ -45,6 +45,7 @@ import {
   normalizePolicy,
   pageKey,
   parseCompilerOutput,
+  shouldFlagPendingReview,
   stalePageKeys,
   type CompiledPage,
   type CompilePolicy,
@@ -635,6 +636,18 @@ async function runCompilation(db: DB, opts: RunOpts): Promise<{ runId: string; b
           source_ids: h.update.sourceIds,
           run_id: runId,
         })
+        // Mark the page the held update targets, so the pending change is
+        // VISIBLE wherever the page is read. Without this the page keeps
+        // reading as settled truth while a revision waits in the queue, and an
+        // agent quoting it asserts something no human has accepted yet — which
+        // is exactly how a review gate turns into a silent staleness bug.
+        // A page a human already confirmed keeps that status: a queued
+        // suggestion does not undo their sign-off. Contradicted outranks this
+        // (a real dispute is worse than a pending edit) and is set above.
+        if (h.page && shouldFlagPendingReview(h.page)) {
+          await db.from('knowledge_pages').update({ status: 'needs-review' }).eq('id', h.page.id)
+          h.page.status = 'needs-review'
+        }
       }
     }
     await setStep('flag', 'done', `${output.conflicts.length} conflict(s), ${held.length} held, ${staleKeys.length} stale`)
