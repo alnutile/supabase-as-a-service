@@ -24,6 +24,7 @@ import {
   pageKey,
   parseCompilerOutput,
   policyToJson,
+  shouldFlagPendingReview,
   stalePageKeys,
   type CompiledPage,
   type CompilePolicy,
@@ -547,4 +548,54 @@ Deno.test('compiledContextBlock respects its character budget', () => {
 
 Deno.test('compiledContextBlock skips archived pages', () => {
   assertEquals(compiledContextBlock('C', [page({ status: 'archived' })]), '')
+})
+
+// ---------------------------------------------------------------------------
+// Pending-review visibility
+//
+// A held update is a change nobody has accepted yet. If the page it targets
+// does not SAY so, the page keeps reading as settled truth while the revision
+// waits in the queue — which is how a review gate turns into a silent staleness
+// bug. These assertions are the guard against that.
+// ---------------------------------------------------------------------------
+
+Deno.test('a held update flags its target page for review', () => {
+  assert(shouldFlagPendingReview(page()))
+})
+
+Deno.test('a contradicted page is not downgraded to needs-review', () => {
+  // A real dispute is worse news than a pending edit; don't overwrite it.
+  assertEquals(shouldFlagPendingReview(page({ status: 'contradicted' })), false)
+})
+
+Deno.test('a human-confirmed page keeps its sign-off despite a queued suggestion', () => {
+  assertEquals(shouldFlagPendingReview(page({ humanConfirmed: true })), false)
+})
+
+Deno.test('flagging a page already needing review is a no-op', () => {
+  assertEquals(shouldFlagPendingReview(page({ status: 'needs-review' })), false)
+})
+
+Deno.test('a held update against no existing page flags nothing', () => {
+  assertEquals(shouldFlagPendingReview(null), false)
+})
+
+Deno.test('a stale page is upgraded to the more actionable needs-review', () => {
+  assert(shouldFlagPendingReview(page({ status: 'stale' })))
+})
+
+Deno.test('compiledContextBlock warns that a page has an update awaiting review', () => {
+  const block = compiledContextBlock('C', [page({ status: 'needs-review' })])
+  assertStringIncludes(block, 'awaiting review')
+  assertStringIncludes(block, 'possibly out of date')
+})
+
+Deno.test('compiledContextBlock tells the model to qualify a page awaiting review', () => {
+  assertStringIncludes(compiledContextBlock('C', [page()]), 'awaiting review, or stale')
+})
+
+Deno.test('contradicted outranks needs-review in the inline flag', () => {
+  const block = compiledContextBlock('C', [page({ status: 'contradicted' })])
+  assertStringIncludes(block, 'contradicted')
+  assert(!block.includes('awaiting review — flag it'))
 })

@@ -144,7 +144,13 @@ waits. Two categories land in the queue:
 
 - **conflict** — genuine contradiction between sources.
 - **held** — an update the trust boundary declined, parked *with the body it
-  wanted to write*, so approving it later is a click rather than a re-run.
+  wanted to write*, so approving it later is a click rather than a re-run. The
+  page it targets is flagged `needs-review` and the compiled-context block says
+  so inline — otherwise the page keeps reading as settled truth while the
+  revision waits in the queue, and the review gate quietly becomes a staleness
+  bug. A page already marked `contradicted` keeps that worse flag; a
+  human-confirmed page keeps its sign-off, since a machine's suggestion does not
+  retroactively un-confirm what a person accepted.
 
 Resolving is a human decision recorded three ways: **use the new source**
 (applies it and marks the page confirmed), **keep what we have** (clears the
@@ -167,9 +173,15 @@ support which concepts, which pages depend on which.
 
 The center-of-gravity shift, in one place. `loadCollectionsContext` now leads
 with a collection's compiled pages and follows with its raw material, labelled as
-the evidence behind them. Pages marked stale or contradicted are flagged inline
-so the assistant says what's disputed rather than asserting it. Collections with
-nothing compiled yet are unchanged — the raw block is simply all there is.
+the evidence behind them. Any page that is not plainly current — contradicted,
+awaiting review, or stale — is flagged inline so the assistant qualifies it
+rather than asserting it. Collections with nothing compiled yet are unchanged —
+the raw block is simply all there is.
+
+That inline flagging is load-bearing, not decoration. Compilation's failure mode
+is *confidence*: a compiled page reads as settled truth in a way a pile of raw
+documents never does, so anything less than settled has to say so in the same
+breath it is quoted.
 
 `search_documents` still works and still matters. It becomes the fallback for
 "nothing compiled yet", "I need the source's exact wording", and "this page is

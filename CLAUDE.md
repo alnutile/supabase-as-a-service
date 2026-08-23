@@ -293,7 +293,11 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   that honors `triggered_by` — mirroring loops/evals). **The compiler never resolves a
   contradiction**: it detects one, leaves the page alone, marks it `contradicted` and writes
   a review item; an update the boundary declined is parked as a `held` item WITH the body it
-  wanted to write, so approving it later is a click not a re-run. Resolving marks the page
+  wanted to write, so approving it later is a click not a re-run, and the page it
+  targets is flagged `needs-review` (`shouldFlagPendingReview`) so
+  `compiledContextBlock` warns inline — without that the page reads as settled
+  truth while the revision waits in the queue and the review gate becomes a
+  silent staleness bug (found by A/B-testing the feature against itself). Resolving marks the page
   human-confirmed (a person just read it) and restarts its freshness clock. **Center of
   gravity:** `loadCollectionsContext` now leads with a collection's compiled pages and
   follows with the raw material labelled as the evidence behind them (stale/contradicted

@@ -579,6 +579,27 @@ export function applyUpdateToContent(page: CompiledPage | null, update: PageUpda
   return update.body.trim()
 }
 
+/**
+ * When the trust boundary parks an update for review, should the page it targets
+ * be flagged `needs-review`?
+ *
+ * The point is visibility. A held update means "a change to this page was
+ * proposed and nobody has accepted it yet" — and unless the page says so, it
+ * keeps reading as settled truth while the revision waits in the queue. That is
+ * how a review gate quietly becomes a staleness bug.
+ *
+ * Two pages are left alone. A `contradicted` page is already flagged with
+ * something WORSE (a real dispute beats a pending edit, so don't downgrade it),
+ * and a human-confirmed page keeps its sign-off — a machine's suggestion does
+ * not retroactively un-confirm what a person accepted.
+ */
+export function shouldFlagPendingReview(page: CompiledPage | null): boolean {
+  if (!page) return false
+  if (page.status === 'contradicted') return false
+  if (page.humanConfirmed) return false
+  return page.status !== 'needs-review'
+}
+
 // ---------------------------------------------------------------------------
 // Staleness
 // ---------------------------------------------------------------------------
@@ -839,6 +860,11 @@ export function formatChangeBrief(input: BriefInput): string {
  * the center-of-gravity shift in one function: the assistant is handed
  * maintained understanding first and told that the raw material following it is
  * evidence, not the answer.
+ *
+ * Every page that is anything other than plainly current carries an inline flag,
+ * because compilation's failure mode is confidence: a compiled page reads as
+ * settled truth, so a page that is disputed, has a change queued behind it, or
+ * has not been looked at in months must SAY so in the same breath it is quoted.
  */
 export function compiledContextBlock(
   collectionName: string,
@@ -855,18 +881,26 @@ export function compiledContextBlock(
   const chunks: string[] = []
   let used = 0
   for (const p of ordered) {
+    // `needs-review` means an update to this page was proposed and the trust
+    // boundary declined to apply it unattended — so the page is CURRENT-as-far-
+    // as-anyone-approved, but a change is queued behind it. Saying so is the
+    // whole point: without this flag the page reads as settled truth while a
+    // pending revision sits invisibly in the review queue, and the assistant
+    // asserts a fact a human has not yet accepted.
     const flag = p.status === 'contradicted'
       ? ' ⚠ contradicted — treat as disputed'
-      : p.status === 'stale'
-        ? ' ⚠ stale'
-        : p.humanConfirmed
-          ? ' ✓ human-confirmed'
-          : ''
+      : p.status === 'needs-review'
+        ? ' ⚠ a proposed update to this page is awaiting review — flag it as possibly out of date'
+        : p.status === 'stale'
+          ? ' ⚠ stale'
+          : p.humanConfirmed
+            ? ' ✓ human-confirmed'
+            : ''
     const block = `### ${p.title} [${p.kind}]${flag}\n${p.content.trim()}`
     if (used + block.length > budget) break
     chunks.push(block)
     used += block.length
   }
   if (!chunks.length) return ''
-  return `# Compiled knowledge — ${collectionName}\n\nThis is the workspace's MAINTAINED understanding of this subject, built from its sources and kept up to date. Answer from this first. Any raw documents that follow are evidence behind these pages, not a substitute for them. If a page is marked contradicted or stale, say so rather than asserting it.\n\n${chunks.join('\n\n')}`
+  return `# Compiled knowledge — ${collectionName}\n\nThis is the workspace's MAINTAINED understanding of this subject, built from its sources and kept up to date. Answer from this first. Any raw documents that follow are evidence behind these pages, not a substitute for them. If a page is marked contradicted, awaiting review, or stale, say so rather than asserting it as settled.\n\n${chunks.join('\n\n')}`
 }
