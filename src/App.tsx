@@ -15,6 +15,7 @@ const WhiteboardEditorPage = lazy(() => import('./pages/WhiteboardEditorPage'))
 import CardBoardsPage from './pages/CardBoardsPage'
 import CardBoardEditorPage from './pages/CardBoardEditorPage'
 import CollectionsPage from './pages/CollectionsPage'
+import KnowledgePage from './pages/KnowledgePage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
 import MemoryPage from './pages/MemoryPage'
@@ -112,6 +113,7 @@ export default function App() {
         <Route path="links" element={<LinksPage />} />
         <Route path="memory" element={<MemoryPage />} />
         <Route path="meeting-notes" element={<MeetingNotesPage />} />
+        <Route path="knowledge" element={<KnowledgePage />} />
         <Route path="terminology" element={<TerminologyPage />} />
         <Route path="terminology/:termId" element={<TerminologyPage />} />
         <Route path="skills" element={<SkillsPage />} />

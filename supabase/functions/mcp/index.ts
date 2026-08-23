@@ -191,6 +191,126 @@ const TOOLS = [
       required: ['skill'],
     },
   },
+  // --- Knowledge compiler ---------------------------------------------------
+  // The workspace maintains a COMPILED layer on top of its raw material. A
+  // compiled page is the maintained answer; files, links and messages are the
+  // evidence behind it. Check compiled pages before searching raw documents.
+  {
+    name: 'compile_collection',
+    description:
+      'Run a knowledge-compilation pass over a collection: read the sources added since the last pass, extract claims, update the collection\'s compiled pages, flag contradictions for human review, and return a change brief. Use after new material lands in a collection — not to answer a question.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Collection name or id to compile.' },
+        since: { type: 'string', description: 'Optional ISO 8601 cutoff; defaults to the last successful pass.' },
+        dry_run: { type: 'boolean', description: 'Analyze and report without writing any compiled page.' },
+      },
+      required: ['collection'],
+    },
+  },
+  {
+    name: 'list_knowledge_pages',
+    description:
+      'List the workspace\'s COMPILED knowledge pages (maintained understanding) with ids and status. Check here BEFORE searching raw documents. Filter by collection, kind, status, or a title substring.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string' },
+        kind: { type: 'string', description: 'concept|decision|process|person|project|terminology|principle|question|profile' },
+        status: { type: 'string', description: 'compiled|needs-review|contradicted|stale|confirmed|archived' },
+        title_contains: { type: 'string' },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'get_knowledge_page',
+    description:
+      'Read one compiled knowledge page in full, with the claims behind it and where each came from. Identify it by id, key, or exact title.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        key: { type: 'string' },
+        title: { type: 'string' },
+        include_claims: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'update_knowledge_page',
+    description:
+      'Create or maintain a compiled knowledge page. Use append to add understanding and revise to correct wording; write durable reference prose, not a summary of one document. A human-confirmed page can only be appended to.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        id: { type: 'string' },
+        key: { type: 'string' },
+        kind: { type: 'string' },
+        body: { type: 'string' },
+        op: { type: 'string', description: 'append (default) or revise.' },
+        collection: { type: 'string' },
+        summary: { type: 'string' },
+        labels: { type: 'array', items: { type: 'string' } },
+        confirmed: { type: 'boolean', description: 'Only when a HUMAN has verified the page.' },
+        visibility: { type: 'string' },
+      },
+      required: ['body'],
+    },
+  },
+  {
+    name: 'list_conflicts',
+    description:
+      'List open knowledge conflicts and held updates awaiting a human decision — contradictions between new evidence and compiled knowledge that the compiler deliberately refused to resolve on its own.',
+    inputSchema: {
+      type: 'object',
+      properties: { collection: { type: 'string' }, status: { type: 'string' }, limit: { type: 'number' } },
+    },
+  },
+  {
+    name: 'resolve_conflict',
+    description:
+      'Record a HUMAN decision on a knowledge conflict. Only call this once the user has said which source is current — never decide for them. apply writes the new text; keep leaves the page as it is; dismiss closes it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        decision: { type: 'string', description: 'apply | keep | dismiss' },
+        note: { type: 'string' },
+      },
+      required: ['id', 'decision'],
+    },
+  },
+  {
+    name: 'get_change_brief',
+    description:
+      'Read the change brief from a compilation pass: what was added, updated, linked, what became stale, what conflicts were found and what needs human review. Defaults to the most recent pass.',
+    inputSchema: {
+      type: 'object',
+      properties: { run_id: { type: 'string' }, collection: { type: 'string' } },
+    },
+  },
+  {
+    name: 'set_compile_policy',
+    description:
+      'Set a collection\'s compilation policy — the trust boundary for automatic knowledge editing. autonomy is suggest | guarded (default) | auto. never_auto protects pages by kind, label or title substring (e.g. "financial commitments", "client-facing").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string' },
+        enabled: { type: 'boolean' },
+        autonomy: { type: 'string' },
+        compile_sources: { type: 'array', items: { type: 'string' } },
+        maintain_kinds: { type: 'array', items: { type: 'string' } },
+        never_auto: { type: 'array', items: { type: 'string' } },
+        min_confidence: { type: 'number' },
+        stale_days: { type: 'number' },
+      },
+      required: ['collection'],
+    },
+  },
   {
     name: 'create_webhook',
     description: 'Create a webhook (a public URL that runs a prompt on inbound payloads). Returns the URL.',
@@ -1457,6 +1577,16 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'update_skill':
     case 'delete_skill':
     case 'restore_skill':
+    // Knowledge-compiler tools share one implementation with the internal
+    // assistant (_shared/compiler_tools.ts) so the two never drift.
+    case 'compile_collection':
+    case 'list_knowledge_pages':
+    case 'get_knowledge_page':
+    case 'update_knowledge_page':
+    case 'list_conflicts':
+    case 'resolve_conflict':
+    case 'get_change_brief':
+    case 'set_compile_policy':
       return text(await runBuiltin(db, name, args, owner))
     case 'create_artifact': {
       const type = normalizeArtifactType(args.type)

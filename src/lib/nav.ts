@@ -21,6 +21,7 @@ import {
   CardsIcon,
   ChatIcon,
   CollectionIcon,
+  CompilerIcon,
   EvalIcon,
   FeedbackIcon,
   FileIcon,
@@ -84,6 +85,13 @@ export const navGroups: NavGroup[] = [
     label: 'Assets',
     items: [
       { to: '/collections', label: 'Collections', key: 'collections', icon: CollectionIcon },
+      {
+        to: '/knowledge',
+        label: 'Knowledge',
+        key: 'knowledge',
+        icon: CompilerIcon,
+        keywords: 'compiled compiler pages conflicts brief provenance decisions glossary maintained understanding second brain',
+      },
       { to: '/files', label: 'Files', key: 'files', icon: FileIcon, keywords: 'upload storage pdf' },
       { to: '/tables', label: 'Tables', key: 'tables', icon: TableIcon, keywords: 'data spreadsheet' },
       { to: '/artifacts', label: 'Artifacts', key: 'artifacts', icon: ArtifactIcon, keywords: 'documents docs' },

@@ -4,7 +4,11 @@
 // webhook, scheduler) can run them: the "morning agent emails me" flow runs
 // through the scheduler, so this is load-bearing, not a refactor nicety.
 //
-// Builtins: search_documents (RAG over the workspace knowledge base), send_email,
+// Builtins: search_documents (RAG over the workspace knowledge base), the knowledge
+// compiler tools (compile_collection / list_knowledge_pages / get_knowledge_page /
+// update_knowledge_page / list_conflicts / resolve_conflict / get_change_brief /
+// set_compile_policy — the COMPILED layer, where a raw file is evidence rather
+// than an answer), send_email,
 // check_email, the user-table tools (list_tables / query_table / add_table_row /
 // update_table_row / delete_table_row / create_table — the "Tables" feature), the team-vault tools (list_secrets /
 // get_secret), and the content-authoring tools (create_artifact / list_artifacts /
@@ -31,6 +35,16 @@ import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
 import { postSlackMessage, toMrkdwn } from './slack.ts'
 import { buildCards, cardCount, cardsToText } from './card_board.ts'
 import { validateWidget } from './widgets.ts'
+import {
+  compileCollection,
+  getChangeBrief,
+  getKnowledgePage,
+  listConflicts,
+  listKnowledgePages,
+  resolveConflict,
+  setCompilePolicy,
+  updateKnowledgePage,
+} from './compiler_tools.ts'
 import {
   buildIdempotencyKey,
   clampPriority,
@@ -233,6 +247,24 @@ export async function runBuiltin(
       return deleteSkill(db, input, userId)
     case 'restore_skill':
       return restoreSkill(db, input, userId)
+    // Knowledge compiler — compiled pages are the maintained answer; raw
+    // sources are the evidence behind them (see _shared/compiler.ts).
+    case 'compile_collection':
+      return compileCollection(db, input, userId)
+    case 'list_knowledge_pages':
+      return listKnowledgePages(db, input, userId)
+    case 'get_knowledge_page':
+      return getKnowledgePage(db, input, userId)
+    case 'update_knowledge_page':
+      return updateKnowledgePage(db, input, userId)
+    case 'list_conflicts':
+      return listConflicts(db, input, userId)
+    case 'resolve_conflict':
+      return resolveConflict(db, input, userId)
+    case 'get_change_brief':
+      return getChangeBrief(db, input, userId)
+    case 'set_compile_policy':
+      return setCompilePolicy(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
