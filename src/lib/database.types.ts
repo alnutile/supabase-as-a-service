@@ -1966,6 +1966,224 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['slack_events']['Insert']>
         Relationships: []
       }
+      // --- Knowledge compiler (migration 0112) -----------------------------
+      // The COMPILED layer: maintained pages, the provenance-bearing claims
+      // behind them, the relationships between them, the conflicts a human has
+      // to settle, and the per-collection trust boundary.
+      compile_policies: {
+        Row: {
+          collection_id: string
+          owner_id: string
+          policy: Json
+          last_compiled_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          collection_id: string
+          owner_id: string
+          policy?: Json
+          last_compiled_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['compile_policies']['Insert']>
+        Relationships: []
+      }
+      knowledge_pages: {
+        Row: {
+          id: string
+          owner_id: string
+          collection_id: string | null
+          key: string
+          kind: string
+          title: string
+          summary: string
+          content: string
+          status: string
+          confidence: number
+          human_confirmed: boolean
+          labels: string[]
+          artifact_id: string | null
+          last_reviewed_at: string | null
+          visibility: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          collection_id?: string | null
+          key: string
+          kind?: string
+          title: string
+          summary?: string
+          content?: string
+          status?: string
+          confidence?: number
+          human_confirmed?: boolean
+          labels?: string[]
+          artifact_id?: string | null
+          last_reviewed_at?: string | null
+          visibility?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['knowledge_pages']['Insert']>
+        Relationships: []
+      }
+      knowledge_claims: {
+        Row: {
+          id: string
+          owner_id: string
+          collection_id: string | null
+          page_id: string | null
+          statement: string
+          fingerprint: string
+          source_type: string
+          source_id: string | null
+          source_label: string
+          captured_at: string
+          confidence: number
+          human_confirmed: boolean
+          status: string
+          superseded_by: string | null
+          run_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          collection_id?: string | null
+          page_id?: string | null
+          statement: string
+          fingerprint: string
+          source_type?: string
+          source_id?: string | null
+          source_label?: string
+          captured_at?: string
+          confidence?: number
+          human_confirmed?: boolean
+          status?: string
+          superseded_by?: string | null
+          run_id?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['knowledge_claims']['Insert']>
+        Relationships: []
+      }
+      knowledge_links: {
+        Row: {
+          id: string
+          owner_id: string
+          collection_id: string | null
+          from_type: string
+          from_id: string
+          to_type: string
+          to_id: string
+          rel: string
+          run_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          collection_id?: string | null
+          from_type: string
+          from_id: string
+          to_type: string
+          to_id: string
+          rel?: string
+          run_id?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['knowledge_links']['Insert']>
+        Relationships: []
+      }
+      knowledge_conflicts: {
+        Row: {
+          id: string
+          owner_id: string
+          collection_id: string | null
+          page_id: string | null
+          title: string
+          existing_text: string
+          incoming_text: string
+          impact: string
+          suggested_action: string
+          severity: string
+          category: string
+          proposed: Json | null
+          status: string
+          resolution: string
+          resolved_by: string | null
+          resolved_at: string | null
+          source_ids: string[]
+          run_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          collection_id?: string | null
+          page_id?: string | null
+          title?: string
+          existing_text?: string
+          incoming_text?: string
+          impact?: string
+          suggested_action?: string
+          severity?: string
+          category?: string
+          proposed?: Json | null
+          status?: string
+          resolution?: string
+          resolved_by?: string | null
+          resolved_at?: string | null
+          source_ids?: string[]
+          run_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['knowledge_conflicts']['Insert']>
+        Relationships: []
+      }
+      compile_runs: {
+        Row: {
+          id: string
+          owner_id: string
+          collection_id: string | null
+          status: string
+          trigger: string
+          sources_seen: number
+          counts: Json
+          brief: string
+          progress: Json
+          detail: Json
+          error: string | null
+          cost: number
+          started_at: string
+          finished_at: string | null
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          collection_id?: string | null
+          status?: string
+          trigger?: string
+          sources_seen?: number
+          counts?: Json
+          brief?: string
+          progress?: Json
+          detail?: Json
+          error?: string | null
+          cost?: number
+          started_at?: string
+          finished_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['compile_runs']['Insert']>
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: {
