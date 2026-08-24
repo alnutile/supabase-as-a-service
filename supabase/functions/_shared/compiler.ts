@@ -600,6 +600,23 @@ export function shouldFlagPendingReview(page: CompiledPage | null): boolean {
   return page.status !== 'needs-review'
 }
 
+/**
+ * Which archived pages should a listing include?
+ *
+ * Archiving a compiled page is this feature's soft delete, and it has to behave
+ * like every other soft delete in the workspace (artifacts and skills, since
+ * 0101): hidden from normal listings, reachable only when you deliberately ask
+ * for the recovery area. Getting this wrong is worse here than elsewhere — the
+ * whole premise is that a compiled page carries MORE authority than a raw file,
+ * so a page someone archived because it was wrong must not keep surfacing to
+ * agents as maintained knowledge.
+ */
+export type ArchiveScope = 'live' | 'archived'
+
+export function archiveScope(input: { archived?: unknown }): ArchiveScope {
+  return input?.archived === true ? 'archived' : 'live'
+}
+
 // ---------------------------------------------------------------------------
 // Staleness
 // ---------------------------------------------------------------------------

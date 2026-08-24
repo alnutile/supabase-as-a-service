@@ -15,6 +15,7 @@
 // the private/workspace rule in code rather than leaning on RLS.
 import {
   applyUpdateToContent,
+  archiveScope,
   claimFingerprint,
   freshnessOf,
   normalizePolicy,
@@ -162,6 +163,13 @@ export async function listKnowledgePages(
     colName = col.name
     query = query.eq('collection_id', col.id)
   }
+  // Archived pages are this feature's soft delete: excluded by default, and
+  // reachable only by asking for the recovery area explicitly (archived:true).
+  // An explicit `status` filter still wins, so status:'archived' keeps working.
+  const scope = archiveScope(input)
+  if (scope === 'archived') query = query.eq('status', 'archived')
+  else if (!String(input?.status ?? '').trim()) query = query.neq('status', 'archived')
+
   const kind = String(input?.kind ?? '').trim().toLowerCase()
   if (kind) {
     if (!(PAGE_KINDS as readonly string[]).includes(kind)) {
@@ -180,6 +188,7 @@ export async function listKnowledgePages(
     canRead(p as unknown as { owner_id: string; visibility: string }, userId, admin),
   )
   if (!rows.length) {
+    if (scope === 'archived') return 'No archived compiled pages.'
     return colName
       ? `Nothing is compiled in "${colName}" yet. Run compile_collection to build its first pages from the sources already filed there.`
       : 'No compiled knowledge pages yet.'
@@ -205,7 +214,9 @@ export async function listKnowledgePages(
     const summary = p.summary ? ` — ${truncate(String(p.summary), 140)}` : ''
     return `- ${p.title} [${p.kind}] (id ${p.id}, key ${p.key}${flags ? `, ${flags}` : ''})${summary}`
   })
-  const header = colName ? `Compiled pages in "${colName}"` : 'Compiled knowledge pages'
+  const header = scope === 'archived'
+    ? (colName ? `ARCHIVED compiled pages in "${colName}"` : 'ARCHIVED compiled knowledge pages')
+    : (colName ? `Compiled pages in "${colName}"` : 'Compiled knowledge pages')
   return `${header} (${rows.length}):\n${lines.join('\n')}\n\nThese are the maintained answers. Use get_knowledge_page for one in full with its evidence.`
 }
 
@@ -243,8 +254,12 @@ export async function getKnowledgePage(
       String(page.updated_at ?? '').slice(0, 10)
     }${page.last_reviewed_at ? ` · last reviewed ${String(page.last_reviewed_at).slice(0, 10)}` : ' · never human-reviewed'}`,
   ]
-  if (page.status === 'contradicted') {
+  if (page.status === 'archived') {
+    parts.push('⚠ This page is ARCHIVED. Someone removed it from maintained knowledge. Do not answer from it; treat it as history.')
+  } else if (page.status === 'contradicted') {
     parts.push('⚠ This page is CONTRADICTED by newer evidence. Do not present it as current — say what is disputed.')
+  } else if (page.status === 'needs-review') {
+    parts.push('⚠ A proposed update to this page is awaiting review, so it may be out of date. Say so rather than asserting it as settled.')
   } else if (page.status === 'stale') {
     parts.push('⚠ This page is stale (not reviewed recently). Flag that when you use it.')
   }

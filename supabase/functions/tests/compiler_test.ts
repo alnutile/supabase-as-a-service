@@ -7,6 +7,7 @@
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.208.0/assert/mod.ts'
 import {
   applyUpdateToContent,
+  archiveScope,
   briefCounts,
   buildCompilerPrompt,
   claimFingerprint,
@@ -598,4 +599,30 @@ Deno.test('contradicted outranks needs-review in the inline flag', () => {
   const block = compiledContextBlock('C', [page({ status: 'contradicted' })])
   assertStringIncludes(block, 'contradicted')
   assert(!block.includes('awaiting review — flag it'))
+})
+
+// ---------------------------------------------------------------------------
+// Archive scope
+//
+// Archiving a compiled page is this feature's soft delete. It has to hide the
+// page from normal listings the way an archived artifact or skill is hidden —
+// otherwise a page someone removed BECAUSE it was wrong keeps surfacing to
+// agents as maintained knowledge, which is the worst possible thing for a layer
+// whose whole premise is that it carries more authority than a raw file.
+// ---------------------------------------------------------------------------
+
+Deno.test('listings exclude archived pages by default', () => {
+  assertEquals(archiveScope({}), 'live')
+})
+
+Deno.test('archived:true asks for the recovery area', () => {
+  assertEquals(archiveScope({ archived: true }), 'archived')
+})
+
+Deno.test('only a literal true opens the recovery area', () => {
+  // A stray string or a falsy value must not silently surface deleted pages.
+  assertEquals(archiveScope({ archived: 'true' }), 'live')
+  assertEquals(archiveScope({ archived: 1 }), 'live')
+  assertEquals(archiveScope({ archived: false }), 'live')
+  assertEquals(archiveScope({ archived: undefined }), 'live')
 })
