@@ -42,9 +42,11 @@ import {
   dedupeClaims,
   formatChangeBrief,
   matchPage,
+  nextCompileCursor,
   normalizePolicy,
   pageKey,
   parseCompilerOutput,
+  selectPassBatch,
   shouldFlagPendingReview,
   stalePageKeys,
   type CompiledPage,
@@ -138,7 +140,7 @@ async function gatherSources(
   userId: string,
   policy: CompilePolicy,
   since: string | null,
-): Promise<{ sources: RawSource[]; truncated: number }> {
+): Promise<{ sources: RawSource[]; truncated: number; watermark: string | null }> {
   const allow = new Set<SourceKind>(policy.compileSources)
   const out: RawSource[] = []
 
@@ -287,9 +289,8 @@ async function gatherSources(
     }
   }
 
-  out.sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt))
-  const truncated = Math.max(0, out.length - MAX_SOURCES)
-  return { sources: out.slice(0, MAX_SOURCES), truncated }
+  const { batch, truncated, watermark } = selectPassBatch(out, MAX_SOURCES)
+  return { sources: batch, truncated, watermark }
 }
 
 // ---------------------------------------------------------------------------
@@ -358,7 +359,7 @@ async function runCompilation(db: DB, opts: RunOpts): Promise<{ runId: string; b
 
     // --- 2. gather ---------------------------------------------------------
     await setStep('gather', 'running')
-    const { sources, truncated } = await gatherSources(db, collection, userId, policy, since)
+    const { sources, truncated, watermark } = await gatherSources(db, collection, userId, policy, since)
     await setStep(
       'gather',
       'done',
@@ -689,7 +690,9 @@ async function runCompilation(db: DB, opts: RunOpts): Promise<{ runId: string; b
 
     if (!dryRun) {
       // Advance the cursor only on a real pass, so a dry run never causes the
-      // next real one to skip the sources it merely previewed.
+      // next real one to skip the sources it merely previewed — and only as far
+      // as the last source this pass actually read, so a truncated pass leaves
+      // the rest pending instead of stranding them behind the cursor.
       await db
         .from('compile_policies')
         .upsert(
@@ -697,7 +700,11 @@ async function runCompilation(db: DB, opts: RunOpts): Promise<{ runId: string; b
             collection_id: collection.id,
             owner_id: userId,
             policy: policyRow?.policy ?? {},
-            last_compiled_at: new Date().toISOString(),
+            last_compiled_at: nextCompileCursor(
+              watermark,
+              (policyRow?.last_compiled_at as string | null) ?? null,
+              new Date().toISOString(),
+            ),
           },
           { onConflict: 'collection_id' },
         )

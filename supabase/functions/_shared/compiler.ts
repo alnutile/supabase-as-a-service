@@ -921,3 +921,56 @@ export function compiledContextBlock(
   if (!chunks.length) return ''
   return `# Compiled knowledge — ${collectionName}\n\nThis is the workspace's MAINTAINED understanding of this subject, built from its sources and kept up to date. Answer from this first. Any raw documents that follow are evidence behind these pages, not a substitute for them. If a page is marked contradicted, awaiting review, or stale, say so rather than asserting it as settled.\n\n${chunks.join('\n\n')}`
 }
+
+// ---------------------------------------------------------------------------
+// Pass batching and the compile cursor
+// ---------------------------------------------------------------------------
+
+/**
+ * A pass reads at most `max` sources. Which ones it reads decides what the
+ * cursor may claim, so the two belong together: taking a batch and then
+ * recording "compiled up to now" would drop every source the batch left
+ * behind, permanently and silently.
+ *
+ * Sources are ordered oldest-first, and the batch is extended through any
+ * sources sharing the last one's timestamp — the cursor is compared with a
+ * strict `>`, so a tie straddling the cut would otherwise be skipped for the
+ * same reason.
+ */
+export function selectPassBatch<T extends { capturedAt: string }>(
+  sources: T[],
+  max: number,
+): { batch: T[]; truncated: number; watermark: string | null } {
+  const ordered = [...sources].sort((a, b) => Date.parse(a.capturedAt) - Date.parse(b.capturedAt))
+  if (!ordered.length) return { batch: [], truncated: 0, watermark: null }
+  if (max <= 0) return { batch: [], truncated: ordered.length, watermark: null }
+  if (ordered.length <= max) {
+    return { batch: ordered, truncated: 0, watermark: ordered[ordered.length - 1].capturedAt }
+  }
+
+  let end = max
+  const edge = Date.parse(ordered[end - 1].capturedAt)
+  while (end < ordered.length && Date.parse(ordered[end].capturedAt) === edge) end++
+
+  const batch = ordered.slice(0, end)
+  return {
+    batch,
+    truncated: ordered.length - batch.length,
+    watermark: batch[batch.length - 1].capturedAt,
+  }
+}
+
+/**
+ * Where the cursor lands after a pass. Always the capture time of the last
+ * source actually read — never "now", which would jump over sources a
+ * truncated pass never looked at. A pass that read nothing leaves the cursor
+ * where it was, so a source backdated behind it is still picked up later.
+ */
+export function nextCompileCursor(
+  watermark: string | null,
+  previous: string | null,
+  now: string,
+): string | null {
+  if (watermark) return watermark
+  return previous ?? now
+}

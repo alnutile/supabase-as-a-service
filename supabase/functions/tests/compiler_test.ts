@@ -25,6 +25,8 @@ import {
   pageKey,
   parseCompilerOutput,
   policyToJson,
+  nextCompileCursor,
+  selectPassBatch,
   shouldFlagPendingReview,
   stalePageKeys,
   type CompiledPage,
@@ -625,4 +627,70 @@ Deno.test('only a literal true opens the recovery area', () => {
   assertEquals(archiveScope({ archived: 1 }), 'live')
   assertEquals(archiveScope({ archived: false }), 'live')
   assertEquals(archiveScope({ archived: undefined }), 'live')
+})
+
+// ---------------------------------------------------------------------------
+// Pass batching and the compile cursor
+// ---------------------------------------------------------------------------
+
+const src = (capturedAt: string, id = capturedAt) => ({ id, capturedAt })
+
+Deno.test('selectPassBatch takes everything when it fits', () => {
+  const all = [src('2026-01-02'), src('2026-01-01'), src('2026-01-03')]
+  const { batch, truncated, watermark } = selectPassBatch(all, 40)
+  assertEquals(batch.map((s) => s.id), ['2026-01-01', '2026-01-02', '2026-01-03'])
+  assertEquals(truncated, 0)
+  assertEquals(watermark, '2026-01-03')
+})
+
+Deno.test('selectPassBatch reports what it left behind and where it stopped', () => {
+  const all = [src('2026-01-01'), src('2026-01-02'), src('2026-01-03')]
+  const { batch, truncated, watermark } = selectPassBatch(all, 2)
+  assertEquals(batch.map((s) => s.id), ['2026-01-01', '2026-01-02'])
+  assertEquals(truncated, 1)
+  assertEquals(watermark, '2026-01-02')
+})
+
+Deno.test('selectPassBatch extends through a tie on the boundary', () => {
+  // Three sources filed in the same instant, with the cut falling inside them.
+  // The cursor is compared with a strict >, so stopping mid-tie would strand
+  // the rest of the tie for good.
+  const all = [src('2026-01-01', 'a'), src('2026-01-02', 'b'), src('2026-01-02', 'c'), src('2026-01-02', 'd')]
+  const { batch, truncated, watermark } = selectPassBatch(all, 2)
+  assertEquals(batch.map((s) => s.id), ['a', 'b', 'c', 'd'])
+  assertEquals(truncated, 0)
+  assertEquals(watermark, '2026-01-02')
+})
+
+Deno.test('selectPassBatch handles an empty set and a zero budget', () => {
+  assertEquals(selectPassBatch([], 40), { batch: [], truncated: 0, watermark: null })
+  const none = selectPassBatch([src('2026-01-01')], 0)
+  assertEquals(none.batch, [])
+  assertEquals(none.truncated, 1)
+  assertEquals(none.watermark, null)
+})
+
+Deno.test('the cursor never jumps past sources the pass did not read', () => {
+  // The regression: a truncated pass that recorded "compiled up to now" put
+  // every unread source behind the cursor, so they were never compiled and
+  // nothing said so.
+  const day = (i: number) => new Date(Date.UTC(2026, 0, 1) + i * 86_400_000).toISOString()
+  const all = Array.from({ length: 80 }, (_, i) => src(day(i)))
+  const { truncated, watermark } = selectPassBatch(all, 40)
+  assertEquals(truncated, 40)
+  const cursor = nextCompileCursor(watermark, null, '2026-06-01T00:00:00Z')
+  assertEquals(cursor, '2026-02-09T00:00:00.000Z')
+  // The 41st source is still ahead of the cursor, so the next pass sees it.
+  assert(Date.parse(all[40].capturedAt) > Date.parse(cursor!))
+})
+
+Deno.test('a pass that read everything lands on the newest source it read', () => {
+  const { watermark } = selectPassBatch([src('2026-01-01'), src('2026-01-05')], 40)
+  assertEquals(nextCompileCursor(watermark, '2025-12-01', '2026-06-01'), '2026-01-05')
+})
+
+Deno.test('a pass with nothing to read leaves the cursor alone', () => {
+  assertEquals(nextCompileCursor(null, '2026-01-01', '2026-06-01'), '2026-01-01')
+  // No previous pass and nothing to read: fall back to now rather than null.
+  assertEquals(nextCompileCursor(null, null, '2026-06-01'), '2026-06-01')
 })
