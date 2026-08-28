@@ -229,6 +229,8 @@ export async function runBuiltin(
       return listAgents(db, userId)
     case 'create_agent':
       return createAgent(db, input, userId)
+    case 'update_agent':
+      return updateAgent(db, input, userId)
     case 'list_tools':
       return listTools(db, userId)
     case 'create_http_tool':
@@ -2350,6 +2352,73 @@ async function createAgent(
   if (error) return `Could not create the agent: ${error.message}`
   await logActivity(db, 'agent.created', `Created agent "${name}"`, { id: data.id }, userId)
   return `Created agent "${name}" (id ${data.id}). It's now in the dashboard under Agents.`
+}
+
+async function updateAgent(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Agents are unavailable.'
+  const ref = String(input?.agent ?? '').trim()
+  if (!ref) return 'update_agent needs an agent id or exact name.'
+
+  // Resolve the agent by id or name
+  const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)
+  const query = db.from('agents').select('id, name, owner_id')
+  const { data: agent, error: fetchError } = isId
+    ? await query.eq('id', ref).maybeSingle()
+    : await query.eq('name', ref).maybeSingle()
+
+  if (fetchError) return `Could not fetch the agent: ${fetchError.message}`
+  if (!agent) return `No agent matches "${ref}".`
+
+  // Check ownership: owner or admin
+  const isOwner = agent.owner_id === userId
+  const isAdminUser = await isAdmin(db, userId)
+  if (!isOwner && !isAdminUser) {
+    return `Only the agent owner or an admin can update "${agent.name}".`
+  }
+
+  // Build the patch from provided fields
+  const patch: Record<string, unknown> = {}
+  if (typeof input?.name === 'string' && input.name.trim()) {
+    patch.name = input.name.trim()
+  }
+  if (typeof input?.description === 'string') {
+    patch.description = input.description
+  }
+  if (typeof input?.instructions === 'string') {
+    patch.instructions = input.instructions
+  }
+  if (Array.isArray(input?.tool_ids)) {
+    patch.tool_ids = (input.tool_ids as unknown[]).map(String)
+  }
+  if (Array.isArray(input?.collection_ids)) {
+    patch.collection_ids = (input.collection_ids as unknown[]).map(String)
+  }
+  if (typeof input?.is_active === 'boolean') {
+    patch.is_active = input.is_active
+  }
+
+  if (!Object.keys(patch).length) {
+    return 'Nothing to update — pass name, description, instructions, tool_ids, collection_ids, and/or is_active.'
+  }
+
+  patch.updated_at = new Date().toISOString()
+
+  const { error } = await db.from('agents').update(patch).eq('id', agent.id)
+  if (error) return `Could not update the agent: ${error.message}`
+
+  await logActivity(
+    db,
+    'agent.updated',
+    `Updated agent "${(patch.name as string) ?? agent.name}"`,
+    { id: agent.id },
+    userId,
+  )
+
+  return `Updated agent "${(patch.name as string) ?? agent.name}" (id ${agent.id}).`
 }
 
 async function listTools(db: DB | null, userId: string | null): Promise<string> {
