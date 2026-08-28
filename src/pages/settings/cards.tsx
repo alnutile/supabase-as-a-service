@@ -1894,3 +1894,190 @@ settings:
     </section>
   )
 }
+
+// Dropbox integration — connect a Dropbox account to fetch file metadata for
+// Dropbox links and enable file ingestion as artifacts.
+type DropboxIntegration = {
+  provider: string
+}
+
+export function DropboxCard() {
+  const [existing, setExisting] = useState<DropboxIntegration | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [accessToken, setAccessToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase
+      .from('integrations')
+      .select('provider')
+      .eq('kind', 'dropbox')
+      .maybeSingle()
+    if (data) {
+      setExisting(data as DropboxIntegration)
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function save() {
+    setError(null)
+    if (!existing && !accessToken.trim()) {
+      setError('An access token is required to set up Dropbox.')
+      return
+    }
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('set_dropbox_integration', {
+      p_access_token: accessToken.trim(),
+    })
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    setAccessToken('')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+    load()
+  }
+
+  async function remove() {
+    if (!confirm('Remove Dropbox integration? Links will no longer fetch enhanced metadata.')) return
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('delete_dropbox_integration')
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    setExisting(null)
+  }
+
+  async function testConnection() {
+    setTestResult(null)
+    const testUrl = 'https://www.dropbox.com/s/example/test.pdf'
+    // This will fail with "Invalid Dropbox URL" but will test the endpoint
+    const { data, error: invokeErr } = await supabase.functions.invoke('dropbox-meta', { body: { url: testUrl } })
+    if (invokeErr) {
+      const ctx = (invokeErr as { context?: Response }).context
+      let message = invokeErr.message
+      try {
+        if (ctx) {
+          const json = await ctx.json()
+          message = json?.error ?? message
+          // If we get a specific Dropbox error, the connection is working
+          if (message.includes('Dropbox API error') || message.includes('Invalid Dropbox URL')) {
+            setTestResult({ ok: true, message: 'Connection successful — Dropbox API is accessible.' })
+            return
+          }
+        }
+      } catch {
+        // keep the generic message
+      }
+      setTestResult({ ok: false, message })
+      return
+    }
+    setTestResult({ ok: !!data, message: data ? 'Connected.' : 'Failed.' })
+  }
+
+  return (
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">Dropbox</h2>
+      <p className="mt-1 text-sm text-muted">
+        Connect your Dropbox account to automatically fetch file metadata when you save a Dropbox link —
+        file name, preview thumbnails, and eventually file ingestion as artifacts.
+      </p>
+
+      {loading ? (
+        <p className="mt-4 text-sm text-faint">Loading…</p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <div className="rounded-lg border border-border bg-surface-2 p-3">
+            <p className="text-xs font-medium text-muted">Getting your access token</p>
+            <ol className="mt-2 space-y-1 text-[11px] text-muted">
+              <li>1. Go to <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noreferrer" className="text-primary underline">Dropbox App Console</a></li>
+              <li>2. Create a new app (or use an existing one)</li>
+              <li>3. Select "Scoped access" and "Full Dropbox" access</li>
+              <li>4. Under "Permissions", enable: <code>files.metadata.read</code>, <code>files.content.read</code>, <code>sharing.read</code></li>
+              <li>5. Go to "Settings" and generate an access token</li>
+              <li>6. Paste the token below</li>
+            </ol>
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Access token {existing && <span className="text-faint">— leave blank to keep the current token</span>}
+            </span>
+            <input
+              type="password"
+              value={accessToken}
+              onChange={(e) => setAccessToken(e.target.value)}
+              autoComplete="off"
+              placeholder={existing ? '••• configured' : 'Dropbox access token'}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          <div className="flex gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
+            >
+              {saving ? 'Saving…' : saved ? 'Saved!' : existing ? 'Update token' : 'Connect Dropbox'}
+            </button>
+
+            {existing && (
+              <button
+                onClick={remove}
+                disabled={saving}
+                className="rounded-lg border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-text hover:bg-surface-hover disabled:opacity-60"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+
+          {existing && (
+            <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3">
+              <p className="text-xs font-medium text-muted">Test connection</p>
+              <p className="mt-1 text-[11px] text-muted">
+                Verify the Dropbox API is accessible with your token.
+              </p>
+              <button
+                onClick={testConnection}
+                className="mt-2 shrink-0 rounded-lg border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-text hover:bg-surface-hover"
+              >
+                Test connection
+              </button>
+              {testResult && (
+                <p className={`mt-2 text-xs ${testResult.ok ? 'text-green-700' : 'text-red-600'}`}>
+                  {testResult.message}
+                </p>
+              )}
+            </div>
+          )}
+
+          {existing && (
+            <div className="mt-2 rounded-lg border border-blue-600/30 bg-blue-500/10 p-3">
+              <p className="text-xs font-medium text-blue-700 dark:text-blue-400">ℹ️ What this enables</p>
+              <ul className="mt-2 space-y-1 text-[11px] text-blue-700 dark:text-blue-300">
+                <li>• When you save a Dropbox link, the system will fetch the file name, description, and thumbnail</li>
+                <li>• Links will show "Type: Dropbox" with richer metadata</li>
+                <li>• Future: one-click ingestion of Dropbox files as artifacts</li>
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}

@@ -1603,7 +1603,7 @@ export interface Database {
       integrations: {
         Row: {
           id: string
-          kind: 'email' | 'mcp'
+          kind: 'email' | 'mcp' | 'dropbox'
           provider: 'postmark' | 'resend' | null
           from_address: string | null
           inbound_token: string | null
@@ -1615,7 +1615,7 @@ export interface Database {
         }
         Insert: {
           id?: string
-          kind: 'email' | 'mcp'
+          kind: 'email' | 'mcp' | 'dropbox'
           provider?: 'postmark' | 'resend' | null
           from_address?: string | null
           inbound_token?: string | null
@@ -2197,6 +2197,20 @@ export interface Database {
         Returns: undefined
       }
       email_is_configured: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      set_dropbox_integration: {
+        Args: {
+          p_access_token: string
+        }
+        Returns: undefined
+      }
+      delete_dropbox_integration: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      dropbox_is_configured: {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }

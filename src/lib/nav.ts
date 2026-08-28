@@ -167,6 +167,7 @@ export const settingsGroup: NavGroup = {
     { to: '/settings/timezone', label: 'Timezone', key: 'settings.timezone', icon: CalendarIcon, adminOnly: true, alwaysOn: true, keywords: 'settings timezone tz utc clock schedule automations time' },
     { to: '/settings/email', label: 'Email', key: 'settings.email', icon: MailIcon, adminOnly: true, alwaysOn: true, keywords: 'settings postmark resend inbound' },
     { to: '/settings/slack', label: 'Slack', key: 'settings.slack', icon: SlackIcon, adminOnly: true, alwaysOn: true, keywords: 'settings bot channel' },
+    { to: '/settings/dropbox', label: 'Dropbox', key: 'settings.dropbox', icon: FileIcon, adminOnly: true, alwaysOn: true, keywords: 'settings dropbox integration file link metadata' },
     { to: '/settings/mcp', label: 'External MCP', key: 'settings.mcp', icon: GlobeIcon, adminOnly: true, alwaysOn: true, keywords: 'settings zapier server' },
     { to: '/settings/people', label: 'Invite people', key: 'settings.people', icon: UsersIcon, adminOnly: true, alwaysOn: true, keywords: 'settings invite members allowed emails' },
     { to: '/settings/feature-flags', label: 'Feature flags', key: 'settings.feature-flags', icon: FlagIcon, adminOnly: true, alwaysOn: true, keywords: 'settings hide show disable areas sidebar' },
