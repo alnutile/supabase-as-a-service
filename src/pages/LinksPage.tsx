@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { buildLinkEditPatch, fetchLinkMeta, matchesLinkQuery, normalizeUrl } from '../lib/links'
+import { buildLinkEditPatch, fetchLinkMeta, isDropboxUrl, matchesLinkQuery, normalizeUrl, summarizeLink } from '../lib/links'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import { CollectionPicker } from '../components/CollectionPicker'
 import {
@@ -146,7 +146,7 @@ export default function LinksPage() {
     refreshMeta(data.id, url)
   }
 
-  async function refreshMeta(id: string, url: string) {
+  async function refreshMeta(id: string, url: string, refreshSummary = false) {
     markFetching(id, true)
     try {
       const meta = await fetchLinkMeta(url)
@@ -159,6 +159,13 @@ export default function LinksPage() {
       }
       const { data } = await supabase.from('links').update(patch).eq('id', id).select('*').single()
       if (data) setLinks((prev) => prev.map((l) => (l.id === id ? data : l)))
+      // Dropbox's API provides file metadata, not a content description. Run
+      // the reusable summarizer after metadata so the description becomes a
+      // cached TL;DR. Explicit Refresh forces a new summary.
+      if (isDropboxUrl(url) && (await summarizeLink(id, refreshSummary))) {
+        const { data: summarized } = await supabase.from('links').select('*').eq('id', id).single()
+        if (summarized) setLinks((prev) => prev.map((l) => (l.id === id ? summarized : l)))
+      }
     } finally {
       markFetching(id, false)
     }
@@ -295,7 +302,7 @@ export default function LinksPage() {
                   onToggleVisibility={() =>
                     patchLink(l.id, { visibility: l.visibility === 'workspace' ? 'private' : 'workspace' })
                   }
-                  onRefresh={() => refreshMeta(l.id, l.url)}
+                  onRefresh={() => refreshMeta(l.id, l.url, true)}
                   onEdit={() => setEditing(l)}
                   onDelete={() => deleteLink(l.id)}
                   onRemoveFromCollection={activeCollection ? () => removeFromActive(l.id) : undefined}

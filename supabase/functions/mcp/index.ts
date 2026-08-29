@@ -718,6 +718,29 @@ const TOOLS = [
     },
   },
   {
+    name: 'summarize_resource',
+    description:
+      'Generate a cached AI summary of a link (including Dropbox), workspace file, artifact, inbox message, compiled knowledge page, or supplied text. Optionally write the result to a link/file description.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source_kind: {
+          type: 'string',
+          enum: ['link', 'file', 'artifact', 'inbox_message', 'knowledge_page', 'text'],
+          description: 'Kind of resource to summarize.',
+        },
+        source_id: { type: 'string', description: 'Resource id; omitted only for source_kind=text.' },
+        text: { type: 'string', description: 'Direct content when source_kind=text.' },
+        title: { type: 'string', description: 'Optional label for direct text.' },
+        style: { type: 'string', enum: ['tldr', 'brief', 'detailed'], description: 'Summary depth; defaults to tldr.' },
+        max_words: { type: 'integer', minimum: 20, maximum: 500 },
+        refresh: { type: 'boolean', description: 'Ignore a matching cached result and regenerate.' },
+        write_back: { type: 'boolean', description: 'Write to the description for a link/file source.' },
+      },
+      required: ['source_kind'],
+    },
+  },
+  {
     name: 'list_links',
     description: 'List saved bookmarks. Optionally filter by collection (name/id). Shows title, url, description, and id.',
     inputSchema: {
@@ -1923,6 +1946,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     }
     case 'search_documents':
     case 'save_link':
+    case 'summarize_resource':
     case 'list_links':
     case 'add_link_to_collection':
     case 'save_message':
