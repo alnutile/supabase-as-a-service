@@ -29,6 +29,7 @@ import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from 
 import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { runSecurityScan } from './security_scan.ts'
+import { summarizeResource } from './resource_summarizer.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
@@ -217,6 +218,8 @@ export async function runBuiltin(
       return httpRequest(db, input, userId)
     case 'run_security_scan':
       return runSecurityScan(db, userId)
+    case 'summarize_resource':
+      return summarizeResource(db, input, userId)
     case 'create_agent_job':
       return createAgentJob(db, input, userId)
     case 'get_agent_job':

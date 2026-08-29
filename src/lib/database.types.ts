@@ -1306,6 +1306,36 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['oauth_authorization_codes']['Insert']>
         Relationships: []
       }
+      resource_summaries: {
+        Row: {
+          id: string
+          owner_id: string
+          source_kind: 'link' | 'file' | 'artifact' | 'inbox_message' | 'knowledge_page' | 'text'
+          source_id: string
+          source_version: string
+          style: 'tldr' | 'brief' | 'detailed'
+          max_words: number
+          summary: string
+          model: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          source_kind: 'link' | 'file' | 'artifact' | 'inbox_message' | 'knowledge_page' | 'text'
+          source_id: string
+          source_version: string
+          style?: 'tldr' | 'brief' | 'detailed'
+          max_words?: number
+          summary: string
+          model: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['resource_summaries']['Insert']>
+        Relationships: []
+      }
       schedules: {
         Row: {
           id: string

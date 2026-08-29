@@ -1,4 +1,4 @@
-import { dropboxMetaUrl, linkMetaUrl, supabase } from './supabase'
+import { dropboxMetaUrl, linkMetaUrl, runToolUrl, supabase } from './supabase'
 import { isDropboxUrl } from './linkEdit'
 
 // Pure helpers live in ./linkEdit (no side-effect imports) so they're unit-testable.
@@ -11,6 +11,33 @@ export type LinkMeta = {
   description: string
   image_url: string | null
   favicon_url: string | null
+}
+
+/** Generate or reuse a cached TL;DR and write it to a link's description. */
+export async function summarizeLink(id: string, refresh = false): Promise<boolean> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  if (!session) return false
+  try {
+    const res = await fetch(runToolUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        tool: 'summarize_resource',
+        input: { source_kind: 'link', source_id: id, style: 'tldr', write_back: true, refresh },
+      }),
+    })
+    if (!res.ok) return false
+    const body = (await res.json()) as { result?: string }
+    return !!body.result && !body.result.startsWith('Could not summarize resource:')
+  } catch {
+    return false
+  }
 }
 
 /**
