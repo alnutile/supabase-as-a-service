@@ -14,6 +14,61 @@ export type LinkMetadata = {
 
 const MAX_HTML_BYTES = 512 * 1024 // metadata lives in <head>; don't stream whole pages
 const FETCH_TIMEOUT_MS = 10_000
+const DROPBOX_FAVICON = 'https://cfl.dropboxstatic.com/static/metaserver/static/images/favicon.ico'
+
+/** Dropbox's public share pages are client-rendered and frequently return a
+ * generic "Dropbox" head to server-side preview fetches. The filename is still
+ * present in file-share URLs, so provide useful metadata without requiring a
+ * user's Dropbox access token. */
+export function dropboxFallbackMetadata(rawUrl: string): LinkMetadata | null {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl.trim())
+  } catch {
+    return null
+  }
+
+  const hostname = parsed.hostname.toLowerCase()
+  if (hostname !== 'dropbox.com' && !hostname.endsWith('.dropbox.com')) return null
+
+  const parts = parsed.pathname.split('/').filter(Boolean)
+  const kind = parts[0] === 'scl' ? parts[1] : parts[0]
+  const isFolder = kind === 'fo' || kind === 'sh'
+  const isFile = kind === 'fi' || kind === 's'
+  if (!isFolder && !isFile) return null
+
+  // Current file links are /scl/fi/<opaque-id>/<filename>; legacy links are
+  // /s/<opaque-id>/<filename>. Folder links generally have no name in the URL.
+  const filenameIndex = parts[0] === 'scl' ? 3 : 2
+  let filename = ''
+  if (isFile && parts[filenameIndex]) {
+    try {
+      filename = decodeURIComponent(parts[filenameIndex]).replace(/\+/g, ' ').trim()
+    } catch {
+      filename = parts[filenameIndex].replace(/\+/g, ' ').trim()
+    }
+  }
+
+  const extension = filename.match(/\.([a-z0-9]{1,10})$/i)?.[1]?.toUpperCase()
+  return {
+    url: rawUrl.trim(),
+    title: filename || (isFolder ? 'Dropbox shared folder' : 'Dropbox shared file'),
+    description: isFolder ? 'Shared Dropbox folder' : extension ? `Shared Dropbox ${extension} file` : 'Shared Dropbox file',
+    image_url: null,
+    favicon_url: DROPBOX_FAVICON,
+  }
+}
+
+function isGenericDropboxTitle(title: string): boolean {
+  return !title || /^dropbox(?:\s*[-|].*)?$/i.test(title.trim())
+}
+
+function usefulTitle(rawTitle: string, fallback: LinkMetadata): string {
+  // Dropbox often serves bots a generic brand/error title instead of the
+  // shared item's metadata. Prefer the filename-derived provider fallback.
+  if (isGenericDropboxTitle(rawTitle)) return fallback.title
+  return rawTitle.replace(/\s*[-|]\s*Dropbox(?:\s*[-|].*)?$/i, '').trim() || fallback.title
+}
 
 // Decode the handful of entities that commonly appear in titles/descriptions.
 export function decodeEntities(s: string): string {
@@ -63,7 +118,9 @@ export async function fetchLinkMetadata(rawUrl: string): Promise<LinkMetadata> {
   } catch {
     // caller validates; keep going with empty fallbacks
   }
-  const fallback: LinkMetadata = { url, title: hostname || url, description: '', image_url: null, favicon_url: null }
+  const providerFallback = dropboxFallbackMetadata(url)
+  const fallback: LinkMetadata =
+    providerFallback ?? { url, title: hostname || url, description: '', image_url: null, favicon_url: null }
   if (!/^https?:\/\//i.test(url)) return fallback
 
   try {
@@ -119,8 +176,10 @@ export async function fetchLinkMetadata(rawUrl: string): Promise<LinkMetadata> {
 
     return {
       url,
-      title: (rawTitle || hostname || url).slice(0, 300),
-      description: description.slice(0, 1000),
+      title: (providerFallback ? usefulTitle(rawTitle, fallback) : rawTitle || fallback.title).slice(0, 300),
+      description: (
+        providerFallback && isGenericDropboxTitle(rawTitle) ? fallback.description : description || fallback.description
+      ).slice(0, 1000),
       image_url: absolutize(image, finalUrl),
       favicon_url: absolutize(iconHref, finalUrl),
     }
