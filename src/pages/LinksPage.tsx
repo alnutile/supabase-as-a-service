@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { buildLinkEditPatch, fetchLinkMeta, matchesLinkQuery, normalizeUrl } from '../lib/links'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
+import { CollectionPicker } from '../components/CollectionPicker'
 import {
   CheckIcon,
   CloseIcon,
@@ -17,6 +18,9 @@ import {
   SearchIcon,
   TrashIcon,
 } from '../components/icons'
+
+// Stable identity for "nothing picked" — the picker memoizes on `selected`.
+const EMPTY_SELECTION: Set<string> = new Set()
 
 type Link = Database['public']['Tables']['links']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
@@ -84,6 +88,13 @@ export default function LinksPage() {
   const selectedIds = useMemo(() => [...selected], [selected])
 
   // The visible list: collection filter → quick search (title/url/description/notes).
+  // Counts drive the picker's per-collection numbers and hide the empty ones.
+  const collectionCounts = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const c of collections) out[c.id] = (members[c.id] ?? new Set()).size
+    return out
+  }, [collections, members])
+
   const visible = useMemo(() => {
     let list = links
     if (activeCollection) {
@@ -246,35 +257,18 @@ export default function LinksPage() {
           )}
         </div>
 
-        {/* Collection filter bar */}
-        {collections.length > 0 && (
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setActiveCollection(null)}
-              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                activeCollection === null
-                  ? 'border-primary bg-primary-soft text-primary'
-                  : 'border-border text-muted hover:bg-surface-hover'
-              }`}
-            >
-              All ({links.length})
-            </button>
-            {collections.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setActiveCollection(c.id)}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                  activeCollection === c.id
-                    ? 'border-primary bg-primary-soft text-primary'
-                    : 'border-border text-muted hover:bg-surface-hover'
-                }`}
-              >
-                <CollectionIcon className="h-3.5 w-3.5" />
-                {c.name} ({(members[c.id] ?? new Set()).size})
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Collection filter — one searchable control instead of a pill per
+            collection (see src/components/CollectionPicker.tsx). */}
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <CollectionPicker
+            collections={collections}
+            selected={activeCollection ? new Set([activeCollection]) : EMPTY_SELECTION}
+            onChange={(next) => setActiveCollection([...next][0] ?? null)}
+            counts={collectionCounts}
+            mode="single"
+            totalLabel={String(links.length)}
+          />
+        </div>
 
         {/* Card grid */}
         <div className="mt-5">

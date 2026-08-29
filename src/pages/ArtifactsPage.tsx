@@ -4,9 +4,10 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { estimateTokensFromChars, formatCount } from '../lib/tokens'
+import { estimateTokensFromChars } from '../lib/tokens'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextMeter } from '../components/ContextMeter'
+import { CollectionPicker } from '../components/CollectionPicker'
 import { generateMarkdownContent, generateFilename, downloadMarkdown } from '../lib/artifactDownload'
 import {
   ArtifactIcon,
@@ -24,6 +25,9 @@ import {
   DownloadIcon,
   UsersIcon,
 } from '../components/icons'
+
+// Stable identity for "nothing picked" — the picker memoizes on `selected`.
+const EMPTY_SELECTION: Set<string> = new Set()
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
@@ -163,6 +167,14 @@ export default function ArtifactsPage() {
     }
     return base
   }, [artifacts, searchResults, members, activeId, activeVisibility])
+
+  // How many artifacts each collection holds — the counts in the picker, and
+  // the rule that hides the empty ones.
+  const collectionCounts = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const c of collections) out[c.id] = (members[c.id] ?? new Set()).size
+    return out
+  }, [collections, members])
 
   // Estimated tokens per collection (content chars ÷ ~4), kept in sync with
   // membership automatically since we already hold every artifact's content.
@@ -472,45 +484,21 @@ export default function ArtifactsPage() {
           )}
         </div>
 
-        {/* Collection filter bar */}
+        {/* Filter bar: one searchable collection picker (a workspace accretes far
+            too many collections for a pill per collection) beside the fixed,
+            four-option visibility filter, which stays as pills. */}
         <div className="mb-5 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setActiveId(null)}
-            className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-              activeId === null
-                ? 'border-primary bg-primary-soft text-primary'
-                : 'border-border text-muted hover:bg-surface-hover'
-            }`}
-          >
-            All ({artifacts.length})
-          </button>
-          {collections.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => {
-                setActiveId(c.id)
-                setEditing(false)
-              }}
-              className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                activeId === c.id
-                  ? 'border-primary bg-primary-soft text-primary'
-                  : 'border-border text-muted hover:bg-surface-hover'
-              }`}
-            >
-              <CollectionIcon className="h-3.5 w-3.5" />
-              {c.name} ({(members[c.id] ?? new Set()).size})
-              {(tokensByCollection[c.id] ?? 0) > 0 && (
-                <span className="text-[10px] text-faint">≈{formatCount(tokensByCollection[c.id])} tok</span>
-              )}
-              {c.visibility === 'workspace' && (
-                <span className="text-[10px] uppercase tracking-wide text-faint">shared</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Visibility filter bar */}
-        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <CollectionPicker
+            collections={collections}
+            selected={activeId ? new Set([activeId]) : EMPTY_SELECTION}
+            onChange={(next) => {
+              setActiveId([...next][0] ?? null)
+              setEditing(false)
+            }}
+            counts={collectionCounts}
+            mode="single"
+            totalLabel={String(artifacts.length)}
+          />
           <span className="text-xs font-medium uppercase tracking-wide text-faint">Visibility:</span>
           {(['private', 'workspace', 'unlisted', 'public'] as const).map((vis) => {
             const Icon = VIS_ICON[vis]

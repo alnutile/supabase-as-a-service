@@ -15,18 +15,24 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Database } from '../lib/database.types'
+import type { Database, TodoStatus } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { filterAndSortTodos } from '../lib/todos'
+import { TODO_STATUSES, filterAndSortTodos, reconcileStatus, statusOf } from '../lib/todos'
 import { openDatePicker } from '../lib/datePicker'
+import { CollectionPicker, CollectionTokens } from '../components/CollectionPicker'
+import { BoardView, CalendarView, FocusView, SourceTag, TimeView, type TodoViewProps } from '../components/TodoBoards'
 import {
   ArrowRightIcon,
+  BoltIcon,
   CalendarIcon,
   CheckIcon,
   CloseIcon,
   CollectionIcon,
   DragHandleIcon,
+  GridIcon,
+  ListIcon,
+  PlayIcon,
   PlusIcon,
   SearchIcon,
   TrashIcon,
@@ -37,6 +43,49 @@ type Todo = Database['public']['Tables']['todos']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
 
 type SortMode = 'manual' | 'due'
+
+// The five ways to look at the same to-dos. "List" is the original page and
+// stays the default; the rest exist because a flat list stops being useful once
+// there are more than a screenful — you can't see what's moving (Board), what's
+// late (Time), how the month sits (Calendar), or what to do RIGHT NOW (Focus).
+type ViewMode = 'list' | 'board' | 'time' | 'calendar' | 'focus'
+
+const VIEWS: ReadonlyArray<{ id: ViewMode; label: string; Icon: typeof ListIcon }> = [
+  { id: 'list', label: 'List', Icon: ListIcon },
+  { id: 'board', label: 'Board', Icon: GridIcon },
+  { id: 'time', label: 'Time', Icon: BoltIcon },
+  { id: 'calendar', label: 'Calendar', Icon: CalendarIcon },
+  { id: 'focus', label: 'Focus', Icon: PlayIcon },
+]
+
+const VIEW_KEY = 'supanet.todos.view'
+
+// Lane colours for the compact status control on a list row / in the detail
+// modal. Kept next to the picker rather than in the pure module: it's styling.
+const STATUS_CHIP: Record<TodoStatus, string> = {
+  triage: 'bg-info-soft text-info',
+  next: 'bg-surface-2 text-muted',
+  doing: 'bg-primary-soft text-primary',
+  blocked: 'bg-warn-soft text-warn',
+  done: 'bg-success-soft text-success',
+}
+
+/** Cycle a to-do through the lanes with one click — the list-row affordance. */
+function StatusChip({ status, onChange }: { status: TodoStatus; onChange: (s: TodoStatus) => void }) {
+  const meta = TODO_STATUSES.find((s) => s.id === status)!
+  return (
+    <button
+      onClick={() => {
+        const i = TODO_STATUSES.findIndex((s) => s.id === status)
+        onChange(TODO_STATUSES[(i + 1) % TODO_STATUSES.length].id)
+      }}
+      title={`${meta.hint} — click for the next lane`}
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition hover:opacity-80 ${STATUS_CHIP[status]}`}
+    >
+      {meta.label}
+    </button>
+  )
+}
 
 // A date is "overdue" when it's strictly before today (local) and the to-do is open.
 function isOverdue(due: string | null, done: boolean): boolean {
@@ -99,6 +148,13 @@ export default function TodosPage() {
   const [adding, setAdding] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('manual')
   const [showDone, setShowDone] = useState(false)
+  const [view, setView] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem(VIEW_KEY)
+    return VIEWS.some((v) => v.id === saved) ? (saved as ViewMode) : 'list'
+  })
+  // One "today" for the whole render so every lane, chip and calendar cell
+  // agrees on the date even if the tab is open across midnight.
+  const today = useMemo(() => new Date(), [])
   const [activeCollections, setActiveCollections] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
 
@@ -128,10 +184,32 @@ export default function TodosPage() {
     load()
   }, [load])
 
+  useEffect(() => {
+    localStorage.setItem(VIEW_KEY, view)
+  }, [view])
+
   const selectedIds = useMemo(() => [...selected], [selected])
 
+  // collection id -> how many to-dos it holds. Drives the picker's counts and
+  // its "hide the empty ones" rule.
+  const counts = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const c of collections) out[c.id] = (members[c.id] ?? new Set()).size
+    return out
+  }, [collections, members])
+
+  // todo id -> the collection names it's filed into, for the card tokens.
+  const collectionNames = useMemo(() => {
+    const out: Record<string, string[]> = {}
+    for (const c of collections) {
+      for (const todoId of members[c.id] ?? []) (out[todoId] ??= []).push(c.name)
+    }
+    return out
+  }, [collections, members])
+  const collectionsOf = useCallback((id: string) => collectionNames[id] ?? [], [collectionNames])
+
   // The visible list: collection filter → done filter → quick search → sort.
-  const visible = useMemo(() => {
+  const scope = useMemo(() => {
     let memberIds: Set<string> | null = null
     if (activeCollections.size > 0) {
       memberIds = new Set<string>()
@@ -140,18 +218,22 @@ export default function TodosPage() {
         for (const id of set) memberIds.add(id)
       }
     }
-    return filterAndSortTodos(todos, {
-      memberIds,
-      showDone,
-      sortMode,
-      query: search,
-    })
+    return {
+      shown: filterAndSortTodos(todos, { memberIds, showDone, sortMode, query: search }),
+      // The board-shaped views own the done/open decision themselves (Board has
+      // a Done lane; Time, Calendar and Focus are about open work), so they get
+      // the collection+search scope with the done filter left off.
+      scoped: filterAndSortTodos(todos, { memberIds, showDone: true, sortMode, query: search }),
+    }
   }, [todos, members, activeCollections, showDone, sortMode, search])
+  const visible = scope.shown
 
   // Drag reorder only makes sense over the raw manual order, not a searched subset.
   const dragEnabled = sortMode === 'manual' && !search.trim()
 
-  const openCount = useMemo(() => todos.filter((t) => !t.done).length, [todos])
+  // Counted within whatever the page is currently scoped to, so the header
+  // matches the list under it rather than the whole workspace.
+  const openCount = useMemo(() => scope.scoped.filter((t) => !t.done).length, [scope])
 
   // --- mutations -----------------------------------------------------------
 
@@ -194,8 +276,21 @@ export default function TodosPage() {
     await supabase.from('todos').update(patch).eq('id', id)
   }
 
+  // Ticking the box and moving the lane are the same edit seen from two sides,
+  // so both go through reconcileStatus — the exact rule the DB trigger applies,
+  // which is what makes the optimistic row equal the persisted one.
   function toggleDone(t: Todo) {
-    patchTodo(t.id, { done: !t.done, completed_at: t.done ? null : new Date().toISOString() })
+    patchTodo(t.id, reconcileStatus({ done: !t.done }, t))
+  }
+
+  function setStatus(id: string, status: TodoStatus) {
+    const t = todos.find((x) => x.id === id)
+    if (!t) return
+    patchTodo(id, reconcileStatus({ status }, t))
+  }
+
+  function setDue(id: string, due: string | null) {
+    patchTodo(id, { due_date: due })
   }
 
   function toggleVisibility(t: Todo) {
@@ -335,50 +430,62 @@ export default function TodosPage() {
 
   // --- render --------------------------------------------------------------
 
+  const viewProps: TodoViewProps = {
+    todos: scope.scoped,
+    collectionsOf,
+    onOpen: openTodo,
+    onSetStatus: setStatus,
+    onSetDue: setDue,
+    today,
+  }
+
+  // The board-shaped views need the full width and their own scroll regions;
+  // the list keeps the narrow, page-scrolling column it always had.
+  const wide = view !== 'list'
+
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-8">
-        <div className="flex items-center justify-between">
+    <div className={wide ? 'flex h-full flex-col overflow-hidden' : 'h-full overflow-y-auto'}>
+      <div
+        className={`mx-auto flex w-full flex-col ${
+          wide ? 'min-h-0 max-w-[110rem] flex-1 px-6 py-6' : 'max-w-3xl px-6 py-8'
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-text">
               <TodoIcon className="h-6 w-6 text-muted" /> To-dos
             </h1>
             <p className="mt-1 text-sm text-muted">
-              {openCount} open · drag to reorder, set due dates, file into collections.
+              {openCount} open
+              {activeCollections.size > 0 &&
+                ` in ${activeCollections.size} collection${activeCollections.size > 1 ? 's' : ''}`}
+              {view === 'list'
+                ? ' · drag to reorder, set due dates, file into collections.'
+                : view === 'focus'
+                  ? ' · one at a time, most urgent first.'
+                  : ' · drag a card between lanes to change it.'}
             </p>
           </div>
-          <div className="flex items-center gap-2 text-sm">
-            <div className="flex overflow-hidden rounded-lg border border-border">
+          {/* View switcher — the same to-dos, five ways of looking at them. */}
+          <div className="flex overflow-hidden rounded-lg border border-border">
+            {VIEWS.map((v) => (
               <button
-                onClick={() => setSortMode('manual')}
-                className={`px-3 py-1.5 font-medium transition ${
-                  sortMode === 'manual' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
+                key={v.id}
+                onClick={() => setView(v.id)}
+                title={v.label}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium transition first:border-l-0 border-l border-border ${
+                  view === v.id ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
                 }`}
               >
-                Manual
+                <v.Icon className="h-4 w-4" />
+                <span className="hidden sm:inline">{v.label}</span>
               </button>
-              <button
-                onClick={() => setSortMode('due')}
-                className={`border-l border-border px-3 py-1.5 font-medium transition ${
-                  sortMode === 'due' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
-                }`}
-              >
-                Due date
-              </button>
-            </div>
-            <button
-              onClick={() => setShowDone((v) => !v)}
-              className={`rounded-lg border px-3 py-1.5 font-medium transition ${
-                showDone ? 'border-primary bg-primary-soft text-primary' : 'border-border text-muted hover:bg-surface-hover'
-              }`}
-            >
-              {showDone ? 'Hiding done off' : 'Show done'}
-            </button>
+            ))}
           </div>
         </div>
 
         {/* Quick add */}
-        <div className="mt-5 flex items-center gap-2">
+        <div className="mt-5 flex shrink-0 items-center gap-2">
           <input
             value={quickTitle}
             onChange={(e) => setQuickTitle(e.target.value)}
@@ -401,7 +508,7 @@ export default function TodosPage() {
         </div>
 
         {/* Quick search — complements the global ⌘K search, scoped to this page */}
-        <div className="relative mt-3">
+        <div className="relative mt-3 shrink-0">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
           <input
             value={search}
@@ -420,48 +527,67 @@ export default function TodosPage() {
           )}
         </div>
 
-        {/* Collection filter bar */}
-        {collections.length > 0 && (
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setActiveCollections(new Set())}
-              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                activeCollections.size === 0
-                  ? 'border-primary bg-primary-soft text-primary'
-                  : 'border-border text-muted hover:bg-surface-hover'
-              }`}
-            >
-              All ({todos.length})
-            </button>
-            {collections.map((c) => (
+        {/* Toolbar: the collection filter, plus the controls the LIST view owns
+            (ordering only makes sense there — the boards group by lane). */}
+        <div className="mt-4 flex shrink-0 flex-wrap items-center gap-2">
+          <CollectionPicker
+            collections={collections}
+            selected={activeCollections}
+            onChange={setActiveCollections}
+            counts={counts}
+            totalLabel={String(todos.length)}
+          />
+          {view === 'list' && (
+            <div className="flex overflow-hidden rounded-lg border border-border text-sm">
               <button
-                key={c.id}
-                onClick={() => {
-                  setActiveCollections((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(c.id)) next.delete(c.id)
-                    else next.add(c.id)
-                    return next
-                  })
-                }}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                  activeCollections.has(c.id)
-                    ? 'border-primary bg-primary-soft text-primary'
-                    : 'border-border text-muted hover:bg-surface-hover'
+                onClick={() => setSortMode('manual')}
+                className={`px-3 py-2 font-medium transition ${
+                  sortMode === 'manual' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
                 }`}
               >
-                <CollectionIcon className="h-3.5 w-3.5" />
-                {c.name} ({(members[c.id] ?? new Set()).size})
+                Manual
               </button>
-            ))}
+              <button
+                onClick={() => setSortMode('due')}
+                className={`border-l border-border px-3 py-2 font-medium transition ${
+                  sortMode === 'due' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
+                }`}
+              >
+                Due date
+              </button>
+            </div>
+          )}
+          <div className="flex-1" />
+          {/* The Board has a Done lane and Focus/Time/Calendar are about open
+              work, so the toggle only belongs to List. */}
+          {view === 'list' && (
+            <button
+              onClick={() => setShowDone((v) => !v)}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                showDone ? 'border-primary bg-primary-soft text-primary' : 'border-border text-muted hover:bg-surface-hover'
+              }`}
+            >
+              {showDone ? 'Hiding done off' : 'Show done'}
+            </button>
+          )}
+        </div>
+
+        {activeCollections.size > 0 && (
+          <div className="mt-3 shrink-0">
+            <CollectionTokens
+              collections={collections}
+              selected={activeCollections}
+              onChange={setActiveCollections}
+              counts={counts}
+            />
           </div>
         )}
 
-        {/* List */}
-        <div className="mt-5">
+        {/* Body — the same filtered set (`visible`), five presentations. */}
+        <div className={`mt-5 flex flex-col ${wide ? 'min-h-0 flex-1' : ''}`}>
           {loading ? (
             <p className="text-sm text-muted">Loading…</p>
-          ) : visible.length === 0 ? (
+          ) : (wide ? scope.scoped : visible).length === 0 ? (
             <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted">
               {search.trim()
                 ? `No to-dos match “${search.trim()}”.`
@@ -469,6 +595,14 @@ export default function TodosPage() {
                   ? 'No to-dos in the selected collections yet.'
                   : 'Nothing here yet — add your first to-do above.'}
             </div>
+          ) : view === 'board' ? (
+            <BoardView {...viewProps} />
+          ) : view === 'time' ? (
+            <TimeView {...viewProps} />
+          ) : view === 'calendar' ? (
+            <CalendarView {...viewProps} />
+          ) : view === 'focus' ? (
+            <FocusView {...viewProps} />
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
               <SortableContext items={visible.map((t) => t.id)} strategy={verticalListSortingStrategy}>
@@ -479,9 +613,11 @@ export default function TodosPage() {
                       todo={t}
                       dragDisabled={!dragEnabled}
                       selected={selected.has(t.id)}
+                      collections={collectionsOf(t.id)}
                       onToggleSelect={() => toggleSelect(t.id)}
                       onToggleDone={() => toggleDone(t)}
                       onToggleVisibility={() => toggleVisibility(t)}
+                      onSetStatus={(s) => setStatus(t.id, s)}
                       onOpen={() => openTodo(t.id)}
                       onChangeTitle={(title) => title.trim() && title !== t.title && patchTodo(t.id, { title: title.trim() })}
                       onChangeDue={(due) => patchTodo(t.id, { due_date: due || null })}
@@ -498,7 +634,7 @@ export default function TodosPage() {
 
       {/* Floating "add to collection" bar */}
       {selected.size > 0 && (
-        <div className="pointer-events-none sticky bottom-0 left-0 right-0 z-20 flex justify-center px-4 pb-6">
+        <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-20 flex justify-center px-4 pb-6">
           <div className="pointer-events-auto relative flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-2.5 shadow-lg">
             <span className="text-sm font-medium text-text">{selected.size} selected</span>
             <button
@@ -586,9 +722,11 @@ function TodoRow({
   todo,
   dragDisabled,
   selected,
+  collections,
   onToggleSelect,
   onToggleDone,
   onToggleVisibility,
+  onSetStatus,
   onOpen,
   onChangeTitle,
   onChangeDue,
@@ -598,9 +736,11 @@ function TodoRow({
   todo: Todo
   dragDisabled: boolean
   selected: boolean
+  collections: string[]
   onToggleSelect: () => void
   onToggleDone: () => void
   onToggleVisibility: () => void
+  onSetStatus: (status: TodoStatus) => void
   onOpen: () => void
   onChangeTitle: (title: string) => void
   onChangeDue: (due: string) => void
@@ -666,9 +806,29 @@ function TodoRow({
         }`}
       />
 
+      {collections.length > 0 && (
+        <div className="order-last flex w-full flex-wrap items-center gap-1 pl-7 md:order-none md:w-auto md:pl-0">
+          {collections.slice(0, 2).map((name) => (
+            <span
+              key={name}
+              className="max-w-[9rem] truncate rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-muted"
+            >
+              {name}
+            </span>
+          ))}
+          {collections.length > 2 && (
+            <span className="text-[10px] font-semibold text-faint" title={collections.join(', ')}>
+              +{collections.length - 2}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Meta row: due + visibility + actions. Wraps to its own line on mobile
           (w-full) and stays inline on desktop (md:w-auto). */}
       <div className="order-last flex w-full items-center gap-2 md:order-none md:w-auto">
+        <StatusChip status={statusOf(todo)} onChange={onSetStatus} />
+        <SourceTag source={todo.source} />
         <DuePill due={todo.due_date} overdue={overdue} onChange={onChangeDue} />
 
         <button
@@ -801,8 +961,9 @@ function TodoDetailModal({
             </h3>
             {todo && todo !== 'missing' && (
               <p className="mt-0.5 text-xs text-faint">
-                {todo.done ? 'Done' : 'Open'}
+                {TODO_STATUSES.find((s) => s.id === statusOf(todo))?.label ?? 'Open'}
                 {todo.visibility === 'workspace' ? ' · shared' : ' · private'}
+                {todo.source ? ` · filed by ${todo.source}` : ''}
               </p>
             )}
           </div>
@@ -821,9 +982,7 @@ function TodoDetailModal({
               {/* Title + done */}
               <div className="flex items-center gap-2.5">
                 <button
-                  onClick={() =>
-                    persist({ done: !todo.done, completed_at: todo.done ? null : new Date().toISOString() })
-                  }
+                  onClick={() => persist(reconcileStatus({ done: !todo.done }, todo))}
                   aria-label={todo.done ? 'Mark not done' : 'Mark done'}
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition ${
                     todo.done ? 'border-primary bg-primary text-white' : 'border-border-strong text-transparent hover:border-primary'
@@ -843,6 +1002,28 @@ function TodoDetailModal({
                     todo.done ? 'text-faint line-through' : 'text-text'
                   }`}
                 />
+              </div>
+
+              {/* Lane — the whole point of the detail view is committing to one. */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-faint">Status</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {TODO_STATUSES.map((s) => {
+                    const on = statusOf(todo) === s.id
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => persist(reconcileStatus({ status: s.id }, todo))}
+                        title={s.hint}
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${
+                          on ? STATUS_CHIP[s.id] + ' ring-1 ring-inset ring-current' : 'bg-surface-2 text-faint hover:text-muted'
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Notes */}
