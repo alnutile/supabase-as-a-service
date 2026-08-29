@@ -59,6 +59,9 @@ export const todosApiUrl = `${supabaseUrl}/functions/v1/todos`
 /** URL of the `link-meta` edge function (fetches a URL's title/description/preview). */
 export const linkMetaUrl = `${supabaseUrl}/functions/v1/link-meta`
 
+/** Dropbox API-backed metadata endpoint for Dropbox file/share links. */
+export const dropboxMetaUrl = `${supabaseUrl}/functions/v1/dropbox-meta`
+
 /** Universal tool runner — invoke any active tool (or a chain) directly, no model. */
 export const runToolUrl = `${supabaseUrl}/functions/v1/run-tool`
 
