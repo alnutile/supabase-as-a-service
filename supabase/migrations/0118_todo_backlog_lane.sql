@@ -1,5 +1,10 @@
 -- Correct where a PERSON's to-dos land: `next`, not `triage`.
 --
+-- (Renumbered from a colliding 0117 that clashed with main's
+-- 0117_dropbox_provider_check, which landed while this was being written. The
+-- migrations.test.ts unique-prefix guard caught it — a duplicate prefix aborts
+-- `supabase db push` for the whole fleet.)
+--
 -- 0116 gave every existing row the column default, `triage` — "new, not looked
 -- at yet". For a fresh workspace that's right. For a real one it was wrong: a
 -- backlog someone had already written down and committed to is not unreviewed,
