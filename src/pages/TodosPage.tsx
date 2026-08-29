@@ -245,7 +245,10 @@ export default function TodosPage() {
     const minPos = todos.length ? Math.min(...todos.map((t) => t.position)) : 0
     const { data, error } = await supabase
       .from('todos')
-      .insert({ owner_id: user.id, title, position: minPos - 1, visibility: 'private' })
+      // Typing a to-do into the box IS the commitment, so it opens in `next`.
+      // `triage` is for work filed at you — by an agent, the API or the inbox —
+      // which is what the column default and the create_todo builtin produce.
+      .insert({ owner_id: user.id, title, position: minPos - 1, visibility: 'private', status: 'next' })
       .select('*')
       .single()
     setAdding(false)
