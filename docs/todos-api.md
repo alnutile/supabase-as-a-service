@@ -49,7 +49,8 @@ docs as plain text, straight from the endpoint.
 Query params:
 
 - `collection=<name|id>` — only to-dos in this collection.
-- `status=open|done` — filter by completion state.
+- `status=open|done` — filter by completion state, **or** pass one lifecycle
+  lane: `triage|next|doing|blocked|done`.
 - `q=<text>` — title contains (case-insensitive).
 - `sort=position|due` — `position` (default) is your manual drag order; `due` sorts by due date.
 - `limit=<1-200>` (default 100), `offset=<n>` — paging.
@@ -65,6 +66,8 @@ Response:
       "notes": "",
       "due_date": "2026-07-01",
       "done": false,
+      "status": "next",
+      "source": "api",
       "completed_at": null,
       "position": 0,
       "visibility": "private",
@@ -85,7 +88,9 @@ Body:
   "title": "Ship the thing",     // required
   "notes": "optional details",   // optional
   "due_date": "2026-07-01",      // optional, YYYY-MM-DD
-  "done": false,                  // optional
+  "status": "next",              // optional lane: triage (default) | next |
+                                 //   doing | blocked | done
+  "done": false,                 // optional — the same thing as status:"done"
   "visibility": "private",       // private (default) | workspace
   "collection": "Work",          // optional name or id — created if missing
   "collections": ["Work", "Q3"]  // optional list, same rules
@@ -101,10 +106,28 @@ that you can see).
 
 ## PATCH /todos/:id (or PUT)
 
-Updates only the fields you send. `done:true` marks it complete (and stamps
-`completed_at`); `done:false` reopens it. `due_date` accepts `YYYY-MM-DD` or `null`
-to clear. Passing `collection`/`collections` **adds** the to-do to them (existing
-tags are kept, not replaced).
+Updates only the fields you send. `status` moves it between lanes; `done:true`
+marks it complete (and stamps `completed_at`); `done:false` reopens it.
+`due_date` accepts `YYYY-MM-DD` or `null` to clear. Passing
+`collection`/`collections` **adds** the to-do to them (existing tags are kept,
+not replaced).
+
+## About `status` and `done`
+
+`done` is the boolean this API has always returned and it still means exactly
+what it did. `status` is the richer lane the to-do sits in — `triage` (new,
+unreviewed), `next` (committed to), `doing`, `blocked` (waiting on something
+else), `done`.
+
+The two are kept consistent for you by the database, so **set whichever one you
+prefer and never both**: `status:"done"` closes the to-do, moving `status` off
+`done` reopens it, `done:true` puts it in the `done` lane, and `done:false`
+returns it to `next` (un-ticking reads as a correction, not a re-triage). An
+integration written before lanes existed keeps working unchanged.
+
+`source` is read-only provenance — `api` for anything created through this API,
+`agent` for a to-do an assistant or agent loop filed, and `null` for one a person
+added in the UI.
 
 ## DELETE /todos/:id
 
@@ -137,7 +160,7 @@ curl -X POST "$BASE/todos" \
   -d '{"title":"Ship the thing","due_date":"2026-07-01","collection":"Work"}'
 
 # List open to-dos in a collection, by due date
-curl "$BASE/todos?collection=Work&status=open&sort=due" \
+curl "$BASE/todos?collection=Work&status=blocked&sort=due" \
   -H "Authorization: Bearer $TOKEN"
 
 # Mark one done

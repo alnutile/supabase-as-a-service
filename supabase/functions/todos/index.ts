@@ -117,6 +117,8 @@ function present(row: Record<string, unknown>) {
     notes: row.notes ?? '',
     due_date: row.due_date ?? null,
     done: row.done ?? false,
+    status: row.status ?? (row.done ? 'done' : 'triage'),
+    source: row.source ?? null,
     completed_at: row.completed_at ?? null,
     position: row.position ?? 0,
     visibility: row.visibility,
@@ -138,7 +140,13 @@ async function todoCollections(db: DB, owner: string, todoId: string): Promise<s
     .map((c) => c.name)
 }
 
-const SELECT_COLS = 'id, title, notes, due_date, done, completed_at, position, visibility, created_at, updated_at'
+const SELECT_COLS =
+  'id, title, notes, due_date, done, status, source, completed_at, position, visibility, created_at, updated_at'
+
+// The lifecycle lanes (migration 0116). `done` stays the boolean this API has
+// always returned; a DB trigger keeps the pair consistent whichever half a
+// caller sets, so an old integration that only knows `done` still works.
+const TODO_STATUSES = ['triage', 'next', 'doing', 'blocked', 'done'] as const
 
 const DOCS = `To-dos CRUD API
 ===============
@@ -160,7 +168,8 @@ BASE URL
 ENDPOINTS
   GET    /todos                     List your to-dos.
          ?collection=<name|id>        Only to-dos in this collection.
-         ?status=open|done            Filter by status.
+         ?status=open|done            Filter by open/closed, or pass one lane:
+                                      triage|next|doing|blocked|done.
          ?q=<text>                    Title contains (case-insensitive).
          ?sort=position|due           Order (default position = your manual order).
          ?limit=<1-200>  ?offset=<n>  Paging (default limit 100).
@@ -169,6 +178,8 @@ ENDPOINTS
          { "title": "Ship the thing",  (required)
            "notes": "...",             (optional)
            "due_date": "2026-07-01",   (optional, YYYY-MM-DD)
+           "status": "next",           (optional lane: triage|next|doing|
+                                        blocked|done — default triage)
            "visibility": "private",    (private|workspace, default private)
            "collection": "Work",       (optional name or id — created if missing)
            "collections": ["Work","Q3"] (optional list, same rules) }
@@ -182,6 +193,9 @@ ENDPOINTS
   DELETE /todos/:id              Delete one.
 
 NOTES
+  • status is the lifecycle lane; "done" is the same thing as done:true, and the
+    two are kept consistent for you — set whichever you prefer, never both.
+
   • visibility is "private" (only you + admins) or "workspace" (the whole team can
     see and collaborate) — same model as collections.
   • A collection is a named group you can chat with in the app. Reference it by
@@ -237,6 +251,7 @@ async function handleList(db: DB, owner: string, url: URL) {
   if (onlyIds) query = query.in('id', onlyIds)
   if (status === 'open') query = query.eq('done', false)
   else if (status === 'done') query = query.eq('done', true)
+  else if (status && (TODO_STATUSES as readonly string[]).includes(status)) query = query.eq('status', status)
   if (q) query = query.ilike('title', `%${q}%`)
 
   const { data, error } = await query
@@ -263,10 +278,16 @@ async function handleCreate(db: DB, owner: string, body: Record<string, unknown>
     : 'private'
   const notes = typeof body.notes === 'string' ? body.notes : ''
   const done = body.done === true
+  if (body.status !== undefined && !(TODO_STATUSES as readonly string[]).includes(body.status as string)) {
+    return err(`\`status\` must be one of ${TODO_STATUSES.join(', ')}.`, 400)
+  }
 
-  const insert: Record<string, unknown> = { owner_id: owner, title, notes, visibility, done }
+  const insert: Record<string, unknown> = { owner_id: owner, title, notes, visibility, source: 'api' }
+  // Send only the half the caller named; the todos_sync_status trigger derives
+  // the other, so `done` and `status` can never contradict each other.
+  if (body.status !== undefined) insert.status = body.status
+  else insert.done = done
   if (due !== undefined) insert.due_date = due
-  if (done) insert.completed_at = new Date().toISOString()
 
   const { data, error } = await db.from('todos').insert(insert).select(SELECT_COLS).single()
   if (error) return err(error.message, 500)
@@ -288,9 +309,13 @@ async function handleUpdate(db: DB, owner: string, id: string, body: Record<stri
     patch.due_date = due
   }
   if ((VISIBILITIES as readonly string[]).includes(body.visibility as string)) patch.visibility = body.visibility
-  if (typeof body.done === 'boolean') {
+  if (body.status !== undefined) {
+    if (!(TODO_STATUSES as readonly string[]).includes(body.status as string)) {
+      return err(`\`status\` must be one of ${TODO_STATUSES.join(', ')}.`, 400)
+    }
+    patch.status = body.status
+  } else if (typeof body.done === 'boolean') {
     patch.done = body.done
-    patch.completed_at = body.done ? new Date().toISOString() : null
   }
   if (typeof body.position === 'number') patch.position = body.position
 

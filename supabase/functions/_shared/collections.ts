@@ -194,17 +194,17 @@ export async function loadCollectionsContext(
       .select('todo_id')
       .in('collection_id', visibleIds)
     const todoIds = [...new Set((todoLinks ?? []).map((l: { todo_id: string }) => l.todo_id))]
-    let todos: Array<{ title: string; due_date: string | null; done: boolean }> = []
+    let todos: Array<{ title: string; due_date: string | null; done: boolean; status: string | null }> = []
     if (todoIds.length) {
       const { data: t } = await db
         .from('todos')
-        .select('title, due_date, done, owner_id, visibility')
+        .select('title, due_date, done, status, owner_id, visibility')
         .in('id', todoIds)
         .order('done', { ascending: true })
         .order('due_date', { ascending: true, nullsFirst: false })
       todos = (t ?? []).filter(
         (td: { owner_id: string; visibility: string }) => td.owner_id === userId || td.visibility === 'workspace',
-      ) as Array<{ title: string; due_date: string | null; done: boolean }>
+      ) as Array<{ title: string; due_date: string | null; done: boolean; status: string | null }>
     }
 
     // Whiteboards — the Excalidraw scene rendered to text (labels/shapes/arrows)
@@ -302,8 +302,15 @@ export async function loadCollectionsContext(
     }
 
     if (todos.length) {
+      // The lane matters to the assistant: "blocked" and "not started yet" read
+      // identically as an unticked box, and that is the difference between
+      // "chase this" and "it is in hand".
       const lines = todos
-        .map((t) => `- [${t.done ? 'x' : ' '}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''}`)
+        .map((t) => {
+          const meta = [t.status ?? (t.done ? 'done' : 'triage')]
+          if (t.due_date) meta.push(`due ${t.due_date}`)
+          return `- [${t.done ? 'x' : ' '}] ${t.title} (${meta.join(', ')})`
+        })
         .join('\n')
       parts.push(`## To-dos in this collection\n${lines}`)
     }

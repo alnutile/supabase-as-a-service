@@ -15,6 +15,10 @@ export type SkillOutputMode = 'artifact' | 'reply'
 export type WebhookEventStatus = 'received' | 'ok' | 'error' | 'blocked'
 export type ToolKind = 'http' | 'web' | 'builtin' | 'mcp'
 export type CollectionVisibility = 'private' | 'workspace'
+
+// A to-do's lifecycle lane (migration 0116). `done` stays the boolean every
+// older surface reads; the DB trigger keeps the two in step.
+export type TodoStatus = 'triage' | 'next' | 'doing' | 'blocked' | 'done'
 export type UserTableVisibility = 'private' | 'workspace'
 export type UserTableColumnType =
   | 'text'
@@ -248,6 +252,8 @@ export interface Database {
           notes: string
           due_date: string | null
           done: boolean
+          status: TodoStatus
+          source: string | null
           completed_at: string | null
           position: number
           visibility: CollectionVisibility
@@ -261,6 +267,8 @@ export interface Database {
           notes?: string
           due_date?: string | null
           done?: boolean
+          status?: TodoStatus
+          source?: string | null
           completed_at?: string | null
           position?: number
           visibility?: CollectionVisibility
