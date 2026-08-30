@@ -467,13 +467,18 @@ const TOOLS = [
   {
     name: 'create_todo',
     description:
-      'Create a to-do (a task to remember). Optionally set a due date (YYYY-MM-DD) and file it into a collection (by name; created if missing). Use this to capture tasks for the user.',
+      'Create a to-do (a task to remember). Optionally set a due date (YYYY-MM-DD), a lifecycle lane, and file it into a collection (by name; created if missing). Use this to capture tasks for the user.',
     inputSchema: {
       type: 'object',
       properties: {
         title: { type: 'string' },
         notes: { type: 'string', description: 'Optional longer notes.' },
         due_date: { type: 'string', description: 'Optional due date, YYYY-MM-DD.' },
+        status: {
+          type: 'string',
+          enum: ['triage', 'next', 'doing', 'blocked', 'done'],
+          description: 'Lifecycle lane. Defaults to triage so a person reviews what you filed.',
+        },
         collection: {
           type: 'string',
           description: 'Optional collection name (or id) to file this to-do into; created if missing.',
@@ -484,12 +489,17 @@ const TOOLS = [
   },
   {
     name: 'list_todos',
-    description: 'List to-dos (optionally filter by collection name/id, or status open|done). Shows due dates and ids.',
+    description:
+      'List to-dos (optionally filter by collection name/id, or by status). Shows each one\'s lane, due date, provenance and id.',
     inputSchema: {
       type: 'object',
       properties: {
         collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
-        status: { type: 'string', enum: ['open', 'done'], description: 'Filter by status (optional).' },
+        status: {
+          type: 'string',
+          enum: ['open', 'done', 'triage', 'next', 'doing', 'blocked'],
+          description: 'Filter by open/closed, or by one lifecycle lane.',
+        },
       },
     },
   },
@@ -504,7 +514,8 @@ const TOOLS = [
   },
   {
     name: 'update_todo',
-    description: 'Update a to-do: title, notes, due_date (YYYY-MM-DD or null to clear), or done (true/false).',
+    description:
+      'Update a to-do: title, notes, due_date (YYYY-MM-DD or null to clear), status (the lifecycle lane), or done (true/false).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -512,6 +523,11 @@ const TOOLS = [
         title: { type: 'string' },
         notes: { type: 'string' },
         due_date: { type: 'string', description: 'YYYY-MM-DD, or null to clear.' },
+        status: {
+          type: 'string',
+          enum: ['triage', 'next', 'doing', 'blocked', 'done'],
+          description: 'Move it to a lane. Setting done is equivalent to status=done.',
+        },
         done: { type: 'boolean' },
       },
       required: ['id'],
@@ -699,6 +715,29 @@ const TOOLS = [
         collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
       },
       required: ['url'],
+    },
+  },
+  {
+    name: 'summarize_resource',
+    description:
+      'Generate a cached AI summary of a link (including Dropbox), workspace file, artifact, inbox message, compiled knowledge page, or supplied text. Optionally write the result to a link/file description.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source_kind: {
+          type: 'string',
+          enum: ['link', 'file', 'artifact', 'inbox_message', 'knowledge_page', 'text'],
+          description: 'Kind of resource to summarize.',
+        },
+        source_id: { type: 'string', description: 'Resource id; omitted only for source_kind=text.' },
+        text: { type: 'string', description: 'Direct content when source_kind=text.' },
+        title: { type: 'string', description: 'Optional label for direct text.' },
+        style: { type: 'string', enum: ['tldr', 'brief', 'detailed'], description: 'Summary depth; defaults to tldr.' },
+        max_words: { type: 'integer', minimum: 20, maximum: 500 },
+        refresh: { type: 'boolean', description: 'Ignore a matching cached result and regenerate.' },
+        write_back: { type: 'boolean', description: 'Write to the description for a link/file source.' },
+      },
+      required: ['source_kind'],
     },
   },
   {
@@ -1730,99 +1769,14 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (error) return text(`Error: ${error.message}`, true)
       return text(`Added artifact ${artifactId} to collection "${col.name}".`)
     }
-    case 'create_todo': {
-      const title = String(args.title ?? '').trim()
-      if (!title) return text('create_todo needs a title.', true)
-      const due = typeof args.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.due_date.trim())
-        ? args.due_date.trim()
-        : null
-      const { data, error } = await db.from('todos').insert({
-        owner_id: owner,
-        title,
-        notes: String(args.notes ?? ''),
-        due_date: due,
-        visibility: 'private',
-      }).select('id').single()
-      if (error) return text(`Error: ${error.message}`, true)
-      let note = ''
-      if (typeof args.collection === 'string' && args.collection.trim()) {
-        const col = await resolveCollection(db, owner, args.collection, true)
-        if (col) {
-          await db.from('collection_todos').upsert(
-            { collection_id: col.id, todo_id: data.id, added_by: owner },
-            { onConflict: 'collection_id,todo_id', ignoreDuplicates: true },
-          )
-          note = ` Filed into collection "${col.name}".`
-        }
-      }
-      return text(`Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''}.${note}`)
-    }
-    case 'list_todos': {
-      let query = db
-        .from('todos')
-        .select('id, title, due_date, done')
-        .or(`owner_id.eq.${owner},visibility.eq.workspace`)
-        .order('done', { ascending: true })
-        .order('due_date', { ascending: true, nullsFirst: false })
-      if (args.status === 'done') query = query.eq('done', true)
-      else if (args.status === 'open') query = query.eq('done', false)
-      if (typeof args.collection === 'string' && args.collection.trim()) {
-        const col = await resolveCollection(db, owner, args.collection, false)
-        if (!col) return text(`Collection "${args.collection}" not found.`)
-        const { data: members } = await db.from('collection_todos').select('todo_id').eq('collection_id', col.id)
-        const ids = (members ?? []).map((m) => m.todo_id)
-        if (!ids.length) return text(`No to-dos in collection "${col.name}".`)
-        query = query.in('id', ids)
-      }
-      const { data } = await query
-      if (!data || !data.length) return text('No to-dos.')
-      return text(
-        data
-          .map((t) => `• [${t.done ? 'x' : ' '}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''} — ${t.id}`)
-          .join('\n'),
-      )
-    }
-    case 'complete_todo': {
-      const id = String(args.id ?? '').trim()
-      if (!id) return text('complete_todo needs an id.', true)
-      const { data, error } = await db
-        .from('todos')
-        .update({ done: true, completed_at: new Date().toISOString() })
-        .eq('id', id)
-        .or(`owner_id.eq.${owner},visibility.eq.workspace`)
-        .select('id')
-        .maybeSingle()
-      if (error) return text(`Error: ${error.message}`, true)
-      if (!data) return text(`To-do ${id} not found (or not yours).`, true)
-      return text(`Marked to-do ${id} as done.`)
-    }
-    case 'update_todo': {
-      const id = String(args.id ?? '').trim()
-      if (!id) return text('update_todo needs an id.', true)
-      const patch: Record<string, unknown> = {}
-      if (typeof args.title === 'string' && args.title.trim()) patch.title = args.title.trim()
-      if (typeof args.notes === 'string') patch.notes = args.notes
-      if (args.due_date === null) patch.due_date = null
-      else if (typeof args.due_date === 'string') {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(args.due_date.trim())) return text('due_date must be YYYY-MM-DD or null.', true)
-        patch.due_date = args.due_date.trim()
-      }
-      if (typeof args.done === 'boolean') {
-        patch.done = args.done
-        patch.completed_at = args.done ? new Date().toISOString() : null
-      }
-      if (Object.keys(patch).length === 0) return text('No fields to update.')
-      const { data, error } = await db
-        .from('todos')
-        .update(patch)
-        .eq('id', id)
-        .or(`owner_id.eq.${owner},visibility.eq.workspace`)
-        .select('id')
-        .maybeSingle()
-      if (error) return text(`Error: ${error.message}`, true)
-      if (!data) return text(`To-do ${id} not found (or not yours).`, true)
-      return text(`Updated to-do ${id}.`)
-    }
+    // To-dos delegate to the shared builtin handlers (_shared/builtins.ts) so
+    // an external Claude and the internal assistant run one implementation —
+    // including the lifecycle lanes and the done/status reconciliation.
+    case 'create_todo':
+    case 'list_todos':
+    case 'complete_todo':
+    case 'update_todo':
+      return text(await runBuiltin(db, name, args, owner))
     case 'add_todo_to_collection': {
       const ref = String(args.collection ?? '').trim()
       const todoId = String(args.todo_id ?? '').trim()
@@ -1992,6 +1946,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     }
     case 'search_documents':
     case 'save_link':
+    case 'summarize_resource':
     case 'list_links':
     case 'add_link_to_collection':
     case 'save_message':

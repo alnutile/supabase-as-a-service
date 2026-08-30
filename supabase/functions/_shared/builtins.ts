@@ -29,6 +29,7 @@ import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from 
 import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { runSecurityScan } from './security_scan.ts'
+import { summarizeResource } from './resource_summarizer.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
@@ -217,6 +218,8 @@ export async function runBuiltin(
       return httpRequest(db, input, userId)
     case 'run_security_scan':
       return runSecurityScan(db, userId)
+    case 'summarize_resource':
+      return summarizeResource(db, input, userId)
     case 'create_agent_job':
       return createAgentJob(db, input, userId)
     case 'get_agent_job':
@@ -229,6 +232,8 @@ export async function runBuiltin(
       return listAgents(db, userId)
     case 'create_agent':
       return createAgent(db, input, userId)
+    case 'update_agent':
+      return updateAgent(db, input, userId)
     case 'list_tools':
       return listTools(db, userId)
     case 'create_http_tool':
@@ -1356,6 +1361,16 @@ function normalizeDue(v: unknown): string | null | undefined {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined
 }
 
+// The to-do lifecycle lanes (migration 0116). Returns the normalized lane,
+// `null` for an unrecognised value, or `undefined` when nothing was passed.
+const TODO_STATUSES = ['triage', 'next', 'doing', 'blocked', 'done']
+
+function normalizeStatus(v: unknown): string | null | undefined {
+  if (v === undefined || v === null) return undefined
+  const s = String(v).trim().toLowerCase()
+  return TODO_STATUSES.includes(s) ? s : null
+}
+
 async function createTodo(
   db: DB | null,
   input: Record<string, unknown>,
@@ -1366,6 +1381,8 @@ async function createTodo(
   if (!title) return 'A to-do title is required.'
   const due = normalizeDue(input?.due_date)
   if (due === undefined && input?.due_date !== undefined) return 'due_date must be YYYY-MM-DD.'
+  const status = normalizeStatus(input?.status)
+  if (status === null) return `status must be one of ${TODO_STATUSES.join(', ')}.`
   const { data, error } = await db
     .from('todos')
     .insert({
@@ -1373,6 +1390,13 @@ async function createTodo(
       title,
       notes: String(input?.notes ?? ''),
       due_date: due ?? null,
+      // Default to 'triage', not 'next': a to-do the assistant filed has not
+      // been agreed to by a person yet, and the Focus queue leads with exactly
+      // that — unreviewed work an agent put on your plate.
+      status: status ?? 'triage',
+      // Only an agent loop or an external Claude reaches this handler, so the
+      // provenance is never a guess.
+      source: 'agent',
       visibility: 'private',
     })
     .select('id')
@@ -1391,7 +1415,7 @@ async function createTodo(
     }
   }
   await logActivity(db, 'todo.created', `Created to-do "${title}"`, { id: data.id, collection: ref || null }, userId)
-  return `Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''}.${note}`
+  return `Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''} in the ${status ?? 'triage'} lane.${note}`
 }
 
 async function listTodos(
@@ -1402,12 +1426,17 @@ async function listTodos(
   if (!db || !userId) return 'To-dos are unavailable.'
   let query = db
     .from('todos')
-    .select('id, title, due_date, done')
+    .select('id, title, due_date, done, status, source')
     .or(`owner_id.eq.${userId},visibility.eq.workspace`)
     .order('done', { ascending: true })
     .order('due_date', { ascending: true, nullsFirst: false })
-  if (input?.status === 'done') query = query.eq('done', true)
-  else if (input?.status === 'open') query = query.eq('done', false)
+  // `status` carries both readings: the original open|done filter and, since
+  // migration 0116, a lane name. 'done' means the same thing under either.
+  const want = typeof input?.status === 'string' ? input.status.trim().toLowerCase() : ''
+  if (want === 'done') query = query.eq('done', true)
+  else if (want === 'open') query = query.eq('done', false)
+  else if (want && TODO_STATUSES.includes(want)) query = query.eq('status', want)
+  else if (want) return `status must be open, done, or one of ${TODO_STATUSES.join(', ')}.`
   const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
   if (ref) {
     const col = await resolveCollection(db, userId, ref, false)
@@ -1419,8 +1448,22 @@ async function listTodos(
   }
   const { data } = await query
   if (!data || !data.length) return 'No to-dos.'
-  return (data as Array<{ id: string; title: string; due_date: string | null; done: boolean }>)
-    .map((t) => `• [${t.done ? 'x' : ' '}] ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''} — ${t.id}`)
+  return (
+    data as Array<{
+      id: string
+      title: string
+      due_date: string | null
+      done: boolean
+      status: string | null
+      source: string | null
+    }>
+  )
+    .map((t) => {
+      const meta = [t.status ?? (t.done ? 'done' : 'triage')]
+      if (t.due_date) meta.push(`due ${t.due_date}`)
+      if (t.source) meta.push(`from ${t.source}`)
+      return `• [${t.done ? 'x' : ' '}] ${t.title} (${meta.join(', ')}) — ${t.id}`
+    })
     .join('\n')
 }
 
@@ -1461,9 +1504,16 @@ async function updateTodo(
     if (due === undefined) return 'due_date must be YYYY-MM-DD or null.'
     patch.due_date = due
   }
+  if (input?.status !== undefined) {
+    const status = normalizeStatus(input.status)
+    if (!status) return `status must be one of ${TODO_STATUSES.join(', ')}.`
+    patch.status = status
+  }
   if (typeof input?.done === 'boolean') {
-    patch.done = input.done
-    patch.completed_at = input.done ? new Date().toISOString() : null
+    // Send only the half the caller named — the todos_sync_status trigger
+    // derives the other, so `done` and `status` can never end up contradicting
+    // each other no matter which one a tool call sets.
+    if (patch.status === undefined) patch.done = input.done
   }
   if (Object.keys(patch).length === 0) return 'No fields to update.'
   const { data, error } = await db
@@ -2350,6 +2400,73 @@ async function createAgent(
   if (error) return `Could not create the agent: ${error.message}`
   await logActivity(db, 'agent.created', `Created agent "${name}"`, { id: data.id }, userId)
   return `Created agent "${name}" (id ${data.id}). It's now in the dashboard under Agents.`
+}
+
+async function updateAgent(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Agents are unavailable.'
+  const ref = String(input?.agent ?? '').trim()
+  if (!ref) return 'update_agent needs an agent id or exact name.'
+
+  // Resolve the agent by id or name
+  const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)
+  const query = db.from('agents').select('id, name, owner_id')
+  const { data: agent, error: fetchError } = isId
+    ? await query.eq('id', ref).maybeSingle()
+    : await query.eq('name', ref).maybeSingle()
+
+  if (fetchError) return `Could not fetch the agent: ${fetchError.message}`
+  if (!agent) return `No agent matches "${ref}".`
+
+  // Check ownership: owner or admin
+  const isOwner = agent.owner_id === userId
+  const isAdminUser = await isAdmin(db, userId)
+  if (!isOwner && !isAdminUser) {
+    return `Only the agent owner or an admin can update "${agent.name}".`
+  }
+
+  // Build the patch from provided fields
+  const patch: Record<string, unknown> = {}
+  if (typeof input?.name === 'string' && input.name.trim()) {
+    patch.name = input.name.trim()
+  }
+  if (typeof input?.description === 'string') {
+    patch.description = input.description
+  }
+  if (typeof input?.instructions === 'string') {
+    patch.instructions = input.instructions
+  }
+  if (Array.isArray(input?.tool_ids)) {
+    patch.tool_ids = (input.tool_ids as unknown[]).map(String)
+  }
+  if (Array.isArray(input?.collection_ids)) {
+    patch.collection_ids = (input.collection_ids as unknown[]).map(String)
+  }
+  if (typeof input?.is_active === 'boolean') {
+    patch.is_active = input.is_active
+  }
+
+  if (!Object.keys(patch).length) {
+    return 'Nothing to update — pass name, description, instructions, tool_ids, collection_ids, and/or is_active.'
+  }
+
+  patch.updated_at = new Date().toISOString()
+
+  const { error } = await db.from('agents').update(patch).eq('id', agent.id)
+  if (error) return `Could not update the agent: ${error.message}`
+
+  await logActivity(
+    db,
+    'agent.updated',
+    `Updated agent "${(patch.name as string) ?? agent.name}"`,
+    { id: agent.id },
+    userId,
+  )
+
+  return `Updated agent "${(patch.name as string) ?? agent.name}" (id ${agent.id}).`
 }
 
 async function listTools(db: DB | null, userId: string | null): Promise<string> {

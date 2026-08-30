@@ -51,6 +51,7 @@ import ModelsSettings from './pages/settings/ModelsSettings'
 import TimezoneSettings from './pages/settings/TimezoneSettings'
 import EmailSettings from './pages/settings/EmailSettings'
 import SlackSettings from './pages/settings/SlackSettings'
+import DropboxSettings from './pages/settings/DropboxSettings'
 import McpSettings from './pages/settings/McpSettings'
 import InviteSettings from './pages/settings/InviteSettings'
 import FeatureFlagsSettings from './pages/settings/FeatureFlagsSettings'
@@ -143,6 +144,7 @@ export default function App() {
         <Route path="settings/timezone" element={<TimezoneSettings />} />
         <Route path="settings/email" element={<EmailSettings />} />
         <Route path="settings/slack" element={<SlackSettings />} />
+        <Route path="settings/dropbox" element={<DropboxSettings />} />
         <Route path="settings/mcp" element={<McpSettings />} />
         <Route path="settings/people" element={<InviteSettings />} />
         <Route path="settings/feature-flags" element={<FeatureFlagsSettings />} />

@@ -15,6 +15,10 @@ export type SkillOutputMode = 'artifact' | 'reply'
 export type WebhookEventStatus = 'received' | 'ok' | 'error' | 'blocked'
 export type ToolKind = 'http' | 'web' | 'builtin' | 'mcp'
 export type CollectionVisibility = 'private' | 'workspace'
+
+// A to-do's lifecycle lane (migration 0116). `done` stays the boolean every
+// older surface reads; the DB trigger keeps the two in step.
+export type TodoStatus = 'triage' | 'next' | 'doing' | 'blocked' | 'done'
 export type UserTableVisibility = 'private' | 'workspace'
 export type UserTableColumnType =
   | 'text'
@@ -248,6 +252,8 @@ export interface Database {
           notes: string
           due_date: string | null
           done: boolean
+          status: TodoStatus
+          source: string | null
           completed_at: string | null
           position: number
           visibility: CollectionVisibility
@@ -261,6 +267,8 @@ export interface Database {
           notes?: string
           due_date?: string | null
           done?: boolean
+          status?: TodoStatus
+          source?: string | null
           completed_at?: string | null
           position?: number
           visibility?: CollectionVisibility
@@ -1298,6 +1306,36 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['oauth_authorization_codes']['Insert']>
         Relationships: []
       }
+      resource_summaries: {
+        Row: {
+          id: string
+          owner_id: string
+          source_kind: 'link' | 'file' | 'artifact' | 'inbox_message' | 'knowledge_page' | 'text'
+          source_id: string
+          source_version: string
+          style: 'tldr' | 'brief' | 'detailed'
+          max_words: number
+          summary: string
+          model: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          source_kind: 'link' | 'file' | 'artifact' | 'inbox_message' | 'knowledge_page' | 'text'
+          source_id: string
+          source_version: string
+          style?: 'tldr' | 'brief' | 'detailed'
+          max_words?: number
+          summary: string
+          model: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['resource_summaries']['Insert']>
+        Relationships: []
+      }
       schedules: {
         Row: {
           id: string
@@ -1603,7 +1641,7 @@ export interface Database {
       integrations: {
         Row: {
           id: string
-          kind: 'email' | 'mcp'
+          kind: 'email' | 'mcp' | 'dropbox'
           provider: 'postmark' | 'resend' | null
           from_address: string | null
           inbound_token: string | null
@@ -1615,7 +1653,7 @@ export interface Database {
         }
         Insert: {
           id?: string
-          kind: 'email' | 'mcp'
+          kind: 'email' | 'mcp' | 'dropbox'
           provider?: 'postmark' | 'resend' | null
           from_address?: string | null
           inbound_token?: string | null
@@ -2197,6 +2235,20 @@ export interface Database {
         Returns: undefined
       }
       email_is_configured: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      set_dropbox_integration: {
+        Args: {
+          p_access_token: string
+        }
+        Returns: undefined
+      }
+      delete_dropbox_integration: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      dropbox_is_configured: {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }

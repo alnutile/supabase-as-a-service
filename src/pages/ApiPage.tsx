@@ -510,9 +510,9 @@ function TodosApiTab() {
     `curl -X POST "${base}" \\\n` +
     `  -H "Authorization: Bearer ${tokenForExamples}" \\\n` +
     `  -H "Content-Type: application/json" \\\n` +
-    `  -d '{"title":"Ship the thing","due_date":"2026-07-01","collection":"Work"}'`
+    `  -d '{"title":"Ship the thing","due_date":"2026-07-01","status":"next","collection":"Work"}'`
 
-  const listExample = `curl "${base}?collection=Work&status=open&sort=due" \\\n  -H "Authorization: Bearer ${tokenForExamples}"`
+  const listExample = `curl "${base}?collection=Work&status=blocked&sort=due" \\\n  -H "Authorization: Bearer ${tokenForExamples}"`
 
   const readExample = `curl "${base}/<id>" \\\n  -H "Authorization: Bearer ${tokenForExamples}"`
 
@@ -604,7 +604,8 @@ function TodosApiTab() {
         </div>
         <p className="mt-3 text-xs text-muted">
           List filters (query params): <code className="rounded bg-surface-2 px-1">collection</code>,{' '}
-          <code className="rounded bg-surface-2 px-1">status=open|done</code>,{' '}
+          <code className="rounded bg-surface-2 px-1">status=open|done</code> (or one lane:{' '}
+          <code className="rounded bg-surface-2 px-1">triage|next|doing|blocked|done</code>),{' '}
           <code className="rounded bg-surface-2 px-1">q</code>,{' '}
           <code className="rounded bg-surface-2 px-1">sort=position|due</code>,{' '}
           <code className="rounded bg-surface-2 px-1">limit</code>,{' '}
@@ -627,7 +628,8 @@ function TodosApiTab() {
                 ['title', 'Required on create.'],
                 ['notes', 'Optional longer text.'],
                 ['due_date', 'YYYY-MM-DD, or null to clear.'],
-                ['done', 'true completes it (sets completed_at); false reopens.'],
+                ['status', 'Lifecycle lane: triage (default) | next | doing | blocked | done.'],
+                ['done', 'true completes it (sets completed_at); false reopens. Same thing as status.'],
                 ['visibility', 'private (default) | workspace (whole team can see & collaborate).'],
                 ['collection', 'Collection name or id to file into — created if missing.'],
                 ['collections', 'Array of names/ids, same rules (additive).'],
@@ -644,6 +646,13 @@ function TodosApiTab() {
           On update, only the fields you send change; passing{' '}
           <code className="rounded bg-surface-2 px-1">collection</code>/
           <code className="rounded bg-surface-2 px-1">collections</code> <strong>adds</strong> tags (existing ones kept).
+        </p>
+        <p className="mt-2 text-xs text-muted">
+          <code className="rounded bg-surface-2 px-1">status</code> and{' '}
+          <code className="rounded bg-surface-2 px-1">done</code> are two views of the same thing and are kept
+          consistent for you — send whichever you prefer, never both. Responses also carry a read-only{' '}
+          <code className="rounded bg-surface-2 px-1">source</code> (<code className="rounded bg-surface-2 px-1">api</code>,{' '}
+          <code className="rounded bg-surface-2 px-1">agent</code>, or null when a person added it).
         </p>
       </section>
 

@@ -409,7 +409,7 @@ function CollectionDashboard({
     if (!name || !user) return
     let id: string | null = null
     if (kind === 'todo') {
-      const { data } = await supabase.from('todos').insert({ owner_id: user.id, title: name, visibility: 'private' }).select('id').single()
+      const { data } = await supabase.from('todos').insert({ owner_id: user.id, title: name, visibility: 'private', status: 'next' }).select('id').single()
       id = data?.id ?? null
     } else if (kind === 'artifact') {
       const { data } = await supabase

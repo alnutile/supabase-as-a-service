@@ -14,6 +14,17 @@ export function normalizeUrl(raw: string): string | null {
   }
 }
 
+/** True only for Dropbox itself or one of its subdomains. Avoid a loose
+ * `includes('dropbox.com')` check, which would accept lookalike hosts. */
+export function isDropboxUrl(raw: string): boolean {
+  try {
+    const hostname = new URL(raw).hostname.toLowerCase()
+    return hostname === 'dropbox.com' || hostname.endsWith('.dropbox.com')
+  } catch {
+    return false
+  }
+}
+
 // The subset of a link the quick search reads — the `links` row satisfies it,
 // and keeping it minimal makes the helper trivial to test with plain objects.
 export type SearchableLink = {

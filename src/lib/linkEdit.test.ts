@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildLinkEditPatch, matchesLinkQuery, normalizeUrl, type SearchableLink } from './linkEdit'
+import { buildLinkEditPatch, isDropboxUrl, matchesLinkQuery, normalizeUrl, type SearchableLink } from './linkEdit'
 
 describe('normalizeUrl', () => {
   it('prepends https:// to a bare domain', () => {
@@ -13,6 +13,18 @@ describe('normalizeUrl', () => {
   it('rejects empty and schemeless-non-hosts', () => {
     expect(normalizeUrl('   ')).toBeNull()
     expect(normalizeUrl('notaurl')).toBeNull()
+  })
+})
+
+describe('isDropboxUrl', () => {
+  it('recognizes Dropbox share links and subdomains', () => {
+    expect(isDropboxUrl('https://www.dropbox.com/scl/fi/id/file.pdf')).toBe(true)
+    expect(isDropboxUrl('https://dropbox.com/s/id/file.pdf')).toBe(true)
+  })
+
+  it('rejects invalid URLs and lookalike domains', () => {
+    expect(isDropboxUrl('not a url')).toBe(false)
+    expect(isDropboxUrl('https://dropbox.com.evil.example/s/id/file.pdf')).toBe(false)
   })
 })
 

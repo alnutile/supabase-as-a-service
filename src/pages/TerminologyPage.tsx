@@ -4,6 +4,7 @@ import type { Database } from '../lib/database.types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
+import { CollectionPicker } from '../components/CollectionPicker'
 import {
   ArrowRightIcon,
   CloseIcon,
@@ -14,6 +15,9 @@ import {
   TrashIcon,
   UsersIcon,
 } from '../components/icons'
+
+// Stable identity for "nothing picked" — the picker memoizes on `selected`.
+const EMPTY_SELECTION: Set<string> = new Set()
 
 type Term = Database['public']['Tables']['terminology']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
@@ -138,13 +142,15 @@ export default function TerminologyPage() {
     )
   }
 
-  const filteredCollections =
-    activeCollection || search
-      ? collections.filter((c) => {
-          const memberSet = members[c.id] ?? new Set<string>()
-          return visible.some((t) => memberSet.has(t.id))
-        })
-      : collections
+  // Counts follow the current search, so the picker's "hide empty" rule also
+  // hides collections whose terms the query filtered out.
+  const visibleIds = new Set(visible.map((t) => t.id))
+  const collectionCounts: Record<string, number> = {}
+  for (const c of collections) {
+    let n = 0
+    for (const id of members[c.id] ?? []) if (visibleIds.has(id)) n++
+    collectionCounts[c.id] = n
+  }
 
   return (
     <div className="h-full overflow-y-auto">
@@ -218,38 +224,17 @@ export default function TerminologyPage() {
           )}
         </div>
 
-        {/* Collection filter bar */}
-        {collections.length > 0 && (
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setActiveCollection(null)}
-              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                activeCollection === null
-                  ? 'border-primary bg-primary-soft text-primary'
-                  : 'border-border text-muted hover:bg-surface-hover'
-              }`}
-            >
-              All ({terms.length})
-            </button>
-            {filteredCollections.map((c) => {
-              const count = [...(members[c.id] ?? [])].filter((tid) => visible.some((t) => t.id === tid)).length
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setActiveCollection(c.id)}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                    activeCollection === c.id
-                      ? 'border-primary bg-primary-soft text-primary'
-                      : 'border-border text-muted hover:bg-surface-hover'
-                  }`}
-                >
-                  <CollectionIcon className="h-3.5 w-3.5" />
-                  {c.name} ({count})
-                </button>
-              )
-            })}
-          </div>
-        )}
+        {/* Collection filter — one searchable control (see CollectionPicker). */}
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <CollectionPicker
+            collections={collections}
+            selected={activeCollection ? new Set([activeCollection]) : EMPTY_SELECTION}
+            onChange={(next) => setActiveCollection([...next][0] ?? null)}
+            counts={collectionCounts}
+            mode="single"
+            totalLabel={String(terms.length)}
+          />
+        </div>
 
         {/* Term list */}
         <div className="mt-5">
