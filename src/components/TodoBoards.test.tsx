@@ -42,6 +42,8 @@ function props(over: Partial<TodoViewProps> = {}): TodoViewProps {
     onOpen: vi.fn(),
     onSetStatus: vi.fn(),
     onSetDue: vi.fn(),
+    onToggleDone: vi.fn(),
+    remoteIds: new Set<string>(),
     today: TODAY,
     ...over,
   }
@@ -101,5 +103,41 @@ describe('FocusView', () => {
   it('says so when nothing is open', () => {
     render(<FocusView {...props({ todos: [TODOS[4]] })} />)
     expect(screen.getByText(/the queue is clear/)).toBeTruthy()
+  })
+})
+
+describe('card affordances', () => {
+  it('ticks a to-do from the board without opening it', () => {
+    const onToggleDone = vi.fn()
+    const onOpen = vi.fn()
+    render(<BoardView {...props({ onToggleDone, onOpen })} />)
+    fireEvent.click(screen.getAllByLabelText('Mark done')[0])
+    expect(onToggleDone).toHaveBeenCalled()
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it('opens a to-do from its title', () => {
+    const onOpen = vi.fn()
+    render(<BoardView {...props({ onOpen })} />)
+    fireEvent.click(screen.getByText('Blocked thing'))
+    expect(onOpen).toHaveBeenCalledWith('3')
+  })
+
+  it('marks a row another session changed so the move is noticed', () => {
+    const { container } = render(<BoardView {...props({ remoteIds: new Set(['3']) })} />)
+    // The flash lands on exactly the row that changed, not the whole board.
+    // (Matching the border class, not `ring-info/40` — the slash is not a
+    // valid bare selector.)
+    expect(container.querySelectorAll('.border-info')).toHaveLength(1)
+  })
+})
+
+describe('CalendarView drag targets', () => {
+  it('makes scheduled days draggable, not just the undated pile', () => {
+    render(<CalendarView {...props()} />)
+    // "Due today thing" sits in a day cell; before this it was a plain button
+    // and the calendar was a one-way trip out of the undated pile.
+    const chip = screen.getByTitle('Due today thing')
+    expect(chip.getAttribute('aria-roledescription')).toBe('draggable')
   })
 })
