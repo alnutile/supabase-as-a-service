@@ -84,7 +84,7 @@ export default function KnowledgePage() {
       supabase.from('knowledge_pages').select('*').neq('status', 'archived').order('updated_at', { ascending: false }),
       supabase.from('knowledge_conflicts').select('*').eq('status', 'open').order('created_at', { ascending: false }),
       supabase.from('compile_runs').select('*').order('started_at', { ascending: false }).limit(30),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('compile_policies').select('*'),
     ])
     setPages(p.data ?? [])

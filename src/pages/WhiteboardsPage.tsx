@@ -27,7 +27,7 @@ export default function WhiteboardsPage() {
   const load = useCallback(async () => {
     const [b, c, m] = await Promise.all([
       supabase.from('whiteboards').select('*').order('updated_at', { ascending: false }),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_whiteboards').select('collection_id, whiteboard_id'),
     ])
     setBoards(b.data ?? [])

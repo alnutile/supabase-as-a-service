@@ -166,7 +166,7 @@ export default function TodosPage() {
   const load = useCallback(async () => {
     const [tRes, cRes, mRes] = await Promise.all([
       supabase.from('todos').select('*').order('position', { ascending: true }).order('created_at', { ascending: false }),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_todos').select('collection_id, todo_id'),
     ])
     setTodos(tRes.data ?? [])

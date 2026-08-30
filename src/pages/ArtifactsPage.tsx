@@ -98,7 +98,7 @@ export default function ArtifactsPage() {
     const [aRes, cRes, mRes] = await Promise.all([
       // Only live artifacts in the grid — archived ones live in the Trash panel.
       supabase.from('artifacts').select('*').is('deleted_at', null).order('updated_at', { ascending: false }),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id, artifact_id'),
     ])
     setArtifacts(aRes.data ?? [])

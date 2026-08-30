@@ -52,7 +52,7 @@ export default function LinksPage() {
   const load = useCallback(async () => {
     const [lRes, cRes, mRes] = await Promise.all([
       supabase.from('links').select('*').order('created_at', { ascending: false }),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_links').select('collection_id, link_id'),
     ])
     setLinks(lRes.data ?? [])
