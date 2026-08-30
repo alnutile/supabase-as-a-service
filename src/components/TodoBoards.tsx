@@ -1,5 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
-import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
 import type { Database, TodoStatus } from '../lib/database.types'
 import {
   DUE_BUCKETS,
@@ -28,6 +39,9 @@ export type TodoViewProps = {
   onOpen: (id: string) => void
   onSetStatus: (id: string, status: TodoStatus) => void
   onSetDue: (id: string, due: string | null) => void
+  onToggleDone: (id: string) => void
+  /** Ids another session just changed, so the move is visible rather than silent. */
+  remoteIds: ReadonlySet<string>
   /** Fixed "today" — passed in so every lane in one render agrees on the date. */
   today: Date
 }
@@ -98,37 +112,83 @@ function TodoCard({
   todo,
   collections,
   onOpen,
+  onToggleDone,
   today,
   draggable = true,
+  /** Rendered inside the DragOverlay: a static copy, never a drag source itself. */
+  overlay = false,
+  /** Someone else just changed this row — flash it so the move is noticed. */
+  remote = false,
 }: {
   todo: Todo
   collections: string[]
   onOpen: () => void
+  onToggleDone?: () => void
   today: Date
   draggable?: boolean
+  overlay?: boolean
+  remote?: boolean
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: todo.id, disabled: !draggable })
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: todo.id,
+    disabled: !draggable || overlay,
+  })
+  // The whole card is the drag surface — a 16px handle was undiscoverable, and
+  // worse, it looked exactly like the checkbox it sat next to. The pointer
+  // sensor's 4px activation constraint keeps a plain click a click, so the
+  // title still opens the to-do and the checkbox still ticks it.
+  // No transform is applied here: the DragOverlay renders the moving copy, so
+  // the card being dragged stays put and just dims.
+  // Where the pointer went down on this card, so a click that followed a drag
+  // doesn't also open the to-do. The title must stay draggable — it's the
+  // biggest target on the card — so blocking pointerdown there is not an option.
+  const down = useRef<{ x: number; y: number } | null>(null)
+  const openIfNotDragged = (e: React.MouseEvent) => {
+    const from = down.current
+    if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 4) return
+    onOpen()
+  }
+
   return (
     <article
-      ref={setNodeRef}
-      style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
-      className={`group flex flex-col gap-2 rounded-xl border bg-surface p-3 shadow-soft transition ${
-        isDragging ? 'z-50 border-primary opacity-90 shadow-soft-lg' : 'border-border hover:border-border-strong hover:shadow-soft-lg'
+      ref={overlay ? undefined : setNodeRef}
+      {...(overlay ? {} : attributes)}
+      {...(overlay ? {} : listeners)}
+      onPointerDown={(e) => {
+        down.current = { x: e.clientX, y: e.clientY }
+        listeners?.onPointerDown?.(e)
+      }}
+      className={`group flex flex-col gap-2 rounded-xl border bg-surface p-3 text-left shadow-soft transition ${
+        draggable && !overlay ? 'cursor-grab active:cursor-grabbing' : ''
+      } ${
+        overlay
+          ? 'rotate-2 border-primary shadow-soft-lg'
+          : isDragging
+            ? 'border-primary opacity-40'
+            : remote
+              ? 'border-info ring-2 ring-info/40'
+              : 'border-border hover:border-border-strong hover:shadow-soft-lg'
       }`}
     >
       <div className="flex items-start gap-2">
         <button
-          {...attributes}
-          {...listeners}
-          aria-label="Drag to another lane"
-          className={`mt-0.5 h-4 w-4 shrink-0 rounded border border-border-strong ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
-        />
-        <button
-          onClick={onOpen}
-          className="min-w-0 flex-1 text-left text-sm font-semibold leading-snug text-text hover:text-primary"
+          onClick={onToggleDone}
+          // Stop the pointer here so ticking a to-do can never start a drag.
+          onPointerDown={(e) => e.stopPropagation()}
+          disabled={!onToggleDone}
+          aria-label={todo.done ? 'Mark not done' : 'Mark done'}
+          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
+            todo.done ? 'border-primary bg-primary text-white' : 'border-border-strong text-transparent hover:border-primary'
+          }`}
+        >
+          <CheckIcon className="h-3 w-3" />
+        </button>
+        <span
+          onClick={openIfNotDragged}
+          className="min-w-0 flex-1 cursor-pointer text-sm font-semibold leading-snug text-text hover:text-primary"
         >
           {todo.title}
-        </button>
+        </span>
       </div>
       {todo.notes && <p className="ml-6 line-clamp-2 text-xs leading-relaxed text-muted">{todo.notes}</p>}
       <div className="ml-6 flex flex-wrap items-center gap-2">
@@ -195,12 +255,27 @@ function LaneBoard({
   props: TodoViewProps
   onDrop: (todoId: string, laneId: string) => void
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  // Pointer drag needs a 4px threshold so a plain click stays a click. The
+  // keyboard sensor is not optional decoration: dnd-kit's `attributes` put
+  // role="button" and tabIndex on every card, which promises a keyboard user
+  // they can move it — registering the sensor is what makes that true.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor),
+  )
+  const [dragging, setDragging] = useState<string | null>(null)
+  const active = dragging ? props.todos.find((t) => t.id === dragging) : null
   function onDragEnd(e: DragEndEvent) {
+    setDragging(null)
     if (e.over) onDrop(String(e.active.id), String(e.over.id))
   }
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      onDragStart={(e: DragStartEvent) => setDragging(String(e.active.id))}
+      onDragCancel={() => setDragging(null)}
+      onDragEnd={onDragEnd}
+    >
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto sm:grid-cols-2 xl:grid-cols-5 xl:overflow-hidden">
         {lanes.map((lane) => (
           <Lane
@@ -218,12 +293,28 @@ function LaneBoard({
                 todo={t}
                 collections={props.collectionsOf(t.id)}
                 onOpen={() => props.onOpen(t.id)}
+                onToggleDone={() => props.onToggleDone(t.id)}
+                remote={props.remoteIds.has(t.id)}
                 today={props.today}
               />
             ))}
           </Lane>
         ))}
       </div>
+      {/* The overlay renders the moving card in a portal, so it floats over the
+          lane borders instead of being clipped by each lane's own scroll box —
+          without it a cross-lane drag looks broken even when it works. */}
+      <DragOverlay dropAnimation={null}>
+        {active ? (
+          <TodoCard
+            todo={active}
+            collections={props.collectionsOf(active.id)}
+            onOpen={() => {}}
+            today={props.today}
+            overlay
+          />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   )
 }
@@ -270,7 +361,54 @@ export function TimeView(props: TodoViewProps) {
 // Calendar — the month, plus the undated pile you drag onto a day.
 // ---------------------------------------------------------------------------
 
-function DayCell({ day, items, today, onOpen }: { day: Date; items: Todo[]; today: Date; onOpen: (id: string) => void }) {
+/**
+ * One scheduled to-do inside a calendar cell. Draggable in its own right, so a
+ * date can be changed by moving the chip from one day to another (or back onto
+ * the undated pile) — previously only the undated pile could start a drag, which
+ * made the calendar a one-way trip.
+ */
+function DayChip({ todo, today, onOpen, remote }: { todo: Todo; today: Date; onOpen: () => void; remote: boolean }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: todo.id })
+  const down = useRef<{ x: number; y: number } | null>(null)
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      onPointerDown={(e) => {
+        down.current = { x: e.clientX, y: e.clientY }
+        listeners?.onPointerDown?.(e)
+      }}
+      onClick={(e) => {
+        const from = down.current
+        if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 4) return
+        onOpen()
+      }}
+      title={todo.title}
+      className={`cursor-grab truncate rounded border-l-2 bg-surface-2 px-1.5 py-0.5 text-left text-[11px] font-semibold text-text transition active:cursor-grabbing hover:bg-surface-hover ${
+        isDragging ? 'opacity-40' : ''
+      } ${remote ? 'ring-1 ring-info' : ''} ${
+        daysUntilDue(todo.due_date!, today) < 0 ? 'border-red-500' : 'border-primary'
+      }`}
+    >
+      {todo.title}
+    </div>
+  )
+}
+
+function DayCell({
+  day,
+  items,
+  today,
+  onOpen,
+  remoteIds,
+}: {
+  day: Date
+  items: Todo[]
+  today: Date
+  onOpen: (id: string) => void
+  remoteIds: ReadonlySet<string>
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${isoDate(day)}` })
   const isToday = day.toDateString() === today.toDateString()
   return (
@@ -282,16 +420,7 @@ function DayCell({ day, items, today, onOpen }: { day: Date; items: Todo[]; toda
     >
       <span className={`text-xs ${isToday ? 'font-extrabold text-primary' : 'font-semibold text-faint'}`}>{day.getDate()}</span>
       {items.slice(0, 3).map((t) => (
-        <button
-          key={t.id}
-          onClick={() => onOpen(t.id)}
-          title={t.title}
-          className={`truncate rounded border-l-2 bg-surface-2 px-1.5 py-0.5 text-left text-[11px] font-semibold text-text hover:bg-surface-hover ${
-            daysUntilDue(t.due_date!, today) < 0 ? 'border-red-500' : 'border-primary'
-          }`}
-        >
-          {t.title}
-        </button>
+        <DayChip key={t.id} todo={t} today={today} onOpen={() => onOpen(t.id)} remote={remoteIds.has(t.id)} />
       ))}
       {items.length > 3 && <span className="text-[10px] font-semibold text-faint">+{items.length - 3} more</span>}
     </div>
@@ -307,12 +436,24 @@ export function CalendarView(props: TodoViewProps) {
   const cells = useMemo(() => monthGrid(month), [month])
   const open = props.todos.filter((t) => !t.done)
   const undated = open.filter((t) => !t.due_date)
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  // Pointer drag needs a 4px threshold so a plain click stays a click. The
+  // keyboard sensor is not optional decoration: dnd-kit's `attributes` put
+  // role="button" and tabIndex on every card, which promises a keyboard user
+  // they can move it — registering the sensor is what makes that true.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor),
+  )
+  const [dragging, setDragging] = useState<string | null>(null)
+  const active = dragging ? props.todos.find((t) => t.id === dragging) : null
 
   return (
     <DndContext
       sensors={sensors}
+      onDragStart={(e: DragStartEvent) => setDragging(String(e.active.id))}
+      onDragCancel={() => setDragging(null)}
       onDragEnd={(e) => {
+        setDragging(null)
         const over = String(e.over?.id ?? '')
         if (over.startsWith('day:')) props.onSetDue(String(e.active.id), over.slice(4))
         else if (over === 'undated') props.onSetDue(String(e.active.id), null)
@@ -352,6 +493,7 @@ export function CalendarView(props: TodoViewProps) {
                   day={c}
                   today={props.today}
                   onOpen={props.onOpen}
+                  remoteIds={props.remoteIds}
                   items={open.filter((t) => sameLocalDate(t.due_date, c))}
                 />
               ) : (
@@ -363,6 +505,17 @@ export function CalendarView(props: TodoViewProps) {
 
         <UndatedPile items={undated} props={props} />
       </div>
+      <DragOverlay dropAnimation={null}>
+        {active ? (
+          <TodoCard
+            todo={active}
+            collections={props.collectionsOf(active.id)}
+            onOpen={() => {}}
+            today={props.today}
+            overlay
+          />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   )
 }
@@ -387,6 +540,8 @@ function UndatedPile({ items, props }: { items: Todo[]; props: TodoViewProps }) 
             todo={t}
             collections={props.collectionsOf(t.id)}
             onOpen={() => props.onOpen(t.id)}
+            onToggleDone={() => props.onToggleDone(t.id)}
+            remote={props.remoteIds.has(t.id)}
             today={props.today}
           />
         ))}

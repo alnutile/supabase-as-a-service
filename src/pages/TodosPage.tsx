@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   DndContext,
@@ -148,6 +148,13 @@ export default function TodosPage() {
   const [adding, setAdding] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('manual')
   const [showDone, setShowDone] = useState(false)
+  // Rows another session changed, held briefly so the change is visible rather
+  // than silently appearing. Cleared on a timer per id.
+  const [remoteIds, setRemoteIds] = useState<Set<string>>(() => new Set())
+  // Ids this tab just wrote. The server echoes our own writes back over the
+  // same channel, and flashing "someone moved this" at the person who moved it
+  // is noise — so we apply the echo but skip the highlight.
+  const ownWrites = useRef<Map<string, number>>(new Map())
   const [view, setView] = useState<ViewMode>(() => {
     const saved = localStorage.getItem(VIEW_KEY)
     return VIEWS.some((v) => v.id === saved) ? (saved as ViewMode) : 'list'
@@ -187,6 +194,67 @@ export default function TodosPage() {
   useEffect(() => {
     localStorage.setItem(VIEW_KEY, view)
   }, [view])
+
+  // Live updates (migration 0120). To-dos are collaborative — a workspace row is
+  // one anyone can check off or drag — but the page used to read them once on
+  // mount, so two people working the same board diverged until a reload. RLS
+  // applies to the stream, so a private to-do is only ever streamed to its
+  // owner; this widens nothing.
+  useEffect(() => {
+    function flash(id: string) {
+      const wroteAt = ownWrites.current.get(id)
+      if (wroteAt && Date.now() - wroteAt < 3000) return // our own echo
+      setRemoteIds((prev) => new Set(prev).add(id))
+      setTimeout(
+        () =>
+          setRemoteIds((prev) => {
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          }),
+        2500,
+      )
+    }
+
+    const channel = supabase
+      .channel('todos-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'todos' }, (payload) => {
+        const row = payload.new as Todo
+        const old = payload.old as { id?: string }
+        if (payload.eventType === 'DELETE') {
+          if (old?.id) setTodos((prev) => prev.filter((t) => t.id !== old.id))
+          return
+        }
+        if (!row?.id) return
+        // The server row is the truth, so merging by id converges no matter who
+        // wrote it or in what order the events land.
+        setTodos((prev) => {
+          const i = prev.findIndex((t) => t.id === row.id)
+          if (i === -1) return [row, ...prev]
+          const next = [...prev]
+          next[i] = row
+          return next
+        })
+        flash(row.id)
+      })
+      // Filing a to-do into a collection changes the cards' tokens and the
+      // picker's counts, so membership has to reach the other tabs too.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'collection_todos' }, () => {
+        supabase
+          .from('collection_todos')
+          .select('collection_id, todo_id')
+          .then(({ data }) => {
+            const map: Record<string, Set<string>> = {}
+            for (const r of data ?? []) (map[r.collection_id] ??= new Set()).add(r.todo_id)
+            setMembers(map)
+          })
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   const selectedIds = useMemo(() => [...selected], [selected])
 
@@ -275,6 +343,11 @@ export default function TodosPage() {
   }
 
   async function patchTodo(id: string, patch: Partial<Todo>) {
+    // Only the last few seconds matter (it exists to suppress our own echo), so
+    // drop stale entries rather than growing a map for the life of the session.
+    const now = Date.now()
+    for (const [k, at] of ownWrites.current) if (now - at > 3000) ownWrites.current.delete(k)
+    ownWrites.current.set(id, now)
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
     await supabase.from('todos').update(patch).eq('id', id)
   }
@@ -439,6 +512,11 @@ export default function TodosPage() {
     onOpen: openTodo,
     onSetStatus: setStatus,
     onSetDue: setDue,
+    onToggleDone: (id) => {
+      const t = todos.find((x) => x.id === id)
+      if (t) toggleDone(t)
+    },
+    remoteIds,
     today,
   }
 
@@ -616,6 +694,7 @@ export default function TodosPage() {
                       todo={t}
                       dragDisabled={!dragEnabled}
                       selected={selected.has(t.id)}
+                      remote={remoteIds.has(t.id)}
                       collections={collectionsOf(t.id)}
                       onToggleSelect={() => toggleSelect(t.id)}
                       onToggleDone={() => toggleDone(t)}
@@ -725,6 +804,7 @@ function TodoRow({
   todo,
   dragDisabled,
   selected,
+  remote,
   collections,
   onToggleSelect,
   onToggleDone,
@@ -739,6 +819,8 @@ function TodoRow({
   todo: Todo
   dragDisabled: boolean
   selected: boolean
+  /** Another session just changed this row. */
+  remote: boolean
   collections: string[]
   onToggleSelect: () => void
   onToggleDone: () => void
@@ -768,8 +850,8 @@ function TodoRow({
     <li
       ref={setNodeRef}
       style={style}
-      className={`group flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg border bg-surface px-2.5 py-2 md:flex-nowrap ${
-        selected ? 'border-primary' : 'border-border'
+      className={`group flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg border bg-surface px-2.5 py-2 transition md:flex-nowrap ${
+        selected ? 'border-primary' : remote ? 'border-info ring-2 ring-info/40' : 'border-border'
       }`}
     >
       {/* Drag handle — desktop only (touch drag is fiddly; use the sort toggles) */}
