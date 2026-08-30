@@ -81,7 +81,8 @@ export default function CollectionsPage() {
 
   const load = useCallback(async () => {
     const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, stats] = await Promise.all([
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      // Only live collections in the list — archived ones live in the Trash panel.
+      supabase.from('collections').select('*').is('deleted_at', null).order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id'),
       supabase.from('collection_files').select('collection_id'),
       supabase.from('collection_todos').select('collection_id'),
@@ -128,6 +129,37 @@ export default function CollectionsPage() {
     }
   }
 
+  // --- Trash / recovery area ---
+  const [showTrash, setShowTrash] = useState(false)
+  const [trash, setTrash] = useState<Collection[]>([])
+
+  const loadTrash = useCallback(async () => {
+    if (!user) return
+    const { data } = await supabase
+      .from('collections')
+      .select('*')
+      .eq('owner_id', user.id)
+      .not('deleted_at', 'is', null)
+      .order('updated_at', { ascending: false })
+    setTrash(data ?? [])
+  }, [user])
+
+  useEffect(() => {
+    loadTrash()
+  }, [loadTrash])
+
+  async function restoreCollection(id: string) {
+    await supabase.from('collections').update({ deleted_at: null }).eq('id', id)
+    setTrash((prev) => prev.filter((c) => c.id !== id))
+    load()
+  }
+
+  async function destroyCollection(c: Collection) {
+    if (!confirm(`Permanently delete collection "${c.name}"? This cannot be undone.`)) return
+    await supabase.from('collections').delete().eq('id', c.id)
+    setTrash((prev) => prev.filter((x) => x.id !== c.id))
+  }
+
   return (
     <div className="flex h-full min-h-0">
       {/* Collapsed rail (desktop only): reclaim the width for the dashboard. */}
@@ -162,6 +194,18 @@ export default function CollectionsPage() {
       >
         <div className="flex items-center gap-2 border-b border-border px-5 py-4">
           <h1 className="flex-1 text-lg font-semibold tracking-tight text-text">Collections</h1>
+          {trash.length > 0 && (
+            <button
+              onClick={() => setShowTrash((v) => !v)}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                showTrash
+                  ? 'border-border-strong bg-surface-hover text-text'
+                  : 'border-border bg-surface text-muted hover:text-text'
+              }`}
+            >
+              <TrashIcon className="h-4 w-4" /> Trash ({trash.length})
+            </button>
+          )}
           <button
             onClick={createCollection}
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
@@ -178,6 +222,46 @@ export default function CollectionsPage() {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
+          {/* Trash / recovery area: archived collections, restore or delete forever. */}
+          {showTrash && (
+            <div className="mb-3 rounded-xl border border-border bg-surface p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-text">Trash</h2>
+                <p className="text-xs text-muted">Archived collections — restore them or delete permanently.</p>
+              </div>
+              {trash.length === 0 ? (
+                <p className="text-sm text-muted">Trash is empty.</p>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {trash.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-text">{c.name}</p>
+                        <p className="text-xs text-muted">
+                          {c.visibility} · archived {formatDate(c.updated_at)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={() => restoreCollection(c.id)}
+                          className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-text transition hover:bg-surface-hover"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => destroyCollection(c)}
+                          className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                        >
+                          Delete forever
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {loading ? (
             <p className="px-2 text-sm text-faint">Loading…</p>
           ) : collections.length === 0 ? (
@@ -480,9 +564,9 @@ function CollectionDashboard({
     }
   }
 
-  async function deleteCollection() {
-    if (!confirm(`Delete collection “${collection.name}”? The items themselves are kept.`)) return
-    await supabase.from('collections').delete().eq('id', collection.id)
+  async function archiveCollection() {
+    if (!confirm(`Archive collection “${collection.name}”? It moves to Trash and can be restored later. The items themselves are kept.`)) return
+    await supabase.from('collections').update({ deleted_at: new Date().toISOString() }).eq('id', collection.id)
     onDeleted()
   }
 
@@ -573,10 +657,10 @@ function CollectionDashboard({
                 Share with the workspace (anyone can view &amp; add)
               </label>
               <button
-                onClick={deleteCollection}
+                onClick={archiveCollection}
                 className="ml-auto flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
               >
-                <TrashIcon className="h-4 w-4" /> Delete collection
+                <TrashIcon className="h-4 w-4" /> Archive collection
               </button>
             </div>
           </div>

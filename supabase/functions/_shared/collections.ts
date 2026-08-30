@@ -64,6 +64,7 @@ export async function loadCollectionsContext(
       .from('collections')
       .select('id, name, owner_id, visibility')
       .in('id', collectionIds)
+      .is('deleted_at', null)
     if (!cols?.length) return ''
 
     // Resolve admin once only if some collection isn't owner/workspace-visible.
