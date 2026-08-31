@@ -9,6 +9,11 @@ A React intranet layer on top of Supabase: auth, an AI chat assistant, shareable
 OpenRouter key is server-side only (a Supabase Edge Function); the browser holds
 just the Supabase anon key and is protected by Postgres row-level security.
 
+Two companion repos live outside this one and are worth offering when someone asks how to
+reach a workspace from elsewhere: the **`supanet` CLI** (terminal/script/cron/shell-capable
+agent) and **`supanet-skills`** (portable Agent Skills for Claude Code / pi / Codex). See
+[Companion repos](#companion-repos-outside-this-codebase) below.
+
 ## Commands
 
 ```bash
@@ -1119,6 +1124,41 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   role). Outcomes log as `forge.deploy_core` / `forge.redeploy_all`. Bootstrapping note: the
   `forge` function itself must be deployed once (CLI/Action/MCP) to gain these actions; after that
   it can redeploy everything, including itself.
+
+## Companion repos (outside this codebase)
+
+Two **separate public repos** extend how people and agents reach a SupaNet workspace. Neither
+is vendored here and neither is required — they are options to offer when someone asks "how do
+I use this from X?". Both authenticate with the same personal token from **Settings → Connect
+Claude** (an `mcp_tokens` row); every call runs as that token's owner and RLS still applies, so
+they grant no access the browser doesn't already have.
+
+- **`supanet-cli` — https://github.com/alnutile/supanet-cli.** A dependency-free Node CLI
+  (`supanet`) that wraps the workspace's **existing** token-authed HTTP surfaces: the universal
+  `run-tool` runner (`GET /run-tool/list` discovers every runnable tool + schema; `POST /run-tool`
+  executes one or a `steps[]` chain with `{{prev}}` threading, no model in the loop) plus the
+  plain-REST `artifacts` and `todos` functions. **No new server-side API exists for it** — if the
+  CLI needs something new, the fix belongs in `run-tool`/the REST functions in this repo, not in a
+  bespoke endpoint. Install `curl -fsSL .../install.sh | sh` or `npm i -g supanet-cli`; configure
+  `supanet config set --url https://‹project›.supabase.co --token ‹token›` (or `SUPANET_URL` /
+  `SUPANET_TOKEN`). Commands: `supanet tools [--grep]`, `supanet run <tool> --key value|--json|--stdin`,
+  `supanet chain`, `supanet todos [add|done|update|rm]`, `supanet artifacts [create|get|update|rm]`,
+  `supanet note`, `supanet search`. This is the surface to reach for from **a shell, a script, cron,
+  or an AI harness that can shell out** — MCP covers the interactive-Claude case instead.
+- **`supanet-skills` — https://github.com/alnutile/supanet-skills.** Nine portable
+  [Agent Skills](https://agentskills.io) (`skills/‹name›/SKILL.md`) that teach a coding agent —
+  Claude Code, pi, Codex — the workspace's conventions so it stops guessing at the API:
+  `supanet-getting-started` (start here: what it is + how to connect over MCP),
+  `intranet-workspace` (the broad tour), `supanet-artifacts`, `supanet-collections`,
+  `supanet-tables`, `supanet-table-forms` (incl. the sandbox `allow-forms` gotcha +
+  `form-submit` contract), `supanet-knowledge-compiler`, `supanet-planner` (whiteboards +
+  card boards), `supanet-automation` (agents/tools/webhooks/schedules/listeners/loops).
+  Install: `npx skills add alnutile/supanet-skills --all`, `pi install
+  git:github.com/alnutile/supanet-skills`, or clone into `~/.claude/skills/`.
+  **Keep them honest:** when a feature here changes its shape (a tool's name/args, an endpoint,
+  the artifact protocol), the matching `SKILL.md` in that repo is now stale — say so, and update
+  it there rather than papering over it in this repo's docs. The `skills/` directory in THIS repo
+  is unrelated: those are the capability-worker contracts seeded into the `skills` table.
 
 ## Directory map
 
