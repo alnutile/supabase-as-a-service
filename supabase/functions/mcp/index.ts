@@ -742,11 +742,25 @@ const TOOLS = [
   },
   {
     name: 'list_links',
-    description: 'List saved bookmarks. Optionally filter by collection (name/id). Shows title, url, description, and id.',
+    description:
+      'List saved bookmarks, newest first. Shows title, url, description, id, and when each link was saved / last updated. Optionally filter by collection (name/id) and by a date range (`since`/`until`, either end optional).',
     inputSchema: {
       type: 'object',
       properties: {
         collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+        since: {
+          type: 'string',
+          description: 'Only links at/after this point — ISO 8601 timestamp or YYYY-MM-DD (from the start of that day).',
+        },
+        until: {
+          type: 'string',
+          description: 'Only links at/before this point — ISO 8601 timestamp or YYYY-MM-DD (through the end of that day).',
+        },
+        date_field: {
+          type: 'string',
+          enum: ['created', 'updated'],
+          description: 'Which date the range filters on: when the link was saved (default) or last updated.',
+        },
       },
     },
   },
@@ -1498,7 +1512,7 @@ async function buildCollectionBundle(
     if (ids.length) {
       let q = db
         .from('links')
-        .select('id, title, url, description, notes, created_at, owner_id, visibility')
+        .select('id, title, url, description, notes, created_at, updated_at, owner_id, visibility')
         .in('id', ids)
         .order('created_at', { ascending: false })
       if (since) q = q.gte('created_at', since)
@@ -1506,7 +1520,7 @@ async function buildCollectionBundle(
       for (const l of (data ?? []) as Array<Record<string, unknown>>) {
         if (l.owner_id !== owner && l.visibility !== 'workspace') continue
         const note = [l.notes, l.description].filter(Boolean).join(' — ')
-        out.push({ id: l.id, title: l.title, url: l.url, note, updated_at: l.created_at })
+        out.push({ id: l.id, title: l.title, url: l.url, note, created_at: l.created_at, updated_at: l.updated_at })
       }
     }
     bundle.links = out

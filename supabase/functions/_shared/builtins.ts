@@ -30,6 +30,7 @@ import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { runSecurityScan } from './security_scan.ts'
 import { summarizeResource } from './resource_summarizer.ts'
+import { dateColumn, formatLinkList, type LinkRow, parseDateBound } from './links.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
@@ -2006,12 +2007,20 @@ async function listLinks(
   userId: string | null,
 ): Promise<string> {
   if (!db || !userId) return 'Links are unavailable.'
+  const column = dateColumn(input?.date_field)
+  const since = parseDateBound(input?.since, 'start')
+  const until = parseDateBound(input?.until, 'end')
+  if (since === 'invalid' || until === 'invalid') {
+    return '`since` and `until` must be an ISO 8601 timestamp or a YYYY-MM-DD date.'
+  }
   let query = db
     .from('links')
-    .select('id, url, title, description')
+    .select('id, url, title, description, created_at, updated_at')
     .or(`owner_id.eq.${userId},visibility.eq.workspace`)
-    .order('created_at', { ascending: false })
+    .order(column, { ascending: false })
     .limit(100)
+  if (since) query = query.gte(column, since)
+  if (until) query = query.lte(column, until)
   const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
   if (ref) {
     const col = await resolveCollection(db, userId, ref, false)
@@ -2022,10 +2031,14 @@ async function listLinks(
     query = query.in('id', ids)
   }
   const { data } = await query
-  if (!data || !data.length) return 'No saved links. Use save_link to add one.'
-  return (data as Array<{ id: string; url: string; title: string; description: string }>)
-    .map((l) => `• ${l.title} — ${l.url}${l.description ? `\n  ${l.description.slice(0, 200)}` : ''}\n  id: ${l.id}`)
-    .join('\n')
+  if (!data || !data.length) {
+    if (since || until) {
+      const window = [since ? `from ${since}` : '', until ? `to ${until}` : ''].filter(Boolean).join(' ')
+      return `No links ${column === 'updated_at' ? 'updated' : 'saved'} ${window}.`
+    }
+    return 'No saved links. Use save_link to add one.'
+  }
+  return formatLinkList(data as LinkRow[])
 }
 
 // Download a captured screenshot image and attach it to a link: the image is
