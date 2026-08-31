@@ -1,7 +1,7 @@
 // deno test — the pure card-board helpers (cardsToText / normalizeCards /
 // buildCards). Kept pure so the DB side of the card-board builtins needs no mocks.
 import { assertEquals, assertStringIncludes } from 'jsr:@std/assert@1'
-import { buildCards, cardCount, cardsToText, normalizeCards } from '../_shared/card_board.ts'
+import { buildCards, cardCount, cardsToText, normalizeCards, normSize, sizeLabel } from '../_shared/card_board.ts'
 
 Deno.test('cardsToText: empty → placeholder', () => {
   assertEquals(cardsToText({}), '(empty board — no cards yet)')
@@ -68,4 +68,42 @@ Deno.test('buildCards: replace vs append', () => {
   assertEquals(cardCount({ cards: appended }), 2)
   const replaced = buildCards({ cards: first }, [{ text: 'b' }], 'replace')
   assertEquals(cardCount({ cards: replaced }), 1)
+})
+
+Deno.test('normSize: default, named preset, explicit and clamped', () => {
+  assertEquals(normSize({}), { w: 190, h: 118 })
+  assertEquals(normSize({ size: 'large' }), { w: 260, h: 168 })
+  assertEquals(normSize({ size: 'NOPE' }), { w: 190, h: 118 })
+  assertEquals(normSize({ w: 300, h: 200 }), { w: 300, h: 200 })
+  // out-of-range sizes are clamped, not trusted
+  assertEquals(normSize({ w: 5, h: 5 }), { w: 120, h: 76 })
+  assertEquals(normSize({ w: 9999, h: 9999 }), { w: 640, h: 560 })
+})
+
+Deno.test('sizeLabel: names the closest preset', () => {
+  assertEquals(sizeLabel(150, 92), 'small')
+  assertEquals(sizeLabel(undefined, undefined), 'medium')
+  assertEquals(sizeLabel(365, 236), 'huge')
+})
+
+Deno.test('normalizeCards: carries size (named or explicit), defaults the rest', () => {
+  const cards = normalizeCards([{ text: 'big idea', size: 'huge' }, { text: 'plain' }, { text: 'exact', w: 300, h: 210 }])
+  assertEquals(cards[0].w, 360)
+  assertEquals(cards[0].h, 240)
+  assertEquals(cards[1].w, 190)
+  assertEquals(cards[2].w, 300)
+  assertEquals(cards[2].h, 210)
+})
+
+Deno.test('cardsToText: tags a resized card so the emphasis survives into the prompt', () => {
+  const out = cardsToText({
+    cards: [
+      { text: 'Headline', size: 'huge', y: 0 },
+      { text: 'Normal', y: 10 },
+      { text: 'Aside', color: 'blue', w: 150, h: 92, y: 20 },
+    ],
+  })
+  assertStringIncludes(out, '[huge] Headline')
+  assertStringIncludes(out, '- Normal')
+  assertStringIncludes(out, '[blue, small] Aside')
 })
