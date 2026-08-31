@@ -1,15 +1,18 @@
-
 <div align="center">
 
-# ✺ Intranet In A Box [BETA]
+# ✺ SupaNet
 
-**A friendly, open-source intranet layer on top of [Supabase](https://supabase.com).**
+**Your company's shared AI hub — open source, and yours.**
 
-Log in, chat with AI to build things, and share what you make — publicly or locked down. Files, artifacts, and live updates included.
+Your team already uses AI. It just doesn't know your business.
 
-**👀 Read the [docs](https://supanet-docs.dailyai.studio/)**
+SupaNet is one workspace where the assistant learns from *your* documents, turns answers
+into deliverables you can send to clients, and runs the repetitive work on a schedule —
+all on a database you own.
 
-**👀 More Info [supanet](https://supanet.dailyai.studio)**
+**No per-seat fees · Runs on your own database · Use any AI model**
+
+**👀 [Read the docs](https://supanet-docs.dailyai.studio/) · [See the product page](https://supanet.dailyai.studio)**
 
 <br/>
 
@@ -22,47 +25,176 @@ Log in, chat with AI to build things, and share what you make — publicly or lo
 
 </div>
 
+> This repo is the SupaNet codebase — it started life as "Intranet In A Box," which you'll
+> still see in older links and screenshots. Same project, current name.
+
 <img width="2746" height="1874" alt="CleanShot 2026-06-21 at 21 43 05@2x" src="https://github.com/user-attachments/assets/16458091-a1c6-4bf5-8466-f15220ca229e" />
 
 ---
 
 ## Why
 
-See the file [Why](WHY.md) for the details but the bottom line is Supabase (database, auth, storage, edge functions etc) is a great foundation for building Agentic memory, access rules etc. But it needs a web ui that does all the things we are use to in Claude Desktop. But in time, like my first attempt at this three years ago (https://github.com/LlmLaraHub), this open-source foundation can grow and change according to the needs of your business and go places these larger companies may never imagine.
+Ten people re-pasting the same company background into ten private chat windows isn't a
+system — it's ten party tricks. Nothing compounds, and when your best person leaves, their
+prompts leave with them.
 
+Supabase (database, auth, storage, edge functions) is a great foundation for the parts a
+shared AI workspace needs to get right — memory, access rules, real-time. What it needed
+was a UI that does the things we're used to in Claude Desktop, for a whole team. Longer
+version in [WHY.md](./WHY.md).
 
-## What is this?
+## What you get
 
-A small but complete foundation for a team workspace ("intranet") that you fully own — a shared AI assistant that learns your business from your own documents and prompts, turns conversations into shareable deliverables, and automates inbound work. **Wondering why a small business would run this? Read [WHY.md](./WHY.md).**
+**1 — A shared company brain, not a personal chatbot.**
+Teach the AI your business **once** — upload past proposals, pricing, SOPs; write the house
+rules as always-on notes — and every chat, for every employee, starts from that knowledge.
+Uploaded PDFs index themselves in the background (free, in-edge embeddings) and get cited
+mid-conversation: *"What did we charge Acme? Use that as the baseline."* Your best person's
+workflow becomes a `/` command anyone can press.
 
-It leans on Supabase for the parts that should be boring and solid, and adds a clean React UI on top:
+**2 — Answers become links you send, not chat scroll you lose.**
+Any reply can become an **artifact** — a real document with a live preview and its own URL.
+Keep it private, hand a client the link (no account needed), or publish it to the open web.
+*"Draft a proposal for a Shopify build — price it like the Henderson project." → "Make that
+something I can send." → the client gets a link, not an attachment.*
 
-- 🔐 **Auth** — email/password and magic links via Supabase Auth. A profile is created automatically on signup.
-- 💬 **AI chat** — talk to any model (via OpenRouter) to draft, plan, and build. Replies **stream** token-by-token, persist to Postgres, and sync **live across devices** over realtime websockets.
-- ⚡ **Prompts & skills** — **always-on** prompts (a built-in "how this system works" prompt + admin-set workspace context like *"this is Acme's intranet"*) shape every chat; **on-demand** skills run from chat with `/`. The assistant can also **create artifacts directly** ("turn that into something I can share") — they're saved and linked inline. These are the seed for scheduled/promotable agents.
-- 📄 **Artifacts** — turn any reply (or a blank page) into a markdown / code / HTML / text artifact with live preview. Share it as **Private**, **Unlisted** (anyone with the link), or **Public** — served to anonymous visitors at `/share/a/:slug`.
-- 📁 **Files** — upload to a private, per-user storage bucket and hand out **7-day signed share links** when you want to.
-- 🔒 **Invite-only** — the first user bootstraps the workspace and becomes admin; after that, only emails an admin has invited can sign up (enforced in the database).
-- 🪝 **Webhooks** — create a webhook to get a public URL, attach a prompt, and every inbound POST is processed by the assistant. Events + results are logged live. The action the result triggers (artifact, chat, outbound call) plugs in next.
-- 🛠️ **Tools (tools-as-data)** — give the assistant real abilities it can call mid-chat. Built-in **web search + fetch** (it reads URLs itself), plus **custom HTTP tools**: define a name, description, and input schema, point it at any URL, and the chat function runs the agentic loop. Adding a tool is adding a row — the system extends its own capabilities.
-- 🛡️ **Guardrails** — admin-managed pre-flight checks evaluated by a cheap, fast model **before** the main model runs. The verdict comes back as data and is enforced **in code** (block the run or just flag it) — never pasted into the main prompt. Webhooks fail **closed** (an evaluator error blocks); chat fails **open**. Webhook-triggered agents also run **read-only by default** — tools are off unless the webhook explicitly allows them.
-- 📧 **Email** — agents can **send and check email**: configure a provider once in Settings (Postmark or Resend) and from then on just say *"email me a summary every morning."* The API key lives only in **Supabase Vault**; sending is rate-limited with an optional recipient allowlist, and incoming mail is parsed in (no IMAP) so the assistant can read it.
-- 📎 **Chat with files** — attach files in chat; they land in your Files area and the assistant reads them (images, PDFs, and text) to answer questions or parse them.
-- 📚 **Team knowledge base** — uploaded PDFs are auto-indexed into pgvector (free, in-edge embeddings) and become **shared workspace knowledge by default** — anyone's chat can search them and cite the source. Flip any document to **"Only me"** for privacy. Only the extracted text is shared; the raw file stays private.
-- 📊 **Activity** — a live, real-time feed of what's happening across the workspace: webhook events, tool calls, artifacts, and uploads, all in one place.
-- 💸 **Usage & cost** — every model call's tokens and cost are logged; an admin **Usage** page shows spend (totals, daily chart, by model / context / user) plus your live OpenRouter account balance.
-- 🤖 **Agents** — a deployable unit: a system prompt + the tools it may use, managed in a dashboard and runnable from chat.
-- 🔌 **MCP server** — connect **Claude Code / Desktop** to your workspace with a token (Settings → Connect Claude), then say *"build an agent that does X on my intranet"* — Claude authors it and **pushes it in over MCP**, where it shows up in the dashboard. Your app is one way to build these; it isn't the only way.
-- ⌨️ **CLI & Skills** — the workspace is reachable outside the browser too: the [**`supanet` CLI**](https://github.com/alnutile/supanet-cli) drives every tool, to-do, and artifact from a terminal or a script (same token, `run-tool` under the hood), and [**supanet-skills**](https://github.com/alnutile/supanet-skills) is a set of portable Agent Skills that teach Claude Code / pi / Codex how to use it well. See [Companion resources](#companion-resources-cli--skills).
-- 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).
+**3 — The repetitive work runs itself.**
+*"When a lead form comes in, summarize it and draft a reply"* normally means hiring a
+developer or adding another per-seat subscription. Here you describe it in plain English and
+it runs in your workspace, next to your knowledge: the Monday report writes itself, the lead
+form triages itself. And when a job has to be **exact** — pricing math, a data transform —
+SupaNet deploys real code the AI calls, so the parts that must be right every time aren't
+left to the model's guesswork.
 
-The OpenRouter API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
+**4 — Your company's brain shouldn't live on someone else's servers.**
+The documents, the conversations, the automations all live in a standard Postgres database
+**you** control. Row-level security is enforced in the database itself, so private means
+private — even from other employees. Every AI call is logged (totals, by model, by feature,
+by person), so there's no surprise invoice. Best model for the big work, a cheap one for
+routine traffic; switching providers is a one-line change, not a migration. MIT licensed:
+fork it, audit it, keep it.
 
+**The math.** Ten seats on a team AI plan runs roughly **$250–600 every month, forever** —
+and your documents live in their product. Self-hosted SupaNet rides managed free tiers:
+roughly **$0–25 a month plus the AI usage itself**, metered and visible. Ten people or
+thirty, the price is what the AI actually did.
 
-> CLUADE DESKTOP INTEGRATION
+The OpenRouter API key lives **only** on the server (a Supabase Edge Function), never in the
+browser. Data is protected by Postgres **row-level security**, not by hiding keys.
+
+## Two ways to run it
+
+- **Self-host (this repo).** Free and MIT-licensed — the whole product on your own Supabase
+  project and hosting. [Quick start](#quick-start-local) is below; plan on an afternoon.
+- **[SupaNet Cloud](https://supanet.dailyai.studio)** — the same open-source product, set up
+  for you: one flat price per workspace, never per seat, on your own dedicated database.
+  If you ever leave, the project transfers to you. It's your infrastructure from day one.
+
+## Everything in the box
+
+<details>
+<summary><b>The shared brain</b> — what the assistant knows</summary>
+
+- **AI chat** — any model via OpenRouter, streaming token-by-token, persisted to Postgres and
+  synced live across devices. Attach files mid-chat (images, PDFs, text) and it reads them.
+- **Team knowledge base** — uploaded PDFs are auto-indexed into pgvector and shared across the
+  workspace by default, cited by document name. Flip any one to "Only me."
+- **Collections** — bundle a project's docs, files, to-dos, links, and data, then chat with
+  exactly that set. A context meter shows how much of the model's window it fills.
+- **Knowledge compiler** — raw files stop being the answer and become *evidence*: the compiler
+  maintains real pages with provenance, flags contradictions for review instead of silently
+  picking a winner, and never rewrites a human-confirmed page unattended.
+- **User memory** — a per-user profile (name, defaults, stack, standing preferences) so a new
+  chat isn't a blank slate. Owner-only; it never leaks into a teammate's context.
+- **Always-on prompts & skills** — workspace-wide context every chat starts from, plus
+  on-demand `/` skills anyone can run.
+- **Group threads** — share a conversation with teammates; humans talk to each other and the
+  AI only answers when someone writes `@ai`.
+
+</details>
+
+<details>
+<summary><b>Deliverables</b> — what comes out</summary>
+
+- **Artifacts** — markdown / code / HTML / text with live preview. Private, unlisted (link
+  only), or public; optional share password; a chrome-free `/p/:slug` page for HTML.
+  Interactive artifacts (trackers, kanbans, checklists) save their own state.
+- **Files** — private per-user storage with signed share links (1 hour / 1 day / 1 week) or a
+  permanent public URL when you publish one. The AI can write files too, including binaries.
+- **Tables** — real Postgres tables (not JSON blobs) with a spreadsheet grid, created by hand
+  or by describing them. Public write-forms let a shared page collect submissions without
+  ever exposing the table.
+- **To-dos** — lifecycle lanes with five views (list, board, time, calendar, focus), shared or
+  private, filed into collections, live for everyone over realtime.
+- **Planner** — Excalidraw whiteboards and free-form card boards, both multiplayer, both
+  readable *and* drawable by the AI.
+- **Links** — shared bookmarks that fetch their own title, description, and preview image.
+
+</details>
+
+<details>
+<summary><b>Automation</b> — what runs without you</summary>
+
+- **Agents** — a system prompt plus the tools and collections it may use, runnable from chat.
+- **Schedules** — run an agent on an interval or a cron expression, in your workspace timezone.
+- **Webhooks** — a public URL with a prompt attached; every inbound POST is processed. Tools
+  are off by default for untrusted callers, and a webhook can call one function directly with
+  no model in the loop.
+- **Events & listeners** — "when this happens, do that" over a workspace pub/sub layer.
+- **Tools** — give the assistant real abilities: built-in web search and fetch, custom HTTP
+  tools, and any external MCP server you connect. Adding a tool is adding a row.
+- **`run-tool`** — run any tool directly, or chain up to ten, with no model involved.
+- **Loops** — hand a goal, a rubric, and a budget; it iterates until it meets the bar.
+- **Slack** — the bot joins channels bound to collections and answers with that room's
+  context, on `@mention` or ambiently.
+- **Email & inbox** — agents send and check mail (Postmark/Resend), and every source — email,
+  Slack, WhatsApp, webhooks — lands in one unified inbox.
+- **Forge** — describe a capability and it generates, deploys, and registers a real edge
+  function as a tool, for work the model shouldn't be guessing at.
+- **Capability workers** — heavy jobs (Office documents, audio/video) run in containers off a
+  durable job queue, not in-process.
+
+</details>
+
+<details>
+<summary><b>Ownership & control</b> — the boring parts, done properly</summary>
+
+- **Row-level security** on every table — owners see their own rows; artifacts and files open
+  up only when explicitly shared.
+- **Invite-only** — the first signup becomes admin; after that nobody uninvited can create an
+  account. Invite by email or by shareable link.
+- **Guardrails** — a cheap model screens a request *before* the main one runs, and the verdict
+  is enforced in code. Webhooks fail closed; chat fails open.
+- **Secrets vault** — team API keys live only in Supabase Vault, never in a table column, a
+  client payload, or a log.
+- **Usage & cost** — every call's tokens and cost logged, with a dashboard by model, feature,
+  and person, plus your live OpenRouter balance.
+- **Security dashboard** — a repeatable posture scan over your actual configuration (unsecured
+  webhooks, missing guardrails, stale tokens, public artifacts), not model opinions.
+- **Evals** — score agent output against your own standard, across a model matrix, so a proven
+  workflow can run unattended.
+- **Activity feed** — a live record of what happened across the workspace.
+- **Feature flags** — hide the areas your company doesn't use.
+
+</details>
+
+<details>
+<summary><b>Ways in</b> — the workspace isn't only the web app</summary>
+
+- **The web app** — responsive, works on a phone (slide-in nav, stacked editor).
+- **MCP server** — the Claude you already use can build agents, tools, and skills *into* the
+  shared workspace, where they show up in the dashboard. See [Connect Claude](#connect-claude-mcp).
+- **[`supanet` CLI](https://github.com/alnutile/supanet-cli)** and
+  **[supanet-skills](https://github.com/alnutile/supanet-skills)** — a terminal client and
+  portable Agent Skills. See [Companion resources](#companion-resources-cli--skills).
+- **REST APIs** — plain `curl` CRUD for artifacts and to-dos, bearer-token authed, for scripts,
+  cron, and Zaps.
+
+</details>
+
+> CLAUDE DESKTOP INTEGRATION
 
 ![](images/claude-desktop-integration.png)
-
 
 
 ## How it fits together
@@ -93,7 +225,9 @@ The OpenRouter API key lives **only** on the server (a Supabase Edge Function), 
 
 - **Frontend:** React 18 · TypeScript · Vite · Tailwind CSS · React Router
 - **Backend:** Supabase — Postgres, Auth, Realtime, Storage, Edge Functions (Deno)
-- **AI:** any model via [OpenRouter](https://openrouter.ai) (default `anthropic/claude-sonnet-4.5`) through a streaming edge function
+- **AI:** any model via [OpenRouter](https://openrouter.ai) through a streaming edge function —
+  each feature binds to a *profile* (`orchestrator` for the big work, `utility` for cheap routine
+  traffic), so switching models is a dropdown in Settings, not a migration
 - **Hosting:** any static host; first-class config for [Railway](https://railway.app)
 
 ## Project layout
@@ -102,14 +236,23 @@ The OpenRouter API key lives **only** on the server (a Supabase Edge Function), 
 src/
   contexts/AuthContext.tsx     Supabase Auth wrapper (session, sign in/up/out)
   components/                  Layout/nav, markdown, sharing controls, icons
-  pages/                       Login, Chat, Artifacts, Artifact editor,
-                               Public artifact, Files, Settings
-  lib/                         Supabase client, chat streaming, types, utils
+  pages/                       Home, Chat, Artifacts, Knowledge, Collections,
+                               To-dos, Files, Tables, Planner, Agents, and the
+                               Automation + Governance areas
+  pages/settings/              One page per settings area (Profile, Connect Claude,
+                               Models, Email, Slack, External MCP, Invites, Flags)
+  lib/                         Supabase client, chat streaming, typed schema, and the
+                               pure logic the pages lean on (unit-tested)
 supabase/
-  migrations/0001_init.sql     Schema + RLS + realtime + storage policies
-  functions/chat/index.ts      Edge function that streams the model (via OpenRouter)
+  migrations/                  Numbered SQL — schema + RLS + realtime + storage policies
+  functions/chat/              The agentic loop: streams the model, runs tools
+  functions/_shared/           Shared by every loop — tools, collections, guardrails
+  functions/mcp/               The MCP server an external Claude connects to
+workers/                       Capability workers (Office, media) — separate npm workspace
+docs/                          Feature references (APIs, knowledge compiler, Slack, …)
 railway.json                   Build/serve config for Railway
 DEPLOY.md                      End-to-end deployment guide
+CLAUDE.md                      The deep architecture map, for humans and agents
 ```
 
 ## Quick start (local)
@@ -142,6 +285,20 @@ npm run dev                      # http://localhost:5173
 ```
 
 Then sign up, and start chatting.
+
+### Your first afternoon
+
+The install isn't the milestone — the first real answer is. What day one looks like:
+
+| | |
+| --- | --- |
+| **2:00** | Deploy and invite the team. First signup becomes admin; nobody uninvited can even create an account. |
+| **2:30** | Upload the last 20 proposals and the rate card. They index themselves in the background, free. |
+| **2:45** | Write one always-on note describing the company: *"We're a 6-person design agency. Proposals always include a discovery phase. Never quote hourly."* |
+| **3:30** | A lead comes in. *"Draft a proposal for a 10-person retailer — price it like the Henderson project."* The assistant searches your real past work and drafts in the house format. |
+| **3:40** | *"Make that an artifact."* The client gets a link. |
+
+Day two, the lead form points at a webhook and triages itself.
 
 > **Tip for first-run testing:** in Supabase → Authentication → Providers → Email, you can turn off **"Confirm email"** so password signups log in immediately (the built-in email sender is rate-limited).
 
@@ -331,27 +488,28 @@ Merging the PR to `main` triggers the Action, which applies it to the live datab
 
 ## Roadmap
 
-This is a foundation meant to grow. Conversations and artifacts are the natural seeds for:
+Built to be owned, not rented — which means it keeps growing. What's next:
 
 - 🤝 **Agent-to-agent collaboration** — agents that talk to *each other*, not just to
   people. Bob's scheduling agent negotiates a meeting time with Jan's agent and preps the
   agenda; a shared project agent keeps the team's meeting notes and follow-ups in sync. The
-  intranet becomes the place these agents discover and message one another.
-- 👥 **Team sharing & spaces** — shared workspaces, roles, comments.
-- 🧩 **Richer artifacts** — versions, attachments, embeds.
+  workspace becomes the place these agents discover and message one another.
 - 👍 **Feedback on every answer** — mark any reply (*off target* / *needs work* / *exactly
-  right*) with an optional note, so the workspace learns what "good" looks like for your
-  business and improves over time. The seed for evaluation.
-- ✅ **Output evaluation** — score an agent's output against your own standard so a proven
-  workflow can run unattended, with confidence.
-- 🖥️ **Local Only Version** — run locally, Tail Scale integration and more
+  right*) with a note, so the workspace learns what "good" looks like for your business.
+  Evals already score output against your standard; this closes the loop from everyday use.
+- 🧩 **Richer artifacts** — versions, attachments, embeds, and multi-file pages behind one
+  public URL.
+- 🔍 **Retrieval over compiled knowledge** — search the compiled pages instead of injecting
+  whole collections, so a big workspace stays cheap to ask.
+- 🖥️ **Local-only version** — run it on your own machine, Tailscale and all.
 
 Issues and PRs welcome.
 
 ## Origins
 
-This is the third iteration of an idea [Alfred Nutile](https://github.com/alnutile) has
-been building and writing about since 2023 — before "agents" was a product category:
+Not a launch — a long bet. This is the third version of an idea
+[Alfred Nutile](https://github.com/alnutile) has been building in the open since 2023,
+before "AI agents" was a product category:
 
 - **[LaraChain → LaraLlama](https://github.com/LlmLaraHub/larallama)** (2023–2024, now
   archived) — document collections you could chat with, email and web ingestion,
@@ -362,9 +520,9 @@ been building and writing about since 2023 — before "agents" was a product cat
 - **[The video series](https://youtube.com/playlist?list=PLL8JVuiFkO9K7oEwcQo8lzijczKm7ccuS&si=Pjitnmo5-y4v1oUT)**
   — walkthroughs of those systems being designed and built, as it happened.
 
-The idea was early; the 2023 models weren't ready for it. They are now. This project is
-the same vision — a team's shared, tool-using AI workspace on infrastructure it owns —
-rebuilt from scratch on Supabase and current models.
+The idea was early; the 2023 models weren't ready for it. They are now. SupaNet is the
+same vision — a company's shared, tool-using AI hub on infrastructure it owns — rebuilt
+from scratch on Supabase and current models.
 
 ## Contributing
 
@@ -375,4 +533,4 @@ rebuilt from scratch on Supabase and current models.
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE). Use it, fork it, build your own intranet.
+MIT — see [`LICENSE`](./LICENSE). Fork it, audit it, keep it. No per-seat fees, no lock-in, ever.
