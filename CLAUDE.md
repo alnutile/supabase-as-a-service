@@ -511,7 +511,16 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   list block so chatting with a collection carries its links. Seeded `is_builtin` tools
   `save_link` / `list_links` / `add_link_to_collection` (in `_shared/builtins.ts`) let
   chat/scheduler/webhook agents capture links (metadata auto-fetched; `link.created`
-  activity-logged). *(Planned: screenshot capture via the browse-the-web tooling filling
+  activity-logged). **`list_links` is time-aware (migration 0121):** every row already carried
+  `created_at`/`updated_at` (0049, with a `links_set_updated_at` trigger) but neither was ever
+  surfaced, so "what did we save this week" meant pulling the whole list. It now prints each
+  link's saved/last-updated timestamps (the second only when it differs) and takes a date range
+  — `since`/`until` (either end optional, an ISO 8601 timestamp **or** a bare `YYYY-MM-DD`,
+  which is widened to cover the whole UTC day so `until` is inclusive) filtering on `created_at`
+  or, with `date_field:"updated"`, on `updated_at`. The rendering + bound parsing are the pure,
+  unit-tested `_shared/links.ts` (`formatLinkList`/`parseDateBound`/`dateColumn`); the MCP server
+  delegates `list_links` to `runBuiltin`, so an external Claude gets the same dates and range.
+  *(Planned: screenshot capture via the browse-the-web tooling filling
   `screenshot_path`; a REST API + MCP tools like artifacts/to-dos.)*
 - **Files:** `FilesPage` uploads to the private `files` storage bucket under
   `‹user-id›/…` and creates 7-day signed URLs for sharing.
