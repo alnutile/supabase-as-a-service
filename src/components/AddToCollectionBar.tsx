@@ -51,7 +51,7 @@ export function AddToCollectionBar({
     // can't track; all link tables are structurally identical, so we cast to a
     // representative one (`collection_files`) and read the dynamic column loosely.
     const [cRes, mRes] = await Promise.all([
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       selectedIds.length
         ? supabase
             .from(cfg.table as 'collection_files')
