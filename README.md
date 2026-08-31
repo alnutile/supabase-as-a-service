@@ -53,6 +53,7 @@ It leans on Supabase for the parts that should be boring and solid, and adds a c
 - 💸 **Usage & cost** — every model call's tokens and cost are logged; an admin **Usage** page shows spend (totals, daily chart, by model / context / user) plus your live OpenRouter account balance.
 - 🤖 **Agents** — a deployable unit: a system prompt + the tools it may use, managed in a dashboard and runnable from chat.
 - 🔌 **MCP server** — connect **Claude Code / Desktop** to your workspace with a token (Settings → Connect Claude), then say *"build an agent that does X on my intranet"* — Claude authors it and **pushes it in over MCP**, where it shows up in the dashboard. Your app is one way to build these; it isn't the only way.
+- ⌨️ **CLI & Skills** — the workspace is reachable outside the browser too: the [**`supanet` CLI**](https://github.com/alnutile/supanet-cli) drives every tool, to-do, and artifact from a terminal or a script (same token, `run-tool` under the hood), and [**supanet-skills**](https://github.com/alnutile/supanet-skills) is a set of portable Agent Skills that teach Claude Code / pi / Codex how to use it well. See [Companion resources](#companion-resources-cli--skills).
 - 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).
 
 The OpenRouter API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
@@ -215,6 +216,59 @@ fully quit and reopen Desktop:
 > `mcp-remote` mangles a space inside the `--header` argument otherwise. Node/`npx` must
 > be on the app's PATH. **Settings → Connect Claude** generates both snippets with your
 > URL and token filled in.
+
+## Companion resources (CLI & Skills)
+
+MCP is not the only way in. Two separate, optional repos sit beside this one — connect
+whichever suits the tool you're holding. Both authenticate with the **same personal token**
+you generate in **Settings → Connect Claude** (an `mcp_tokens` row), and every call runs as
+that token's owner with row-level security still enforced server-side.
+
+| Resource | Repo | Use it when |
+| --- | --- | --- |
+| **SupaNet CLI** | [alnutile/supanet-cli](https://github.com/alnutile/supanet-cli) | You (or an agent that can shell out) want the workspace from a terminal, a script, or cron |
+| **SupaNet Skills** | [alnutile/supanet-skills](https://github.com/alnutile/supanet-skills) | You want a coding agent (Claude Code, pi, Codex) to *know how* to use the workspace well |
+
+### `supanet` — the command-line client
+
+A thin, dependency-free wrapper over the workspace's existing token-authed HTTP surfaces:
+the universal **`run-tool`** runner (every builtin, no model in the loop) plus the plain-REST
+**`artifacts`** and **`todos`** endpoints. No new server-side API — it just makes the same
+surface ergonomic from a shell.
+
+```bash
+# install (curl, or `npm install -g supanet-cli`)
+curl -fsSL https://raw.githubusercontent.com/alnutile/supanet-cli/main/install.sh | sh
+
+# point it at your workspace, once
+supanet config set --url https://‹your-project›.supabase.co --token ‹your-token›
+
+supanet tools                                   # discover every runnable tool + schema
+supanet run list_todos --status open            # run any of them
+supanet todos add "Ship the thing" --due 2026-07-01 --collection Work
+supanet artifacts create "Design doc" --file doc.md --type markdown
+supanet note "Meeting notes" --file notes.md --collection Team
+supanet search "what's our refund policy"
+supanet chain --file steps.json                 # chain up to 10 tools, {{prev}} threading
+```
+
+### `supanet-skills` — portable Agent Skills
+
+Nine [Agent Skills](https://agentskills.io) (`SKILL.md` files) that teach a coding agent the
+workspace's conventions — artifacts, collections, tables, table forms, the knowledge
+compiler, the planner surfaces, and automation. They load on demand when a task matches,
+so the agent stops guessing at the API.
+
+```bash
+npx skills add alnutile/supanet-skills --all                  # any agent
+npx skills add alnutile/supanet-skills -s supanet-getting-started -g -y   # just the intro
+pi install git:github.com/alnutile/supanet-skills             # pi
+git clone https://github.com/alnutile/supanet-skills ~/.claude/skills/supanet-skills  # Claude Code
+```
+
+Start with **supanet-getting-started**; the others (`intranet-workspace`,
+`supanet-artifacts`, `supanet-collections`, `supanet-tables`, `supanet-table-forms`,
+`supanet-knowledge-compiler`, `supanet-planner`, `supanet-automation`) cover one area each.
 
 ## Security model
 

@@ -5,9 +5,23 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChatIcon, ChevronLeftIcon, CloseIcon, PlusIcon, TrashIcon, UsersIcon } from '../components/icons'
 import { BoardChatPanel } from '../components/BoardChatPanel'
+import {
+  CANVAS_H,
+  CANVAS_W,
+  CARD_DEFAULT_H,
+  CARD_DEFAULT_W,
+  CARD_SIZES,
+  CARD_SIZE_NAMES,
+  type Card,
+  cardFontSize,
+  cardsSig,
+  clampPosition,
+  normalizeCards,
+  resizeTo,
+  sizeLabel,
+} from '../lib/cardBoard'
 
 type CardBoard = Database['public']['Tables']['card_boards']['Row']
-type Card = { id: string; text: string; color: string; x: number; y: number }
 
 // Sticky-note palette — solid pastels with dark text, so cards read the same in
 // light and dark mode (a sticky note is a physical object, not themed chrome).
@@ -20,30 +34,12 @@ const COLORS: Record<string, { bg: string; bar: string }> = {
   gray: { bg: '#e5e7eb', bar: '#d1d5db' },
 }
 const COLOR_NAMES = Object.keys(COLORS)
-const CARD_W = 190
-const CANVAS_W = 2600
-const CANVAS_H = 1700
 
 function normColor(c: string): string {
   return COLORS[c] ? c : 'yellow'
 }
 function cardsOf(board: CardBoard | null): Card[] {
-  const raw = Array.isArray(board?.cards) ? (board!.cards as unknown[]) : []
-  return raw
-    .filter((c): c is Card => !!c && typeof c === 'object')
-    .map((c) => {
-      const o = c as Record<string, unknown>
-      return {
-        id: String(o.id ?? crypto.randomUUID()),
-        text: typeof o.text === 'string' ? o.text : '',
-        color: normColor(String(o.color ?? 'yellow')),
-        x: Number.isFinite(Number(o.x)) ? Number(o.x) : 40,
-        y: Number.isFinite(Number(o.y)) ? Number(o.y) : 40,
-      }
-    })
-}
-function cardsSig(cards: Card[]): string {
-  return cards.map((c) => `${c.id}:${Math.round(c.x)}:${Math.round(c.y)}:${c.color}:${c.text}`).join('|')
+  return normalizeCards(board?.cards, normColor)
 }
 
 export default function CardBoardEditorPage() {
@@ -58,6 +54,7 @@ export default function CardBoardEditorPage() {
   const [peers, setPeers] = useState(0)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [colorMenu, setColorMenu] = useState<string | null>(null)
+  const [sizeMenu, setSizeMenu] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
 
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -66,6 +63,7 @@ export default function CardBoardEditorPage() {
   const lastSigRef = useRef<string>('')
   const draggingRef = useRef(false)
   const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null)
+  const resizeRef = useRef<{ id: string; startX: number; startY: number; w: number; h: number } | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const bcastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -147,7 +145,7 @@ export default function CardBoardEditorPage() {
     channel
       .on('broadcast', { event: 'cards' }, ({ payload }) => {
         if (!payload || payload.from === myId) return
-        if (!draggingRef.current) applyRemote(cardsOf({ cards: payload.cards } as CardBoard))
+        if (!draggingRef.current) applyRemote(normalizeCards(payload.cards, normColor))
       })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState() as Record<string, unknown[]>
@@ -177,7 +175,8 @@ export default function CardBoardEditorPage() {
   const addCardAt = useCallback(
     (x: number, y: number) => {
       const id = crypto.randomUUID()
-      const card: Card = { id, text: '', color: 'yellow', x: Math.max(0, x), y: Math.max(0, y) }
+      const pos = clampPosition(x, y, CARD_DEFAULT_W, CARD_DEFAULT_H)
+      const card: Card = { id, text: '', color: 'yellow', ...pos, w: CARD_DEFAULT_W, h: CARD_DEFAULT_H }
       pushLocal([...cardsRef.current, card])
       setEditingId(id)
     },
@@ -187,7 +186,12 @@ export default function CardBoardEditorPage() {
   const onCanvasDoubleClick = (e: React.MouseEvent) => {
     if (e.target !== canvasRef.current) return
     const rect = canvasRef.current!.getBoundingClientRect()
-    addCardAt(e.clientX - rect.left - CARD_W / 2, e.clientY - rect.top - 16)
+    addCardAt(e.clientX - rect.left - CARD_DEFAULT_W / 2, e.clientY - rect.top - 16)
+  }
+
+  const closeMenus = () => {
+    setColorMenu(null)
+    setSizeMenu(null)
   }
 
   const editText = (id: string, text: string) =>
@@ -195,6 +199,17 @@ export default function CardBoardEditorPage() {
   const setColor = (id: string, color: string) => {
     pushLocal(cardsRef.current.map((c) => (c.id === id ? { ...c, color } : c)))
     setColorMenu(null)
+  }
+  // Preset sizes — one click for "make this one big"; the corner grip is the
+  // free-form version. Position is re-clamped so a grown card stays on canvas.
+  const setSize = (id: string, name: string) => {
+    const preset = CARD_SIZES[name] ?? CARD_SIZES.medium
+    pushLocal(
+      cardsRef.current.map((c) =>
+        c.id === id ? { ...c, ...preset, ...clampPosition(c.x, c.y, preset.w, preset.h) } : c,
+      ),
+    )
+    setSizeMenu(null)
   }
   const removeCard = (id: string) => pushLocal(cardsRef.current.filter((c) => c.id !== id))
 
@@ -205,9 +220,10 @@ export default function CardBoardEditorPage() {
       const canvas = canvasRef.current
       if (!d || !canvas) return
       const rect = canvas.getBoundingClientRect()
-      const x = Math.max(0, Math.min(CANVAS_W - CARD_W, e.clientX - rect.left - d.dx))
-      const y = Math.max(0, Math.min(CANVAS_H - 40, e.clientY - rect.top - d.dy))
-      pushLocal(cardsRef.current.map((c) => (c.id === d.id ? { ...c, x, y } : c)))
+      const card = cardsRef.current.find((c) => c.id === d.id)
+      if (!card) return
+      const pos = clampPosition(e.clientX - rect.left - d.dx, e.clientY - rect.top - d.dy, card.w, card.h)
+      pushLocal(cardsRef.current.map((c) => (c.id === d.id ? { ...c, ...pos } : c)))
     },
     [pushLocal],
   )
@@ -228,12 +244,45 @@ export default function CardBoardEditorPage() {
     window.addEventListener('pointermove', onDragMove)
     window.addEventListener('pointerup', onDragEnd)
   }
+
+  // --- Resize (bottom-right grip) -------------------------------------------
+  const onResizeMove = useCallback(
+    (e: PointerEvent) => {
+      const r = resizeRef.current
+      if (!r) return
+      const card = cardsRef.current.find((c) => c.id === r.id)
+      if (!card) return
+      const size = resizeTo(r.w, r.h, e.clientX - r.startX, e.clientY - r.startY, card.x, card.y)
+      if (size.w === card.w && size.h === card.h) return
+      pushLocal(cardsRef.current.map((c) => (c.id === r.id ? { ...c, ...size } : c)))
+    },
+    [pushLocal],
+  )
+  const onResizeEnd = useCallback(() => {
+    draggingRef.current = false
+    resizeRef.current = null
+    window.removeEventListener('pointermove', onResizeMove)
+    window.removeEventListener('pointerup', onResizeEnd)
+  }, [onResizeMove])
+  const startResize = (e: React.PointerEvent, id: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const card = cardsRef.current.find((c) => c.id === id)
+    if (!card) return
+    resizeRef.current = { id, startX: e.clientX, startY: e.clientY, w: card.w, h: card.h }
+    draggingRef.current = true
+    window.addEventListener('pointermove', onResizeMove)
+    window.addEventListener('pointerup', onResizeEnd)
+  }
+
   useEffect(
     () => () => {
       window.removeEventListener('pointermove', onDragMove)
       window.removeEventListener('pointerup', onDragEnd)
+      window.removeEventListener('pointermove', onResizeMove)
+      window.removeEventListener('pointerup', onResizeEnd)
     },
-    [onDragMove, onDragEnd],
+    [onDragMove, onDragEnd, onResizeMove, onResizeEnd],
   )
 
   // --- Board-level actions --------------------------------------------------
@@ -285,7 +334,7 @@ export default function CardBoardEditorPage() {
         <button
           onClick={() => {
             const el = canvasRef.current
-            const sx = el ? el.scrollLeft + el.clientWidth / 2 - CARD_W / 2 : 60
+            const sx = el ? el.scrollLeft + el.clientWidth / 2 - CARD_DEFAULT_W / 2 : 60
             const sy = el ? el.scrollTop + 80 : 60
             addCardAt(sx, sy)
           }}
@@ -334,59 +383,101 @@ export default function CardBoardEditorPage() {
         <div
           ref={canvasRef}
           onDoubleClick={onCanvasDoubleClick}
-          onClick={() => setColorMenu(null)}
+          onClick={closeMenus}
           style={{ width: CANVAS_W, height: CANVAS_H, ...dotBg }}
           className="relative"
         >
           {cards.length === 0 && (
             <div className="pointer-events-none absolute left-1/2 top-24 -translate-x-1/2 text-center text-sm text-faint">
-              Double-click anywhere to add a card. Drag the top bar to move it; arrange top-to-bottom by priority.
+              Double-click anywhere to add a card. Drag the top bar to move it, drag the bottom-right corner to
+              resize it; arrange top-to-bottom by priority.
             </div>
           )}
           {cards.map((c) => {
             const col = COLORS[c.color] ?? COLORS.yellow
+            const active = sizeLabel(c.w, c.h)
             return (
               <div
                 key={c.id}
-                style={{ left: c.x, top: c.y, width: CARD_W, background: col.bg }}
-                className="absolute rounded-lg shadow-md ring-1 ring-black/5"
+                style={{ left: c.x, top: c.y, width: c.w, height: c.h, background: col.bg }}
+                className="absolute flex flex-col rounded-lg shadow-md ring-1 ring-black/5"
               >
-                {/* Drag handle / color / delete */}
+                {/* Drag handle / color / size / delete */}
                 <div
                   onPointerDown={(e) => startDrag(e, c.id)}
                   style={{ background: col.bar }}
-                  className="flex cursor-grab items-center justify-between rounded-t-lg px-1.5 py-1 active:cursor-grabbing"
+                  className="flex shrink-0 cursor-grab items-center justify-between gap-1 rounded-t-lg px-1.5 py-1 active:cursor-grabbing"
                 >
-                  <div className="relative">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setColorMenu((m) => (m === c.id ? null : c.id))
-                      }}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      title="Change color"
-                      className="h-4 w-4 rounded-full border border-black/20"
-                      style={{ background: col.bg }}
-                    />
-                    {colorMenu === c.id && (
-                      <div
+                  <div className="flex items-center gap-1">
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSizeMenu(null)
+                          setColorMenu((m) => (m === c.id ? null : c.id))
+                        }}
                         onPointerDown={(e) => e.stopPropagation()}
-                        className="absolute left-0 top-6 z-20 flex gap-1 rounded-lg border border-border bg-surface p-1.5 shadow-xl"
+                        title="Change color"
+                        className="block h-4 w-4 rounded-full border border-black/20"
+                        style={{ background: col.bg }}
+                      />
+                      {colorMenu === c.id && (
+                        <div
+                          onPointerDown={(e) => e.stopPropagation()}
+                          className="absolute left-0 top-6 z-20 flex gap-1 rounded-lg border border-border bg-surface p-1.5 shadow-xl"
+                        >
+                          {COLOR_NAMES.map((name) => (
+                            <button
+                              key={name}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setColor(c.id, name)
+                              }}
+                              title={name}
+                              className="h-5 w-5 rounded-full border border-black/20"
+                              style={{ background: COLORS[name].bg }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setColorMenu(null)
+                          setSizeMenu((m) => (m === c.id ? null : c.id))
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        title="Card size — or drag the bottom-right corner"
+                        aria-label="Card size"
+                        className="flex h-4 items-center rounded border border-black/20 px-1 text-[9px] font-bold uppercase leading-none text-black/50 hover:text-black/80"
                       >
-                        {COLOR_NAMES.map((name) => (
-                          <button
-                            key={name}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setColor(c.id, name)
-                            }}
-                            title={name}
-                            className="h-5 w-5 rounded-full border border-black/20"
-                            style={{ background: COLORS[name].bg }}
-                          />
-                        ))}
-                      </div>
-                    )}
+                        {active === 'huge' ? 'XL' : active.charAt(0).toUpperCase()}
+                      </button>
+                      {sizeMenu === c.id && (
+                        <div
+                          onPointerDown={(e) => e.stopPropagation()}
+                          className="absolute left-0 top-6 z-20 flex gap-1 rounded-lg border border-border bg-surface p-1.5 shadow-xl"
+                        >
+                          {CARD_SIZE_NAMES.map((name) => (
+                            <button
+                              key={name}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSize(c.id, name)
+                              }}
+                              title={name}
+                              className={`rounded px-1.5 py-0.5 text-[11px] font-medium capitalize ${
+                                active === name ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-hover'
+                              }`}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <button
                     onClick={(e) => {
@@ -408,9 +499,23 @@ export default function CardBoardEditorPage() {
                   onBlur={() => setEditingId((id) => (id === c.id ? null : id))}
                   placeholder="Write an idea…"
                   spellCheck={false}
-                  rows={3}
-                  className="w-full resize-none rounded-b-lg bg-transparent px-2.5 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-500"
+                  style={{ fontSize: cardFontSize(c.w) }}
+                  className="min-h-0 w-full flex-1 resize-none rounded-b-lg bg-transparent px-2.5 py-2 leading-snug text-slate-800 outline-none placeholder:text-slate-500"
                 />
+                {/* Resize grip — free-form sizing; size is the visual weight of an idea */}
+                <div
+                  onPointerDown={(e) => startResize(e, c.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  role="separator"
+                  aria-label="Resize card"
+                  title="Drag to resize"
+                  className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize touch-none rounded-br-lg text-black/30 hover:text-black/60"
+                >
+                  <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
+                    <path d="M15 8 L8 15 M15 12 L12 15" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  </svg>
+                </div>
               </div>
             )
           })}

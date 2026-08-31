@@ -833,15 +833,23 @@ const TOOLS = [
   {
     name: 'create_card_board',
     description:
-      'Create a card board — a free-form wall of movable cards for laying out ideas by priority (not a Kanban). Optionally seed it with `cards`: an array of {text, color?} (color one of yellow|pink|green|blue|purple|gray). Optionally file into a collection (by name; created if missing).',
+      'Create a card board — a free-form wall of movable cards for laying out ideas by priority (not a Kanban). Optionally seed it with `cards`: an array of {text, color?, size?} (color one of yellow|pink|green|blue|purple|gray; size one of small|medium|large|huge — a bigger card reads as a bigger idea). Optionally file into a collection (by name; created if missing).',
     inputSchema: {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'The board title.' },
         cards: {
           type: 'array',
-          description: 'Optional cards to seed: each {text, color?}.',
-          items: { type: 'object', properties: { text: { type: 'string' }, color: { type: 'string' } }, required: ['text'] },
+          description: 'Optional cards to seed: each {text, color?, size?}.',
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              color: { type: 'string' },
+              size: { type: 'string', description: 'small | medium (default) | large | huge — the card\'s visual weight.' },
+            },
+            required: ['text'],
+          },
         },
         collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
       },
@@ -875,7 +883,7 @@ const TOOLS = [
   {
     name: 'add_cards',
     description:
-      'Add cards to an existing board (by id or exact title). Pass `cards`: an array of {text, color?}. The cards are auto-positioned; the user drags them to rank by priority.',
+      'Add cards to an existing board (by id or exact title). Pass `cards`: an array of {text, color?, size?} (size one of small|medium|large|huge — a bigger card reads as a bigger idea). The cards are auto-positioned; the user drags them to rank by priority and can resize them on the board.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -883,8 +891,16 @@ const TOOLS = [
         title: { type: 'string', description: 'The exact board title (alternative to id).' },
         cards: {
           type: 'array',
-          description: 'Cards to add: each {text, color?}.',
-          items: { type: 'object', properties: { text: { type: 'string' }, color: { type: 'string' } }, required: ['text'] },
+          description: 'Cards to add: each {text, color?, size?}.',
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              color: { type: 'string' },
+              size: { type: 'string', description: 'small | medium (default) | large | huge — the card\'s visual weight.' },
+            },
+            required: ['text'],
+          },
         },
       },
       required: ['cards'],
