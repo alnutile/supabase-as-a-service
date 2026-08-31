@@ -1352,6 +1352,7 @@ async function resolveCollection(
     .from('collections')
     .select('id, name, owner_id, visibility')
     .or(`owner_id.eq.${owner},visibility.eq.workspace`)
+    .is('deleted_at', null)
   const found = (data ?? []).find(
     (c: { id: string; name: string }) => c.id === r || c.name.trim().toLowerCase() === r.toLowerCase(),
   )
@@ -1726,6 +1727,8 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       return text(await runBuiltin(db, 'update_artifact', args, owner))
     case 'delete_artifact':
     case 'restore_artifact':
+    case 'delete_collection':
+    case 'restore_collection':
       return text(await runBuiltin(db, name, args, owner))
     case 'get_collection': {
       const ref = String(args.collection ?? '').trim()
@@ -1740,19 +1743,8 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       const bundle = await buildCollectionBundle(db, owner, col, includes, since)
       return text(JSON.stringify(bundle, null, 2))
     }
-    case 'list_collections': {
-      const { data } = await db
-        .from('collections')
-        .select('id, name, description, visibility, owner_id')
-        .or(`owner_id.eq.${owner},visibility.eq.workspace`)
-        .order('name', { ascending: true })
-      if (!data || !data.length) return text('No collections yet. Use create_collection to make one.')
-      return text(
-        data
-          .map((c) => `• ${c.name} (${c.id}) [${c.visibility}]${c.description ? ` — ${c.description}` : ''}`)
-          .join('\n'),
-      )
-    }
+    case 'list_collections':
+      return text(await runBuiltin(db, name, args, owner))
     case 'create_collection': {
       const name = String(args.name ?? '').trim()
       if (!name) return text('create_collection needs a name.', true)

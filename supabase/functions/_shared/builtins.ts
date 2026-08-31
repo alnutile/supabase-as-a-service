@@ -120,8 +120,12 @@ export async function runBuiltin(
       return deleteArtifact(db, input, userId)
     case 'restore_artifact':
       return restoreArtifact(db, input, userId)
+    case 'delete_collection':
+      return deleteCollection(db, input, userId)
+    case 'restore_collection':
+      return restoreCollection(db, input, userId)
     case 'list_collections':
-      return listCollections(db, userId)
+      return listCollections(db, input, userId)
     case 'create_collection':
       return createCollection(db, input, userId)
     case 'add_to_collection':
@@ -987,13 +991,17 @@ async function resolveCollection(
   owner: string,
   ref: string,
   createIfMissing: boolean,
+  archived: 'live' | 'archived' | 'any' = 'live',
 ): Promise<{ id: string; name: string } | null> {
   const r = ref.trim()
   if (!r) return null
-  const { data } = await db
+  let q = db
     .from('collections')
-    .select('id, name, owner_id, visibility')
+    .select('id, name, owner_id, visibility, deleted_at')
     .or(`owner_id.eq.${owner},visibility.eq.workspace`)
+  if (archived === 'live') q = q.is('deleted_at', null)
+  else if (archived === 'archived') q = q.not('deleted_at', 'is', null)
+  const { data } = await q
   const found = (data ?? []).find(
     (c: { id: string; name: string }) => c.id === r || c.name.trim().toLowerCase() === r.toLowerCase(),
   )
@@ -1267,14 +1275,75 @@ async function restoreArtifact(
   return `Restored artifact "${art.title}" (/artifacts/${art.id}). It's visible again.`
 }
 
-async function listCollections(db: DB | null, userId: string | null): Promise<string> {
+async function deleteCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
   if (!db || !userId) return 'Collections are unavailable.'
-  const { data } = await db
+  const ref = String(input?.collection ?? '').trim()
+  if (!ref) return 'Pass the collection id or its exact name.'
+  const permanent = input?.permanent === true
+  // Resolve across any trash state so a second "delete" on an already-archived
+  // collection can still escalate to a permanent removal.
+  const col = await resolveCollection(db, userId, ref, false, 'any')
+  if (!col) return `No collection you own matches "${ref}".`
+  if (permanent) {
+    const { error } = await db.from('collections').delete().eq('id', col.id).eq('owner_id', userId)
+    if (error) return `Could not delete the collection: ${error.message}`
+    await logActivity(db, 'collection.deleted', `Permanently deleted collection "${col.name}"`, { id: col.id, permanent: true }, userId)
+    return `Permanently deleted collection "${col.name}". This cannot be undone.`
+  }
+  const { error } = await db
     .from('collections')
-    .select('id, name, description, visibility, owner_id')
-    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
-    .order('name', { ascending: true })
-  if (!data || !data.length) return 'No collections yet. Use create_collection to make one.'
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', col.id)
+    .eq('owner_id', userId)
+  if (error) return `Could not archive the collection: ${error.message}`
+  await logActivity(db, 'collection.archived', `Archived collection "${col.name}"`, { id: col.id }, userId)
+  return `Archived collection "${col.name}". It's hidden from normal views but recoverable with restore_collection (or delete it for good with permanent:true).`
+}
+
+async function restoreCollection(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Collections are unavailable.'
+  const ref = String(input?.collection ?? '').trim()
+  if (!ref) return 'Pass the collection id or its exact name.'
+  const col = await resolveCollection(db, userId, ref, false, 'archived')
+  if (!col) return `No archived collection you own matches "${ref}". Use list_collections with archived:true to see the recovery area.`
+  const { error } = await db
+    .from('collections')
+    .update({ deleted_at: null })
+    .eq('id', col.id)
+    .eq('owner_id', userId)
+  if (error) return `Could not restore the collection: ${error.message}`
+  await logActivity(db, 'collection.restored', `Restored collection "${col.name}"`, { id: col.id }, userId)
+  return `Restored collection "${col.name}" (/collections). It's visible again.`
+}
+
+async function listCollections(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Collections are unavailable.'
+  const archived = input?.archived === true
+  const limit = Math.min(Number(input?.limit) || 50, 200)
+  let q = db
+    .from('collections')
+    .select('id, name, description, visibility, owner_id, deleted_at')
+    .eq('owner_id', userId)
+  if (archived) q = q.not('deleted_at', 'is', null)
+  else q = q.is('deleted_at', null).or(`owner_id.eq.${userId},visibility.eq.workspace`)
+  const { data } = await q.order('name', { ascending: true }).limit(limit)
+  if (!data || !data.length) {
+    return archived
+      ? 'No archived collections. Deleted collections are recoverable with restore_collection.'
+      : 'No collections yet. Use create_collection to make one.'
+  }
   return (data as Array<{ id: string; name: string; description: string; visibility: string }>)
     .map((c) => `• ${c.name} (${c.id}) [${c.visibility}]${c.description ? ` — ${c.description}` : ''}`)
     .join('\n')
