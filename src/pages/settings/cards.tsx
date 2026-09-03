@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Database } from '../../lib/database.types'
 import { emailInboundUrl, inviteLinkUrl, slackEventsUrl, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -2076,6 +2077,151 @@ export function DropboxCard() {
               </ul>
             </div>
           )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// Settings → GitHub: the workspace token behind the Repositories area
+// (migration 0124). Same Vault-backed pattern as DropboxCard: the token is
+// written only through the admin-gated `set_github_integration` RPC, read only
+// by the service role (`read_github_secret`), never returned to the browser.
+// Public repositories work without it; private ones (and a comfortable rate
+// limit) need it.
+export function GitHubCard() {
+  const [configured, setConfigured] = useState<boolean | null>(null)
+  const [accessToken, setAccessToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [repoCount, setRepoCount] = useState<number | null>(null)
+
+  const load = useCallback(async () => {
+    const [{ data }, { count }] = await Promise.all([
+      supabase.rpc('github_is_configured'),
+      supabase.from('repositories').select('id', { count: 'exact', head: true }),
+    ])
+    setConfigured(data === true)
+    setRepoCount(count ?? 0)
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function save() {
+    setError(null)
+    if (!accessToken.trim()) {
+      setError('Paste a GitHub access token first.')
+      return
+    }
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('set_github_integration', { p_access_token: accessToken.trim() })
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    setAccessToken('')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+    load()
+  }
+
+  async function remove() {
+    if (!confirm('Remove the GitHub token? Private repositories will stop syncing until a new one is added.')) return
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('delete_github_integration')
+    setSaving(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    setConfigured(false)
+  }
+
+  return (
+    <section className="mt-6 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-text">GitHub token</h2>
+      <p className="mt-1 text-sm text-muted">
+        The <Link to="/repositories" className="text-primary underline">Repositories</Link> area reads your codebases and compiles a
+        maintained summary artifact per repo. Public repositories work without a token (60 anonymous requests an hour);
+        private repositories — and a comfortable rate limit — need one. The token is stored in Supabase Vault and only ever used
+        server-side.
+      </p>
+
+      {configured === null ? (
+        <p className="mt-4 text-sm text-faint">Loading…</p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <div className="rounded-lg border border-border bg-surface-2 p-3">
+            <p className="text-xs font-medium text-muted">Creating a token (read-only is enough)</p>
+            <ol className="mt-2 space-y-1 text-[11px] text-muted">
+              <li>
+                1. Go to{' '}
+                <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer" className="text-primary underline">
+                  GitHub → Settings → Developer settings → Fine-grained tokens
+                </a>
+              </li>
+              <li>2. Resource owner: your organization (or you). Repository access: the repos you want the workspace to read.</li>
+              <li>
+                3. Repository permissions, all <b>Read-only</b>: <code>Contents</code>, <code>Metadata</code>, <code>Pull requests</code>,{' '}
+                <code>Issues</code>
+              </li>
+              <li>4. Generate it and paste it below. (A classic token with the <code>repo</code> scope also works.)</li>
+            </ol>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className={`rounded-full px-2 py-0.5 font-semibold uppercase tracking-wide ${
+                configured ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-faint'
+              }`}
+            >
+              {configured ? 'Token configured' : 'No token'}
+            </span>
+            {repoCount != null && (
+              <span className="text-faint">
+                {repoCount} repositor{repoCount === 1 ? 'y' : 'ies'} connected
+              </span>
+            )}
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted">
+              Access token {configured && <span className="text-faint">— paste a new one to replace the current token</span>}
+            </span>
+            <input
+              type="password"
+              value={accessToken}
+              onChange={(e) => setAccessToken(e.target.value)}
+              autoComplete="off"
+              placeholder={configured ? '••• configured' : 'github_pat_… or ghp_…'}
+              className="w-full rounded-lg border border-border-strong px-3 py-2 font-mono text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft"
+            />
+          </label>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          <div className="flex gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-strong disabled:opacity-60"
+            >
+              {saving ? 'Saving…' : saved ? 'Saved!' : configured ? 'Replace token' : 'Save token'}
+            </button>
+            {configured && (
+              <button
+                onClick={remove}
+                disabled={saving}
+                className="rounded-lg border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-text hover:bg-surface-hover disabled:opacity-60"
+              >
+                Remove
+              </button>
+            )}
+          </div>
         </div>
       )}
     </section>

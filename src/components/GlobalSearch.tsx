@@ -10,6 +10,7 @@ import {
   CompassIcon,
   FileIcon,
   LinkIcon,
+  RepoIcon,
   SearchIcon,
   SkillIcon,
   TableIcon,
@@ -88,7 +89,7 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
 
   // Every source is independent; run them all at once and tolerate individual
   // failures (a missing table or RLS denial just contributes nothing).
-  const [conversations, artifacts, collections, todos, links, files, tables, agents, skills, tools, webhooks] =
+  const [conversations, artifacts, collections, todos, links, repositories, files, tables, agents, skills, tools, webhooks] =
     await Promise.all([
       supabase
         .from('conversations')
@@ -117,6 +118,11 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
         .from('links')
         .select('id, title, url')
         .or(orIlike(q, ['title', 'url', 'description', 'notes']))
+        .limit(PER_SOURCE),
+      supabase
+        .from('repositories')
+        .select('id, full_name, description')
+        .or(orIlike(q, ['full_name', 'description', 'notes']))
         .limit(PER_SOURCE),
       supabase
         .from('files')
@@ -197,6 +203,15 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
       subtitle: l.title ? l.url : undefined,
       to: '/links',
       icon: LinkIcon,
+    })
+  for (const r of repositories.data ?? [])
+    out.push({
+      key: `repo:${r.id}`,
+      group: 'Repositories',
+      title: r.full_name,
+      subtitle: r.description || undefined,
+      to: '/repositories',
+      icon: RepoIcon,
     })
   for (const f of files.data ?? [])
     out.push({

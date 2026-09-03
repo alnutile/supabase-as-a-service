@@ -410,6 +410,74 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['collection_links']['Insert']>
         Relationships: []
       }
+      repositories: {
+        Row: {
+          id: string
+          owner_id: string
+          provider: 'github'
+          full_name: string
+          url: string
+          description: string
+          default_branch: string
+          language: string | null
+          topics: string[]
+          stars: number
+          is_private: boolean
+          metadata: Json
+          notes: string
+          artifact_id: string | null
+          last_synced_at: string | null
+          last_sync_sha: string | null
+          last_sync_status: 'idle' | 'running' | 'ok' | 'error'
+          last_sync_error: string | null
+          sync_summary: string
+          visibility: CollectionVisibility
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          provider?: 'github'
+          full_name: string
+          url: string
+          description?: string
+          default_branch?: string
+          language?: string | null
+          topics?: string[]
+          stars?: number
+          is_private?: boolean
+          metadata?: Json
+          notes?: string
+          artifact_id?: string | null
+          last_synced_at?: string | null
+          last_sync_sha?: string | null
+          last_sync_status?: 'idle' | 'running' | 'ok' | 'error'
+          last_sync_error?: string | null
+          sync_summary?: string
+          visibility?: CollectionVisibility
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['repositories']['Insert']>
+        Relationships: []
+      }
+      collection_repositories: {
+        Row: {
+          collection_id: string
+          repository_id: string
+          added_by: string | null
+          created_at: string
+        }
+        Insert: {
+          collection_id: string
+          repository_id: string
+          added_by?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['collection_repositories']['Insert']>
+        Relationships: []
+      }
       collection_agents: {
         Row: {
           collection_id: string
@@ -1641,8 +1709,8 @@ export interface Database {
       integrations: {
         Row: {
           id: string
-          kind: 'email' | 'mcp' | 'dropbox'
-          provider: 'postmark' | 'resend' | null
+          kind: 'email' | 'mcp' | 'dropbox' | 'github'
+          provider: 'postmark' | 'resend' | 'dropbox' | 'github' | null
           from_address: string | null
           inbound_token: string | null
           allowed_recipients: string[] | null
@@ -1653,8 +1721,8 @@ export interface Database {
         }
         Insert: {
           id?: string
-          kind: 'email' | 'mcp' | 'dropbox'
-          provider?: 'postmark' | 'resend' | null
+          kind: 'email' | 'mcp' | 'dropbox' | 'github'
+          provider?: 'postmark' | 'resend' | 'dropbox' | 'github' | null
           from_address?: string | null
           inbound_token?: string | null
           allowed_recipients?: string[] | null
@@ -2249,6 +2317,20 @@ export interface Database {
         Returns: undefined
       }
       dropbox_is_configured: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      set_github_integration: {
+        Args: {
+          p_access_token: string
+        }
+        Returns: undefined
+      }
+      delete_github_integration: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      github_is_configured: {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }
