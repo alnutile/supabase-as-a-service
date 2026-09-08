@@ -474,6 +474,13 @@ export default function ArtifactEditorPage() {
               iconClassName="h-4 w-4"
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
             />
+            <CopyButton
+              text={shareUrl || `${window.location.origin}/artifacts/${artifact.id}`}
+              label="Copy Link"
+              title={shareUrl ? "Copy the public share link" : "Copy the link to this artifact"}
+              iconClassName="h-4 w-4"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
+            />
             <button
               onClick={() => navigate(`/chat?artifact=${artifact.id}`)}
               title="Chat with the assistant about this artifact — it opens live beside the thread"
