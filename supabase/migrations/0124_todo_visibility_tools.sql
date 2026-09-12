@@ -1,5 +1,13 @@
 -- To-do visibility over the tool surface.
 --
+-- Numbering note: 0124 is the next free prefix on main, and `migrations.test.ts`
+-- requires prefixes to be both unique AND gap-free — so this is the only number
+-- this file can carry today. The open PR #361 also claims 0124
+-- (`0124_repositories.sql`); whichever of the two merges second renumbers to
+-- 0125, since a duplicate prefix aborts `db push` and nothing after it applies
+-- (the 0065 / 0078 / 0086 / 0109 collisions). Skipping ahead to 0125 now is not
+-- an option: it would open a gap at 0124 and fail the same guard.
+--
 -- `todos.visibility` (private|workspace) has existed since migration 0041 and
 -- the REST `todos` function has always accepted it, but the `create_todo` /
 -- `update_todo` builtins hardcoded `private` — so every to-do an agent, the

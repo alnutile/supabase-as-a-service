@@ -1133,7 +1133,7 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   repo variable. **Each migration filename must have a unique, contiguous numeric prefix**
   (`0040_…` after `0039_…`): `db push` derives the version from the prefix, so two files sharing
   a number (e.g. two `0032_*.sql`) collide and the push is rejected. Always use the next free number.
-  `src/lib/migrations.test.ts` guards this (unique prefixes) — but it only catches collisions once
+  `src/lib/migrations.test.ts` guards this (prefixes must be unique **and** gap-free — so you cannot dodge a collision with a concurrent PR by skipping ahead to the next number; the second one to merge renumbers) — but it only catches collisions once
   BOTH files are on `main`, so a duplicate can slip in via a rebase (your `0086` + a `0086` that
   landed while you were working); re-check the next free number right before pushing, not just when
   you create the file. **Changing a function's return type needs a DROP first:** Postgres rejects
