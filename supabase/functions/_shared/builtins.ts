@@ -30,6 +30,14 @@ import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { runSecurityScan } from './security_scan.ts'
 import { summarizeResource } from './resource_summarizer.ts'
+import {
+  addRepository,
+  addRepositoryToCollection,
+  browseRepository,
+  getRepository,
+  listRepositories,
+  syncRepository,
+} from './repositories.ts'
 import { dateColumn, formatLinkList, type LinkRow, parseDateBound } from './links.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
@@ -271,6 +279,20 @@ export async function runBuiltin(
       return getChangeBrief(db, input, userId)
     case 'set_compile_policy':
       return setCompilePolicy(db, input, userId)
+    // Repositories (GitHub) — read a codebase, compile/revise its summary
+    // artifact (see _shared/repositories.ts + _shared/github.ts).
+    case 'add_repository':
+      return addRepository(db, userId, input)
+    case 'list_repositories':
+      return listRepositories(db, userId, input)
+    case 'get_repository':
+      return getRepository(db, userId, input)
+    case 'browse_repository':
+      return browseRepository(db, userId, input)
+    case 'sync_repository':
+      return syncRepository(db, userId, input)
+    case 'add_repository_to_collection':
+      return addRepositoryToCollection(db, userId, input)
     default:
       return `Unknown builtin: ${name}`
   }

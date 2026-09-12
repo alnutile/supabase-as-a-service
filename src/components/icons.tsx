@@ -134,6 +134,16 @@ export const LinkIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const RepoIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="6" cy="5" r="2.2" />
+    <circle cx="6" cy="19" r="2.2" />
+    <circle cx="18" cy="9" r="2.2" />
+    <path d="M6 7.2v9.6" />
+    <path d="M18 11.2c0 3-3 4-6 4.6-2.4.5-4.8 1.2-6 3.2" />
+  </svg>
+)
+
 export const TrashIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />

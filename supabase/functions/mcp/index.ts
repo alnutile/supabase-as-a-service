@@ -703,6 +703,87 @@ const TOOLS = [
     },
   },
   {
+    name: 'add_repository',
+    description:
+      'Connect a GitHub repository to the workspace (URL or owner/name). Fetches its metadata and creates the row; call sync_repository next to read the code and compile the summary artifact. Private repos need the workspace GitHub token (Settings → GitHub). Optionally file it into collections.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'GitHub URL (https://github.com/owner/name) or owner/name.' },
+        visibility: { type: 'string', enum: ['private', 'workspace'], description: 'private (you + admins) or workspace (default).' },
+        notes: { type: 'string', description: 'Why this repo matters to the team.' },
+        collection: { type: 'string', description: 'Optional collection name or id; created if missing.' },
+        collections: { type: 'array', items: { type: 'string' }, description: 'Several collections to file it into.' },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'list_repositories',
+    description: 'List the connected GitHub repositories you can see — id, owner/name, description, language, last sync and whether a summary artifact exists. Optionally filter by collection or a search term.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'Optional collection name or id.' },
+        query: { type: 'string', description: 'Substring to match against owner/name, description or notes.' },
+      },
+    },
+  },
+  {
+    name: 'get_repository',
+    description:
+      "Read one connected repository: metadata, its summary artifact (the workspace's maintained understanding — read this first), and GitHub activity since the last sync or a date (commits, open PRs, open issues).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repository id, owner/name, or GitHub URL.' },
+        since: { type: 'string', description: 'Activity at/after this point — ISO 8601 or YYYY-MM-DD (default: last sync, else 30 days).' },
+        include_summary: { type: 'boolean', description: 'Include the summary artifact content (default true).' },
+        max_commits: { type: 'integer', description: 'Recent commits to show (default 20, max 50).' },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'browse_repository',
+    description: "Read a connected repository's code: list a directory (default root) or fetch one text file's content (capped).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repository id, owner/name, or GitHub URL.' },
+        path: { type: 'string', description: 'Directory or file path (default: root).' },
+        ref: { type: 'string', description: 'Branch, tag or sha (default: the default branch).' },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'sync_repository',
+    description:
+      'Read a connected repository (README, manifests, layout, languages, recent commits, open PRs/issues) and write or REVISE its summary artifact in place — the maintained explanation of what the product is, how it is built and what the team is working on. Returns a change brief. Takes up to a minute.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repository id, owner/name, or GitHub URL.' },
+        focus: { type: 'string', description: 'Optional emphasis for this pass (a question or an area to dig into).' },
+        max_commits: { type: 'integer', description: 'Recent commits to read (default 30, max 100).' },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'add_repository_to_collection',
+    description: "File a connected repository into a collection (name or id; created if missing). Its summary artifact travels with it.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repository id, owner/name, or GitHub URL.' },
+        collection: { type: 'string', description: 'Collection name or id.' },
+      },
+      required: ['repo', 'collection'],
+    },
+  },
+  {
     name: 'save_link',
     description:
       'Save a bookmark (URL) — the title/description/preview are auto-fetched from the page. Optionally file it into a collection (by name; created if missing). Use this to capture articles/videos/resources the team can chat with.',
@@ -1975,6 +2056,12 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       }
     }
     case 'search_documents':
+    case 'add_repository':
+    case 'list_repositories':
+    case 'get_repository':
+    case 'browse_repository':
+    case 'sync_repository':
+    case 'add_repository_to_collection':
     case 'save_link':
     case 'summarize_resource':
     case 'list_links':

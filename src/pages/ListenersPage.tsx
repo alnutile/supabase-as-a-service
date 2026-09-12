@@ -24,11 +24,14 @@ const EVENT_TYPES = [
   { value: 'todo.created', label: 'To-do added' },
   { value: 'todo.completed', label: 'To-do completed' },
   { value: 'link.created', label: 'Link saved' },
+  { value: 'repository.created', label: 'Repository connected' },
+  { value: 'repository.synced', label: 'Repository synced (summary refreshed)' },
+  { value: 'repository.*', label: 'Any repository event' },
   { value: 'chat.created', label: 'Conversation started' },
   { value: 'meeting.recorded', label: 'Meeting recorded' },
 ]
 
-const ENTITY_TYPES = ['artifact', 'file', 'todo', 'link', 'message', 'table']
+const ENTITY_TYPES = ['artifact', 'file', 'todo', 'link', 'message', 'table', 'repository']
 const SOURCES = ['email', 'slack', 'whatsapp', 'sms', 'webhook', 'manual', 'other']
 
 const ACTIONS = [

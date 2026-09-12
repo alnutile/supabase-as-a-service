@@ -18,6 +18,7 @@ import CollectionsPage from './pages/CollectionsPage'
 import KnowledgePage from './pages/KnowledgePage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
+import RepositoriesPage from './pages/RepositoriesPage'
 import MemoryPage from './pages/MemoryPage'
 import MeetingNotesPage from './pages/MeetingNotesPage'
 import TerminologyPage from './pages/TerminologyPage'
@@ -52,6 +53,7 @@ import TimezoneSettings from './pages/settings/TimezoneSettings'
 import EmailSettings from './pages/settings/EmailSettings'
 import SlackSettings from './pages/settings/SlackSettings'
 import DropboxSettings from './pages/settings/DropboxSettings'
+import GitHubSettings from './pages/settings/GitHubSettings'
 import McpSettings from './pages/settings/McpSettings'
 import InviteSettings from './pages/settings/InviteSettings'
 import FeatureFlagsSettings from './pages/settings/FeatureFlagsSettings'
@@ -112,6 +114,7 @@ export default function App() {
         <Route path="todos" element={<TodosPage />} />
         <Route path="todos/:todoId" element={<TodosPage />} />
         <Route path="links" element={<LinksPage />} />
+        <Route path="repositories" element={<RepositoriesPage />} />
         <Route path="memory" element={<MemoryPage />} />
         <Route path="meeting-notes" element={<MeetingNotesPage />} />
         <Route path="knowledge" element={<KnowledgePage />} />
@@ -145,6 +148,7 @@ export default function App() {
         <Route path="settings/email" element={<EmailSettings />} />
         <Route path="settings/slack" element={<SlackSettings />} />
         <Route path="settings/dropbox" element={<DropboxSettings />} />
+        <Route path="settings/github" element={<GitHubSettings />} />
         <Route path="settings/mcp" element={<McpSettings />} />
         <Route path="settings/people" element={<InviteSettings />} />
         <Route path="settings/feature-flags" element={<FeatureFlagsSettings />} />

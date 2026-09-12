@@ -18,6 +18,7 @@ const KIND = {
   agent: { table: 'collection_agents', col: 'agent_id', noun: 'agent' },
   whiteboard: { table: 'collection_whiteboards', col: 'whiteboard_id', noun: 'whiteboard' },
   card_board: { table: 'collection_card_boards', col: 'card_board_id', noun: 'card board' },
+  repository: { table: 'collection_repositories', col: 'repository_id', noun: 'repository' },
 } as const
 
 type Kind = keyof typeof KIND

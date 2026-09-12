@@ -6,6 +6,7 @@ import { streamChat, type ChatMessage } from '../lib/chat'
 import { loadCollectionChat, saveCollectionChat, type CollectionChatMessage } from '../lib/collectionChat'
 import { uploadPickedFile } from '../lib/upload'
 import { fetchLinkMeta, normalizeUrl } from '../lib/links'
+import { addRepository as connectRepository, parseRepoInput } from '../lib/repositories'
 import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import { formatBytes, formatDate } from '../lib/util'
@@ -27,6 +28,7 @@ import {
   LockIcon,
   PinIcon,
   PlusIcon,
+  RepoIcon,
   SendIcon,
   TableIcon,
   TerminologyIcon,
@@ -36,7 +38,7 @@ import {
 } from '../components/icons'
 
 type Collection = Database['public']['Tables']['collections']['Row']
-type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'agent' | 'whiteboard'
+type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'repository' | 'term' | 'agent' | 'whiteboard'
 
 // Per-kind wiring: the base table it lives in, the join table, and the join's
 // item column — so one set of helpers handles every content type.
@@ -49,14 +51,15 @@ const KINDS: Record<
   file: { title: 'Files', icon: FileIcon, base: 'files', link: 'collection_files', col: 'file_id', label: 'name' },
   table: { title: 'Tables', icon: TableIcon, base: 'user_tables', link: 'collection_tables', col: 'table_id', label: 'name' },
   link: { title: 'Links', icon: LinkIcon, base: 'links', link: 'collection_links', col: 'link_id', label: 'title' },
+  repository: { title: 'Repositories', icon: RepoIcon, base: 'repositories', link: 'collection_repositories', col: 'repository_id', label: 'full_name' },
   term: { title: 'Terminology', icon: TerminologyIcon, base: 'terminology', link: 'collection_terminology', col: 'term_id', label: 'term' },
   agent: { title: 'Agents', icon: AgentIcon, base: 'agents', link: 'collection_agents', col: 'agent_id', label: 'name' },
   whiteboard: { title: 'Whiteboards', icon: WhiteboardIcon, base: 'whiteboards', link: 'collection_whiteboards', col: 'whiteboard_id', label: 'title' },
 }
-const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'whiteboard', 'term', 'agent']
+const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'repository', 'whiteboard', 'term', 'agent']
 
 // URL segment for each kind: /collections/:collectionId/todos/:itemId etc.
-const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links', term: 'terminology', agent: 'agents', whiteboard: 'whiteboards' }
+const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links', repository: 'repositories', term: 'terminology', agent: 'agents', whiteboard: 'whiteboards' }
 const SLUG_TO_KIND: Record<string, Kind> = Object.fromEntries(Object.entries(KIND_TO_SLUG).map(([k, s]) => [s, k as Kind]))
 
 type Item = { id: string; label: string; meta?: string }
@@ -80,13 +83,14 @@ export default function CollectionsPage() {
   const [collapsed, setCollapsed] = useState(false)
 
   const load = useCallback(async () => {
-    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, stats] = await Promise.all([
+    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, crRes, ctrRes, cgRes, cwRes, stats] = await Promise.all([
       supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id'),
       supabase.from('collection_files').select('collection_id'),
       supabase.from('collection_todos').select('collection_id'),
       supabase.from('collection_tables').select('collection_id'),
       supabase.from('collection_links').select('collection_id'),
+      supabase.from('collection_repositories').select('collection_id'),
       supabase.from('collection_terminology').select('collection_id'),
       supabase.from('collection_agents').select('collection_id'),
       supabase.from('collection_whiteboards').select('collection_id'),
@@ -94,7 +98,7 @@ export default function CollectionsPage() {
     ])
     setCollections(cRes.data ?? [])
     const c: Record<string, number> = {}
-    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes]) {
+    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, crRes, ctrRes, cgRes, cwRes]) {
       for (const r of res.data ?? []) c[r.collection_id] = (c[r.collection_id] ?? 0) + 1
     }
     setCounts(c)
@@ -242,7 +246,7 @@ export default function CollectionsPage() {
               </div>
               <h2 className="text-lg font-semibold text-text">Your collections</h2>
               <p className="mt-2 text-sm text-muted">
-                A collection groups to-dos, artifacts, files, tables, links, whiteboards and agents so you can see them on one dashboard and chat with the whole set at once.
+                A collection groups to-dos, artifacts, files, tables, links, repositories, whiteboards and agents so you can see them on one dashboard and chat with the whole set at once.
               </p>
             </div>
           </div>
@@ -298,12 +302,13 @@ function CollectionDashboard({
   }
 
   const loadItems = useCallback(async () => {
-    const [a, f, t, u, l, tr, g, w] = await Promise.all([
+    const [a, f, t, u, l, rp, tr, g, w] = await Promise.all([
       supabase.from('collection_artifacts').select('artifacts(id, title, type, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_files').select('files(id, name, size_bytes)').eq('collection_id', collection.id),
       supabase.from('collection_todos').select('todos(id, title, done, due_date)').eq('collection_id', collection.id),
       supabase.from('collection_tables').select('user_tables(id, name, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_links').select('links(id, title, url)').eq('collection_id', collection.id),
+      supabase.from('collection_repositories').select('repositories(id, full_name, description, last_synced_at, last_sync_status)').eq('collection_id', collection.id),
       supabase.from('collection_terminology').select('terminology(id, term, definition)').eq('collection_id', collection.id),
       supabase.from('collection_agents').select('agents(id, name, description)').eq('collection_id', collection.id),
       supabase.from('collection_whiteboards').select('whiteboards(id, title, updated_at)').eq('collection_id', collection.id),
@@ -338,6 +343,16 @@ function CollectionDashboard({
         }
         return { id: String(x.id), label: String(x.title) || host, meta: host }
       })
+        .sort((a, b) => a.label.localeCompare(b.label)),
+      repository: pluck(rp.data, 'repositories').map((x) => ({
+        id: String(x.id),
+        label: String(x.full_name),
+        meta: x.last_sync_status === 'running'
+          ? 'syncing…'
+          : x.last_synced_at
+            ? `summary synced ${formatDate(String(x.last_synced_at))}`
+            : 'no summary yet',
+      }))
         .sort((a, b) => a.label.localeCompare(b.label)),
       term: pluck(tr.data, 'terminology').map((x) => ({
         id: String(x.id),
@@ -440,6 +455,14 @@ function CollectionDashboard({
         .select('id')
         .single()
       id = data?.id ?? null
+    } else if (kind === 'repository') {
+      // Connecting a repo needs GitHub (metadata + the workspace token), so it
+      // goes through the add_repository builtin, which also files it here.
+      if (!parseRepoInput(name)) return
+      await connectRepository(name, { collection: collection.id })
+      loadItems()
+      onChanged()
+      return
     } else if (kind === 'link') {
       const url = normalizeUrl(name)
       if (!url) return
@@ -939,6 +962,32 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
         meta: `${data.visibility === 'workspace' ? 'Workspace' : 'Private'} · updated ${formatDate(data.updated_at)}`,
         fullPageTo: `/whiteboards/${data.id}`,
         body: <p className="text-sm text-muted">Excalidraw canvas — open to view and edit</p>,
+      })
+    } else if (kind === 'repository') {
+      const { data } = await supabase.from('repositories').select('*').eq('id', id).maybeSingle()
+      if (!data) return setDetail('missing')
+      setDetail({
+        title: data.full_name,
+        meta: `${data.visibility === 'workspace' ? 'Workspace' : 'Private'} · ${
+          data.last_synced_at ? `summary synced ${formatDate(data.last_synced_at)}` : 'no summary yet'
+        }`,
+        fullPageTo: data.artifact_id ? `/artifacts/${data.artifact_id}` : '/repositories',
+        externalHref: data.url,
+        externalLabel: 'Open on GitHub',
+        body: (
+          <div className="space-y-3">
+            {data.description && <p className="text-sm text-muted">{data.description}</p>}
+            {data.notes && <p className="whitespace-pre-wrap text-sm text-text">{data.notes}</p>}
+            {data.sync_summary ? (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-faint">Last change brief</p>
+                <p className="whitespace-pre-wrap text-sm text-muted">{data.sync_summary}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-faint">Sync it from the Repositories page to compile its summary.</p>
+            )}
+          </div>
+        ),
       })
     } else {
       const { data } = await supabase.from('links').select('*').eq('id', id).maybeSingle()

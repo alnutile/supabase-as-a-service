@@ -167,6 +167,62 @@ export async function loadCollectionsContext(
         .map((l) => ({ title: l.title, url: l.url, description: [l.description, l.notes].filter(Boolean).join(' — ') }))
     }
 
+    // Repositories — a compact directory (name, url, description, sync state),
+    // plus each repo's SUMMARY ARTIFACT folded into the budgeted artifacts when
+    // it isn't already filed in the collection: the summary is the workspace's
+    // understanding of that codebase, so chatting with the collection should
+    // carry it even if only the repo row was filed. Access re-enforced: the
+    // repo must be own/workspace, the artifact own/non-private.
+    const { data: repoLinks } = await db
+      .from('collection_repositories')
+      .select('repository_id')
+      .in('collection_id', visibleIds)
+    const repoIds = [...new Set((repoLinks ?? []).map((l: { repository_id: string }) => l.repository_id))]
+    let repos: Array<{ full_name: string; url: string; description: string; notes: string; status: string; artifact_id: string | null }> = []
+    if (repoIds.length) {
+      const { data: rs } = await db
+        .from('repositories')
+        .select('full_name, url, description, notes, language, last_sync_status, last_synced_at, artifact_id, owner_id, visibility')
+        .in('id', repoIds)
+        .order('full_name', { ascending: true })
+      repos = ((rs ?? []) as Array<{
+        owner_id: string
+        visibility: string
+        full_name: string
+        url: string
+        description: string
+        notes: string
+        language: string | null
+        last_sync_status: string
+        last_synced_at: string | null
+        artifact_id: string | null
+      }>)
+        .filter((r) => r.owner_id === userId || r.visibility === 'workspace')
+        .map((r) => ({
+          full_name: r.full_name,
+          url: r.url,
+          description: [r.language, r.description].filter(Boolean).join(' — '),
+          notes: r.notes,
+          status: r.last_sync_status === 'error'
+            ? 'last sync failed'
+            : r.last_synced_at
+            ? `summary synced ${r.last_synced_at.slice(0, 10)}`
+            : 'no summary yet',
+          artifact_id: r.artifact_id,
+        }))
+      const summaryIds = repos.map((r) => r.artifact_id).filter((id): id is string => !!id && !ids.includes(id))
+      if (summaryIds.length) {
+        const { data: sums } = await db
+          .from('artifacts')
+          .select('id, title, type, content, visibility, owner_id')
+          .in('id', summaryIds)
+          .is('deleted_at', null)
+        for (const a of (sums ?? []) as Array<{ owner_id: string; visibility: string; title: string; type: string; content: string }>) {
+          if (a.owner_id === userId || a.visibility !== 'private') readable.push(a)
+        }
+      }
+    }
+
     // Agents — small (name + description); a compact directory of the agents
     // filed into the collection. Agents are a shared workspace catalogue, so any
     // member (the caller) may see them.
@@ -252,7 +308,7 @@ export async function loadCollectionsContext(
 
     if (
       !readable.length && !todos.length && !fileDocs.length && !tableDocs.length &&
-      !webLinks.length && !agents.length && !whiteboards.length && !cardBoards.length
+      !webLinks.length && !agents.length && !whiteboards.length && !cardBoards.length && !repos.length
     ) return compiled
 
     const parts: string[] = []
@@ -294,6 +350,17 @@ export async function loadCollectionsContext(
       parts.push(`## Links in this collection\n${lines}`)
     }
 
+    if (repos.length) {
+      const lines = repos
+        .map((r) =>
+          `- ${r.full_name}: ${r.url}${r.description ? ` — ${r.description.slice(0, 300)}` : ''} (${r.status}${
+            r.artifact_id ? `; summary artifact ${r.artifact_id} — its content is included above` : ''
+          })${r.notes ? `\n  note: ${r.notes.slice(0, 300)}` : ''}`
+        )
+        .join('\n')
+      parts.push(`## Repositories in this collection\n${lines}`)
+    }
+
     if (agents.length) {
       const lines = agents
         .map((a) => `- ${a.name}${a.description ? `: ${a.description.slice(0, 300)}` : ''}`)
@@ -321,7 +388,7 @@ export async function loadCollectionsContext(
 
     const itemCount =
       readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length + agents.length +
-      whiteboards.length + cardBoards.length
+      whiteboards.length + cardBoards.length + repos.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     const raw =
