@@ -33,3 +33,26 @@ Deno.test('validateWidget: mine:false and bad window are dropped', () => {
   const w = validateWidget({ title: 'a', kind: 'stat', source: 'activity', spec: { mine: false, window: 'forever' } }) as ValidWidget
   assertEquals(w.spec, {})
 })
+
+Deno.test('validateWidget: keeps viz + an allow-listed groupBy, drops others', () => {
+  const w = validateWidget({
+    title: 'c',
+    kind: 'chart',
+    source: 'artifacts',
+    spec: { viz: 'donut', groupBy: 'type' },
+  }) as ValidWidget
+  assertEquals(w.spec.viz, 'donut')
+  assertEquals(w.spec.groupBy, 'type')
+  // groupBy outside the source allow-list is dropped
+  const bad = validateWidget({ title: 'c', kind: 'chart', source: 'artifacts', spec: { groupBy: 'owner_id' } }) as ValidWidget
+  assertEquals(bad.spec.groupBy, undefined)
+  // a bad viz is dropped
+  const badViz = validateWidget({ title: 'c', kind: 'chart', source: 'todos', spec: { viz: 'spiral' } }) as ValidWidget
+  assertEquals(badViz.spec.viz, undefined)
+})
+
+Deno.test('validateWidget: a donut without a groupBy degrades to bar', () => {
+  const w = validateWidget({ title: 'c', kind: 'chart', source: 'files', spec: { viz: 'donut' } }) as ValidWidget
+  assertEquals(w.spec.viz, 'bar')
+  assertEquals(w.spec.groupBy, undefined)
+})
