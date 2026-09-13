@@ -144,6 +144,12 @@ invalid body, `401` bad/missing token, `404` not found, `500` server error).
 
 - `visibility` is `private` (only you + admins) or `workspace` (the whole team can
   see **and** collaborate — check off / edit), the same model as collections.
+  `team` and `shared` are accepted as aliases for `workspace`. An unrecognised
+  value is a `400` rather than a silent fall back to `private`, so a script can
+  never believe it shared a to-do that stayed invisible to everyone else.
+  Pass it on create, or `PATCH` it later to share an existing to-do. Filing a
+  to-do into a **workspace collection** promotes it to `workspace` on its own,
+  so you usually only need this for an ad-hoc team task outside a collection.
 - A collection is referenced by **name** (created automatically if missing) or by
   **id**. This mirrors the Artifacts API exactly, so the same collection can hold
   both artifacts and to-dos.
@@ -158,6 +164,16 @@ invalid body, `401` bad/missing token, `404` not found, `500` server error).
 curl -X POST "$BASE/todos" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"title":"Ship the thing","due_date":"2026-07-01","collection":"Work"}'
+
+# Create a to-do the whole team can see and tick off
+curl -X POST "$BASE/todos" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"title":"Renew the domain","visibility":"workspace"}'
+
+# Share an existing to-do with the team
+curl -X PATCH "$BASE/todos/<id>" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"visibility":"workspace"}'
 
 # List open to-dos in a collection, by due date
 curl "$BASE/todos?collection=Work&status=blocked&sort=due" \

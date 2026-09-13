@@ -23,6 +23,7 @@
 // collections — the same groups you chat with in the app.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { parseBearer, resolveApiUser } from '../_shared/apiauth.ts'
+import { normalizeTodoVisibility, TODO_VISIBILITIES } from '../_shared/todos.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -34,8 +35,6 @@ const CORS = {
 }
 
 const JSON_HEADERS = { ...CORS, 'Content-Type': 'application/json' }
-
-const VISIBILITIES = ['private', 'workspace'] as const
 
 function admin() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
@@ -197,7 +196,9 @@ NOTES
     two are kept consistent for you — set whichever you prefer, never both.
 
   • visibility is "private" (only you + admins) or "workspace" (the whole team can
-    see and collaborate) — same model as collections.
+    see and collaborate) — same model as collections. "team" and "shared" are
+    accepted as aliases for "workspace". Filing a to-do into a workspace
+    collection promotes it to workspace on its own, so you rarely need both.
   • A collection is a named group you can chat with in the app. Reference it by
     name (created automatically if it doesn't exist) or by id.
 
@@ -207,6 +208,18 @@ EXAMPLES
     -H "Authorization: Bearer $TOKEN" \\
     -H "Content-Type: application/json" \\
     -d '{"title":"Ship the thing","due_date":"2026-07-01","collection":"Work"}'
+
+  # Create a to-do the whole team can see and tick off
+  curl -X POST "${SUPABASE_URL}/functions/v1/todos" \\
+    -H "Authorization: Bearer $TOKEN" \\
+    -H "Content-Type: application/json" \\
+    -d '{"title":"Renew the domain","visibility":"workspace"}'
+
+  # Share an existing to-do with the team
+  curl -X PATCH "${SUPABASE_URL}/functions/v1/todos/$ID" \\
+    -H "Authorization: Bearer $TOKEN" \\
+    -H "Content-Type: application/json" \\
+    -d '{"visibility":"workspace"}'
 
   # List open to-dos in a collection, by due date
   curl "${SUPABASE_URL}/functions/v1/todos?collection=Work&status=open&sort=due" \\
@@ -273,16 +286,22 @@ async function handleCreate(db: DB, owner: string, body: Record<string, unknown>
 
   const due = normalizeDue(body.due_date)
   if (due === undefined && body.due_date !== undefined) return err('`due_date` must be YYYY-MM-DD or null.', 400)
-  const visibility = (VISIBILITIES as readonly string[]).includes(body.visibility as string)
-    ? (body.visibility as string)
-    : 'private'
+  const visibility = normalizeTodoVisibility(body.visibility)
+  if (visibility === null) return err(`\`visibility\` must be one of ${TODO_VISIBILITIES.join(', ')}.`, 400)
   const notes = typeof body.notes === 'string' ? body.notes : ''
   const done = body.done === true
   if (body.status !== undefined && !(TODO_STATUSES as readonly string[]).includes(body.status as string)) {
     return err(`\`status\` must be one of ${TODO_STATUSES.join(', ')}.`, 400)
   }
 
-  const insert: Record<string, unknown> = { owner_id: owner, title, notes, visibility, source: 'api' }
+  // Private unless the caller asked for the team.
+  const insert: Record<string, unknown> = {
+    owner_id: owner,
+    title,
+    notes,
+    visibility: visibility ?? 'private',
+    source: 'api',
+  }
   // Send only the half the caller named; the todos_sync_status trigger derives
   // the other, so `done` and `status` can never contradict each other.
   if (body.status !== undefined) insert.status = body.status
@@ -308,7 +327,9 @@ async function handleUpdate(db: DB, owner: string, id: string, body: Record<stri
     if (due === undefined) return err('`due_date` must be YYYY-MM-DD or null.', 400)
     patch.due_date = due
   }
-  if ((VISIBILITIES as readonly string[]).includes(body.visibility as string)) patch.visibility = body.visibility
+  const visibility = normalizeTodoVisibility(body.visibility)
+  if (visibility === null) return err(`\`visibility\` must be one of ${TODO_VISIBILITIES.join(', ')}.`, 400)
+  if (visibility !== undefined) patch.visibility = visibility
   if (body.status !== undefined) {
     if (!(TODO_STATUSES as readonly string[]).includes(body.status as string)) {
       return err(`\`status\` must be one of ${TODO_STATUSES.join(', ')}.`, 400)

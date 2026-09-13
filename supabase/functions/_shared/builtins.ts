@@ -23,6 +23,7 @@
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from './artifacts.ts'
+import { normalizeTodoVisibility, TODO_VISIBILITIES, visibilityNote } from './todos.ts'
 import { ingestText } from './knowledge.ts'
 import { citationLabel, hybridChunkSearch } from './retrieval.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
@@ -30,6 +31,7 @@ import { forget, listMemories, remember, updateMemory } from './memory.ts'
 import { hostOf, resolveVaultRefs } from './http_tool.ts'
 import { runSecurityScan } from './security_scan.ts'
 import { summarizeResource } from './resource_summarizer.ts'
+import { dateColumn, formatLinkList, type LinkRow, parseDateBound } from './links.ts'
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
@@ -1383,6 +1385,8 @@ async function createTodo(
   if (due === undefined && input?.due_date !== undefined) return 'due_date must be YYYY-MM-DD.'
   const status = normalizeStatus(input?.status)
   if (status === null) return `status must be one of ${TODO_STATUSES.join(', ')}.`
+  const visibility = normalizeTodoVisibility(input?.visibility)
+  if (visibility === null) return `visibility must be one of ${TODO_VISIBILITIES.join(', ')}.`
   const { data, error } = await db
     .from('todos')
     .insert({
@@ -1397,7 +1401,10 @@ async function createTodo(
       // Only an agent loop or an external Claude reaches this handler, so the
       // provenance is never a guess.
       source: 'agent',
-      visibility: 'private',
+      // Private unless the caller asks for the team — an agent filing work at
+      // one person shouldn't quietly publish it to everyone. Filing into a
+      // workspace collection still promotes it (migration 0122).
+      visibility: visibility ?? 'private',
     })
     .select('id')
     .single()
@@ -1414,8 +1421,16 @@ async function createTodo(
       note = ` Filed into collection "${col.name}".`
     }
   }
-  await logActivity(db, 'todo.created', `Created to-do "${title}"`, { id: data.id, collection: ref || null }, userId)
-  return `Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''} in the ${status ?? 'triage'} lane.${note}`
+  await logActivity(
+    db,
+    'todo.created',
+    `Created to-do "${title}"`,
+    { id: data.id, collection: ref || null, visibility: visibility ?? 'private' },
+    userId,
+  )
+  // Only worth saying for the notable case — private is the default.
+  const who = visibility === 'workspace' ? visibilityNote(visibility) : ''
+  return `Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''} in the ${status ?? 'triage'} lane.${who}${note}`
 }
 
 async function listTodos(
@@ -1426,7 +1441,7 @@ async function listTodos(
   if (!db || !userId) return 'To-dos are unavailable.'
   let query = db
     .from('todos')
-    .select('id, title, due_date, done, status, source')
+    .select('id, title, due_date, done, status, source, visibility')
     .or(`owner_id.eq.${userId},visibility.eq.workspace`)
     .order('done', { ascending: true })
     .order('due_date', { ascending: true, nullsFirst: false })
@@ -1456,12 +1471,16 @@ async function listTodos(
       done: boolean
       status: string | null
       source: string | null
+      visibility: string | null
     }>
   )
     .map((t) => {
       const meta = [t.status ?? (t.done ? 'done' : 'triage')]
       if (t.due_date) meta.push(`due ${t.due_date}`)
       if (t.source) meta.push(`from ${t.source}`)
+      // Say which ones the team can see, so "share these with the team" has
+      // something to act on without a second lookup.
+      if (t.visibility === 'workspace') meta.push('team')
       return `• [${t.done ? 'x' : ' '}] ${t.title} (${meta.join(', ')}) — ${t.id}`
     })
     .join('\n')
@@ -1515,6 +1534,17 @@ async function updateTodo(
     // each other no matter which one a tool call sets.
     if (patch.status === undefined) patch.done = input.done
   }
+  const visibility = normalizeTodoVisibility(input?.visibility)
+  if (visibility === null) return `visibility must be one of ${TODO_VISIBILITIES.join(', ')}.`
+  if (visibility !== undefined) {
+    // Every member can tick off or re-lane a workspace to-do, but only the owner
+    // decides who sees it — otherwise one member could pull a shared to-do back
+    // to private and hide it from the rest of the team.
+    const { data: row } = await db.from('todos').select('owner_id').eq('id', id).maybeSingle()
+    if (!row) return `To-do ${id} not found.`
+    if (row.owner_id !== userId) return `Only the owner of to-do ${id} can change who can see it.`
+    patch.visibility = visibility
+  }
   if (Object.keys(patch).length === 0) return 'No fields to update.'
   const { data, error } = await db
     .from('todos')
@@ -1525,7 +1555,7 @@ async function updateTodo(
     .maybeSingle()
   if (error) return `Could not update the to-do: ${error.message}`
   if (!data) return `To-do ${id} not found (or not yours).`
-  return `Updated to-do ${id}.`
+  return `Updated to-do ${id}.${visibilityNote(visibility, 'is now')}`
 }
 
 async function addTodoToCollection(
@@ -2006,12 +2036,20 @@ async function listLinks(
   userId: string | null,
 ): Promise<string> {
   if (!db || !userId) return 'Links are unavailable.'
+  const column = dateColumn(input?.date_field)
+  const since = parseDateBound(input?.since, 'start')
+  const until = parseDateBound(input?.until, 'end')
+  if (since === 'invalid' || until === 'invalid') {
+    return '`since` and `until` must be an ISO 8601 timestamp or a YYYY-MM-DD date.'
+  }
   let query = db
     .from('links')
-    .select('id, url, title, description')
+    .select('id, url, title, description, created_at, updated_at')
     .or(`owner_id.eq.${userId},visibility.eq.workspace`)
-    .order('created_at', { ascending: false })
+    .order(column, { ascending: false })
     .limit(100)
+  if (since) query = query.gte(column, since)
+  if (until) query = query.lte(column, until)
   const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
   if (ref) {
     const col = await resolveCollection(db, userId, ref, false)
@@ -2022,10 +2060,14 @@ async function listLinks(
     query = query.in('id', ids)
   }
   const { data } = await query
-  if (!data || !data.length) return 'No saved links. Use save_link to add one.'
-  return (data as Array<{ id: string; url: string; title: string; description: string }>)
-    .map((l) => `• ${l.title} — ${l.url}${l.description ? `\n  ${l.description.slice(0, 200)}` : ''}\n  id: ${l.id}`)
-    .join('\n')
+  if (!data || !data.length) {
+    if (since || until) {
+      const window = [since ? `from ${since}` : '', until ? `to ${until}` : ''].filter(Boolean).join(' ')
+      return `No links ${column === 'updated_at' ? 'updated' : 'saved'} ${window}.`
+    }
+    return 'No saved links. Use save_link to add one.'
+  }
+  return formatLinkList(data as LinkRow[])
 }
 
 // Download a captured screenshot image and attach it to a link: the image is

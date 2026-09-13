@@ -1304,7 +1304,7 @@ export function SlackCard() {
     const [integ, binds, colls, ags] = await Promise.all([
       supabase.from('slack_integration').select('team_name').maybeSingle(),
       supabase.from('slack_channel_bindings').select('*').order('created_at', { ascending: true }),
-      supabase.from('collections').select('id, name').order('name'),
+      supabase.from('collections').select('id, name').order('pinned', { ascending: false }).order('name'),
       supabase.from('agents').select('id, name').order('name'),
     ])
     setConfigured(Boolean(integ.data))

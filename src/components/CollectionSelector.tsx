@@ -41,7 +41,7 @@ export function CollectionSelector({
   const refresh = useCallback(async () => {
     // Load all collections and which ones contain this item
     const [cRes, mRes] = await Promise.all([
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase
         .from(cfg.table as 'collection_artifacts')
         .select('collection_id')

@@ -102,7 +102,7 @@ export default function ListenersPage() {
     load()
     supabase.from('agents').select('id, name').eq('is_active', true).order('name').then(({ data }) => setAgents((data as NamedRow[]) ?? []))
     supabase.from('tools').select('id, name').eq('is_active', true).order('name').then(({ data }) => setTools((data as NamedRow[]) ?? []))
-    supabase.from('collections').select('id, name').order('name').then(({ data }) => setCollections((data as NamedRow[]) ?? []))
+    supabase.from('collections').select('id, name').order('pinned', { ascending: false }).order('name').then(({ data }) => setCollections((data as NamedRow[]) ?? []))
     // Inboxes, so a message.received rule can be scoped to one mailbox (label falls
     // back to the username when there's no display name).
     supabase

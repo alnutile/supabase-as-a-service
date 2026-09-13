@@ -348,7 +348,7 @@ export default function ChatPage() {
     let active = true
     async function run() {
       const [cRes, sRes] = await Promise.all([
-        supabase.from('collections').select('*').order('name', { ascending: true }),
+        supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
         supabase.rpc('collection_token_stats'),
       ])
       if (!active) return

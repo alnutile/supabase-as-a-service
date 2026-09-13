@@ -206,7 +206,7 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
     loadCases()
     loadRuns()
     supabase.from('agents').select('id, name').order('name').then(({ data }) => setAgents(data ?? []))
-    supabase.from('collections').select('id, name').order('name').then(({ data }) => setCollections(data ?? []))
+    supabase.from('collections').select('id, name').order('pinned', { ascending: false }).order('name').then(({ data }) => setCollections(data ?? []))
   }, [loadCases, loadRuns])
 
   useEffect(() => {

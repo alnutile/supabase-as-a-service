@@ -467,7 +467,7 @@ const TOOLS = [
   {
     name: 'create_todo',
     description:
-      'Create a to-do (a task to remember). Optionally set a due date (YYYY-MM-DD), a lifecycle lane, and file it into a collection (by name; created if missing). Use this to capture tasks for the user.',
+      'Create a to-do (a task to remember). Optionally set a due date (YYYY-MM-DD), a lifecycle lane, who can see it (`visibility`), and file it into a collection (by name; created if missing). Use this to capture tasks for the user.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -478,6 +478,12 @@ const TOOLS = [
           type: 'string',
           enum: ['triage', 'next', 'doing', 'blocked', 'done'],
           description: 'Lifecycle lane. Defaults to triage so a person reviews what you filed.',
+        },
+        visibility: {
+          type: 'string',
+          enum: ['private', 'workspace'],
+          description:
+            "Who can see it: 'private' (just the owner + admins, the default) or 'workspace' — the whole team can see it, tick it off and reorder it. Pass 'workspace' whenever the user means a team/shared task. Filing it into a workspace collection also promotes it.",
         },
         collection: {
           type: 'string',
@@ -490,7 +496,7 @@ const TOOLS = [
   {
     name: 'list_todos',
     description:
-      'List to-dos (optionally filter by collection name/id, or by status). Shows each one\'s lane, due date, provenance and id.',
+      'List to-dos (optionally filter by collection name/id, or by status). Shows each one\'s lane, due date, provenance, whether the team can see it, and its id.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -515,7 +521,7 @@ const TOOLS = [
   {
     name: 'update_todo',
     description:
-      'Update a to-do: title, notes, due_date (YYYY-MM-DD or null to clear), status (the lifecycle lane), or done (true/false).',
+      'Update a to-do: title, notes, due_date (YYYY-MM-DD or null to clear), status (the lifecycle lane), done (true/false), or visibility — use that to share an existing to-do with the team.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -529,6 +535,12 @@ const TOOLS = [
           description: 'Move it to a lane. Setting done is equivalent to status=done.',
         },
         done: { type: 'boolean' },
+        visibility: {
+          type: 'string',
+          enum: ['private', 'workspace'],
+          description:
+            "Who can see it: 'workspace' shares it with the whole team, 'private' pulls it back to the owner. Owner-only — any member can re-lane or complete a shared to-do, but only its owner changes who sees it.",
+        },
       },
       required: ['id'],
     },
@@ -742,11 +754,25 @@ const TOOLS = [
   },
   {
     name: 'list_links',
-    description: 'List saved bookmarks. Optionally filter by collection (name/id). Shows title, url, description, and id.',
+    description:
+      'List saved bookmarks, newest first. Shows title, url, description, id, and when each link was saved / last updated. Optionally filter by collection (name/id) and by a date range (`since`/`until`, either end optional).',
     inputSchema: {
       type: 'object',
       properties: {
         collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
+        since: {
+          type: 'string',
+          description: 'Only links at/after this point — ISO 8601 timestamp or YYYY-MM-DD (from the start of that day).',
+        },
+        until: {
+          type: 'string',
+          description: 'Only links at/before this point — ISO 8601 timestamp or YYYY-MM-DD (through the end of that day).',
+        },
+        date_field: {
+          type: 'string',
+          enum: ['created', 'updated'],
+          description: 'Which date the range filters on: when the link was saved (default) or last updated.',
+        },
       },
     },
   },
@@ -1514,7 +1540,7 @@ async function buildCollectionBundle(
     if (ids.length) {
       let q = db
         .from('links')
-        .select('id, title, url, description, notes, created_at, owner_id, visibility')
+        .select('id, title, url, description, notes, created_at, updated_at, owner_id, visibility')
         .in('id', ids)
         .order('created_at', { ascending: false })
       if (since) q = q.gte('created_at', since)
@@ -1522,7 +1548,7 @@ async function buildCollectionBundle(
       for (const l of (data ?? []) as Array<Record<string, unknown>>) {
         if (l.owner_id !== owner && l.visibility !== 'workspace') continue
         const note = [l.notes, l.description].filter(Boolean).join(' — ')
-        out.push({ id: l.id, title: l.title, url: l.url, note, updated_at: l.created_at })
+        out.push({ id: l.id, title: l.title, url: l.url, note, created_at: l.created_at, updated_at: l.updated_at })
       }
     }
     bundle.links = out

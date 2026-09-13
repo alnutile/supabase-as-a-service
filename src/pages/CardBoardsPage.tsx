@@ -26,7 +26,7 @@ export default function CardBoardsPage() {
   const load = useCallback(async () => {
     const [b, c, m] = await Promise.all([
       supabase.from('card_boards').select('*').order('updated_at', { ascending: false }),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_card_boards').select('collection_id, card_board_id'),
     ])
     setBoards(b.data ?? [])

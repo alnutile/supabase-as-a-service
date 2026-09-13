@@ -630,7 +630,10 @@ function TodosApiTab() {
                 ['due_date', 'YYYY-MM-DD, or null to clear.'],
                 ['status', 'Lifecycle lane: triage (default) | next | doing | blocked | done.'],
                 ['done', 'true completes it (sets completed_at); false reopens. Same thing as status.'],
-                ['visibility', 'private (default) | workspace (whole team can see & collaborate).'],
+                [
+                  'visibility',
+                  'private (default) | workspace (whole team can see & collaborate). "team"/"shared" are accepted aliases; PATCH it to share an existing to-do.',
+                ],
                 ['collection', 'Collection name or id to file into — created if missing.'],
                 ['collections', 'Array of names/ids, same rules (additive).'],
               ].map(([field, note], i) => (

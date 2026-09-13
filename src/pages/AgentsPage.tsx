@@ -68,7 +68,7 @@ export default function AgentsPage() {
     const [{ data: a }, { data: t }, { data: c }, { data: m }, { data: s }] = await Promise.all([
       supabase.from('agents').select('*').order('updated_at', { ascending: false }),
       supabase.from('tools').select('*').eq('is_active', true),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_agents').select('collection_id, agent_id'),
       supabase.from('schedules').select('*').eq('is_active', true),
     ])

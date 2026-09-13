@@ -42,7 +42,7 @@ export default function TerminologyPage() {
   const load = useCallback(async () => {
     const [tRes, cRes, mRes] = await Promise.all([
       supabase.from('terminology').select('*').order('term', { ascending: true }),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_terminology').select('collection_id, term_id'),
     ])
     setTerms(tRes.data ?? [])
@@ -359,7 +359,7 @@ function TermDetailModal({
     let cancelled = false
     Promise.all([
       supabase.from('terminology').select('*').eq('id', termId).maybeSingle(),
-      supabase.from('collections').select('*').order('name', { ascending: true }),
+      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_terminology').select('collection_id').eq('term_id', termId),
     ]).then(([tRes, cRes, mRes]) => {
       if (cancelled) return
