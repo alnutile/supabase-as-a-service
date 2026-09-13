@@ -467,7 +467,7 @@ const TOOLS = [
   {
     name: 'create_todo',
     description:
-      'Create a to-do (a task to remember). Optionally set a due date (YYYY-MM-DD), a lifecycle lane, and file it into a collection (by name; created if missing). Use this to capture tasks for the user.',
+      'Create a to-do (a task to remember). Optionally set a due date (YYYY-MM-DD), a lifecycle lane, who can see it (`visibility`), and file it into a collection (by name; created if missing). Use this to capture tasks for the user.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -478,6 +478,12 @@ const TOOLS = [
           type: 'string',
           enum: ['triage', 'next', 'doing', 'blocked', 'done'],
           description: 'Lifecycle lane. Defaults to triage so a person reviews what you filed.',
+        },
+        visibility: {
+          type: 'string',
+          enum: ['private', 'workspace'],
+          description:
+            "Who can see it: 'private' (just the owner + admins, the default) or 'workspace' — the whole team can see it, tick it off and reorder it. Pass 'workspace' whenever the user means a team/shared task. Filing it into a workspace collection also promotes it.",
         },
         collection: {
           type: 'string',
@@ -490,7 +496,7 @@ const TOOLS = [
   {
     name: 'list_todos',
     description:
-      'List to-dos (optionally filter by collection name/id, or by status). Shows each one\'s lane, due date, provenance and id.',
+      'List to-dos (optionally filter by collection name/id, or by status). Shows each one\'s lane, due date, provenance, whether the team can see it, and its id.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -515,7 +521,7 @@ const TOOLS = [
   {
     name: 'update_todo',
     description:
-      'Update a to-do: title, notes, due_date (YYYY-MM-DD or null to clear), status (the lifecycle lane), or done (true/false).',
+      'Update a to-do: title, notes, due_date (YYYY-MM-DD or null to clear), status (the lifecycle lane), done (true/false), or visibility — use that to share an existing to-do with the team.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -529,6 +535,12 @@ const TOOLS = [
           description: 'Move it to a lane. Setting done is equivalent to status=done.',
         },
         done: { type: 'boolean' },
+        visibility: {
+          type: 'string',
+          enum: ['private', 'workspace'],
+          description:
+            "Who can see it: 'workspace' shares it with the whole team, 'private' pulls it back to the owner. Owner-only — any member can re-lane or complete a shared to-do, but only its owner changes who sees it.",
+        },
       },
       required: ['id'],
     },

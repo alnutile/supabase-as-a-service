@@ -23,6 +23,7 @@
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from './artifacts.ts'
+import { normalizeTodoVisibility, TODO_VISIBILITIES, visibilityNote } from './todos.ts'
 import { ingestText } from './knowledge.ts'
 import { citationLabel, hybridChunkSearch } from './retrieval.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
@@ -1384,6 +1385,8 @@ async function createTodo(
   if (due === undefined && input?.due_date !== undefined) return 'due_date must be YYYY-MM-DD.'
   const status = normalizeStatus(input?.status)
   if (status === null) return `status must be one of ${TODO_STATUSES.join(', ')}.`
+  const visibility = normalizeTodoVisibility(input?.visibility)
+  if (visibility === null) return `visibility must be one of ${TODO_VISIBILITIES.join(', ')}.`
   const { data, error } = await db
     .from('todos')
     .insert({
@@ -1398,7 +1401,10 @@ async function createTodo(
       // Only an agent loop or an external Claude reaches this handler, so the
       // provenance is never a guess.
       source: 'agent',
-      visibility: 'private',
+      // Private unless the caller asks for the team — an agent filing work at
+      // one person shouldn't quietly publish it to everyone. Filing into a
+      // workspace collection still promotes it (migration 0122).
+      visibility: visibility ?? 'private',
     })
     .select('id')
     .single()
@@ -1415,8 +1421,16 @@ async function createTodo(
       note = ` Filed into collection "${col.name}".`
     }
   }
-  await logActivity(db, 'todo.created', `Created to-do "${title}"`, { id: data.id, collection: ref || null }, userId)
-  return `Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''} in the ${status ?? 'triage'} lane.${note}`
+  await logActivity(
+    db,
+    'todo.created',
+    `Created to-do "${title}"`,
+    { id: data.id, collection: ref || null, visibility: visibility ?? 'private' },
+    userId,
+  )
+  // Only worth saying for the notable case — private is the default.
+  const who = visibility === 'workspace' ? visibilityNote(visibility) : ''
+  return `Created to-do "${title}" (id ${data.id})${due ? `, due ${due}` : ''} in the ${status ?? 'triage'} lane.${who}${note}`
 }
 
 async function listTodos(
@@ -1427,7 +1441,7 @@ async function listTodos(
   if (!db || !userId) return 'To-dos are unavailable.'
   let query = db
     .from('todos')
-    .select('id, title, due_date, done, status, source')
+    .select('id, title, due_date, done, status, source, visibility')
     .or(`owner_id.eq.${userId},visibility.eq.workspace`)
     .order('done', { ascending: true })
     .order('due_date', { ascending: true, nullsFirst: false })
@@ -1457,12 +1471,16 @@ async function listTodos(
       done: boolean
       status: string | null
       source: string | null
+      visibility: string | null
     }>
   )
     .map((t) => {
       const meta = [t.status ?? (t.done ? 'done' : 'triage')]
       if (t.due_date) meta.push(`due ${t.due_date}`)
       if (t.source) meta.push(`from ${t.source}`)
+      // Say which ones the team can see, so "share these with the team" has
+      // something to act on without a second lookup.
+      if (t.visibility === 'workspace') meta.push('team')
       return `• [${t.done ? 'x' : ' '}] ${t.title} (${meta.join(', ')}) — ${t.id}`
     })
     .join('\n')
@@ -1516,6 +1534,17 @@ async function updateTodo(
     // each other no matter which one a tool call sets.
     if (patch.status === undefined) patch.done = input.done
   }
+  const visibility = normalizeTodoVisibility(input?.visibility)
+  if (visibility === null) return `visibility must be one of ${TODO_VISIBILITIES.join(', ')}.`
+  if (visibility !== undefined) {
+    // Every member can tick off or re-lane a workspace to-do, but only the owner
+    // decides who sees it — otherwise one member could pull a shared to-do back
+    // to private and hide it from the rest of the team.
+    const { data: row } = await db.from('todos').select('owner_id').eq('id', id).maybeSingle()
+    if (!row) return `To-do ${id} not found.`
+    if (row.owner_id !== userId) return `Only the owner of to-do ${id} can change who can see it.`
+    patch.visibility = visibility
+  }
   if (Object.keys(patch).length === 0) return 'No fields to update.'
   const { data, error } = await db
     .from('todos')
@@ -1526,7 +1555,7 @@ async function updateTodo(
     .maybeSingle()
   if (error) return `Could not update the to-do: ${error.message}`
   if (!data) return `To-do ${id} not found (or not yours).`
-  return `Updated to-do ${id}.`
+  return `Updated to-do ${id}.${visibilityNote(visibility, 'is now')}`
 }
 
 async function addTodoToCollection(
