@@ -919,7 +919,7 @@ function TodoRow({
         <button
           onClick={onToggleVisibility}
           title={todo.visibility === 'workspace' ? 'Shared with the workspace' : 'Private to you'}
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition ${
+          className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition hover:opacity-80 ${
             todo.visibility === 'workspace' ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-faint hover:text-muted'
           }`}
         >
@@ -1130,7 +1130,7 @@ function TodoDetailModal({
                 <button
                   onClick={() => persist({ visibility: todo.visibility === 'workspace' ? 'private' : 'workspace' })}
                   title={todo.visibility === 'workspace' ? 'Shared with the workspace' : 'Private to you'}
-                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition hover:opacity-80 ${
                     todo.visibility === 'workspace' ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-faint hover:text-muted'
                   }`}
                 >
