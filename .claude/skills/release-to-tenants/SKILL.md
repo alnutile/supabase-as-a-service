@@ -132,7 +132,8 @@ frontends either way, so a missing run isn't a failure.
 gh run list --workflow release-tenants.yml --limit 1           # grab the run id
 gh run watch <run-id> --exit-status
 gh run view <run-id>                                           # one job per tenant ref
-gh run view <run-id> --log | grep -E '\] (applied|applying|done|ERROR|cron|[0-9]+ applied)'
+gh run view <run-id> --log | grep -E 'live tenant|\] +([0-9]+ applied|applying|applied|done|ERROR|automation cron|cron scheduling)|Deployed Functions' \
+  | sed -E 's/.*Z //'
 ```
 
 A healthy tenant logs `[<ref>] N applied · M pending`, then `applying …` / `applied …` for
@@ -147,9 +148,10 @@ nothing, so you get a fleet-wide check with no local credentials:
 
 ```bash
 gh workflow run release-tenants.yml --ref release -f dry_run=true
-gh run list --workflow release-tenants.yml --limit 1           # wait for it to appear
+gh run list --workflow release-tenants.yml --event workflow_dispatch --limit 1   # its run id
 gh run watch <run-id> --exit-status
-gh run view <run-id> --log | grep -E '\] [0-9]+ applied'       # expect "· 0 pending" everywhere
+gh run view <run-id> --log | grep -E '\] +[0-9]+ applied' | sed -E 's/.*Z //'
+# expect "[<ref>] N applied · 0 pending" for every tenant
 ```
 
 Also confirm that `git diff origin/release origin/main` is now empty, unless `main` moved
