@@ -98,6 +98,7 @@ export default function HomePage() {
   const navigate = useNavigate()
   const [isAdmin, setIsAdmin] = useState(false)
   const [name, setName] = useState('')
+  const [orgName, setOrgName] = useState('')
   const [tab, setTab] = useState<'overview' | 'explore'>('overview')
 
   // Dashboard data
@@ -119,17 +120,25 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!user) return
-    supabase
-      .from('profiles')
-      .select('is_admin, display_name')
-      .eq('id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        setIsAdmin(Boolean(data?.is_admin))
-        const fallback = (user.email ?? '').split('@')[0]
-        const raw = (data?.display_name || fallback || '').trim()
-        setName(raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '')
-      })
+    Promise.all([
+      supabase
+        .from('profiles')
+        .select('is_admin, display_name')
+        .eq('id', user.id)
+        .maybeSingle(),
+      supabase
+        .from('workspace_settings')
+        .select('value')
+        .eq('key', 'organization_name')
+        .maybeSingle(),
+    ]).then(([profileRes, orgRes]) => {
+      const { data } = profileRes
+      setIsAdmin(Boolean(data?.is_admin))
+      const fallback = (user.email ?? '').split('@')[0]
+      const raw = (data?.display_name || fallback || '').trim()
+      setName(raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '')
+      setOrgName(orgRes.data?.value?.trim() || '')
+    })
   }, [user])
 
   // Load everything the Overview needs in parallel. Counts use head-only queries.
@@ -401,7 +410,7 @@ export default function HomePage() {
       <div className="mx-auto max-w-[1140px] px-6 py-12 sm:px-11">
         <div className="mb-6">
           <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-faint">
-            Team overview
+            {orgName || 'Team overview'}
           </div>
           <h1 className="mt-2 text-[34px] font-extrabold tracking-tight text-text">
             {greetingForNow()}{name ? `, ${name}` : ''}.

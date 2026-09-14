@@ -285,6 +285,13 @@ export const HomeIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const BuildingIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="4" y="2" width="16" height="20" rx="1" />
+    <path d="M9 22V12h6v10M9 6h.01M9 10h.01M15 6h.01M15 10h.01" />
+  </svg>
+)
+
 export const ArrowRightIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M5 12h14M13 6l6 6-6 6" />
