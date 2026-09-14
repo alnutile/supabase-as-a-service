@@ -1391,3 +1391,8 @@ this rule holds). If `release` has already drifted, reconcile by merging `releas
 resolving every conflict in **main's favor** (main is the superset) — that records the shared
 history without changing any file on `main`, and the pending `main → release` PR becomes a clean
 fast-forward again.
+
+**Releasing to tenants is a skill:** `.claude/skills/release-to-tenants/SKILL.md` is the
+step-by-step runbook (preflight → `main → release` PR → merge → watch the `release-tenants.yml`
+fan-out → dry-run verify, plus canary rollouts and re-running a failed tenant). It needs only
+`gh` — no Supabase credentials locally. Any agent asked to "do a release" should follow it.
