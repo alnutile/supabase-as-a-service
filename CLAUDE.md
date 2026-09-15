@@ -1166,6 +1166,41 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   `forge` function itself must be deployed once (CLI/Action/MCP) to gain these actions; after that
   it can redeploy everything, including itself.
 
+## Grok Build plugin (`grok-plugin/`)
+
+The SupaNet listing for the **xAI plugin marketplace**
+([`xai-org/plugin-marketplace`](https://github.com/xai-org/plugin-marketplace)), so a Grok
+Build user installs `supanet` and drives their workspace from the terminal. That catalog is
+for **Grok Build** (the coding CLI), *not* Grok Bot - Bot templates are a separate surface.
+A plugin is just a directory Grok discovers by convention: `.grok-plugin/plugin.json`
+(metadata), `.mcp.json` (the remote MCP server), `commands/*.md` (slash commands),
+`skills/<name>/SKILL.md`. It deliberately ships **no hooks and no executable code** - the
+plugin is a manifest, a URL and markdown, which is the single biggest thing marketplace
+review looks at.
+
+**The MCP URL is `${SUPANET_MCP_URL}`, with no default, on purpose.** Every other hosted
+plugin in the catalog points at one shared endpoint (`mcp.stripe.com`); SupaNet can't -
+each workspace is its own Supabase project and app domain. Grok expands `${VAR}` /
+`${VAR:-default}` in an MCP server's `url`/`command`/`args`/`env`/`headers`, so the
+per-tenant URL rides an env var read **once at Grok startup**. A hardcoded default would
+silently point one user's OAuth approval at someone else's workspace. Auth needs nothing
+else: `mcp-oauth` is already a full OAuth 2.1 + PKCE server with RFC 7591 dynamic client
+registration, so Grok self-registers and the user just approves - and the URL must be the
+**app domain** + `/mcp`, not `*.supabase.co/functions/v1/mcp`, for the discovery reason in
+[`docs/mcp-oauth.md`](docs/mcp-oauth.md).
+
+Submission is a PR adding ONE entry to the catalog's `.grok-plugin/marketplace.json`,
+pinned to a full 40-char commit SHA of this repo (nothing is vendored there);
+`scripts/grok-marketplace-entry.mjs` prints that entry with the SHA resolved from the
+**remote**, so you can't pin an unpushed commit. Updating a live plugin = bump the `sha`,
+never a second parallel entry. `src/lib/grokPlugin.test.ts` guards the structure in `npm
+test` (valid JSON, brand-scoped keywords, frontmatter on every component, and that the URL
+stays an env var). Full runbook incl. local testing via `~/.grok/plugins/`:
+[`docs/grok-plugin.md`](docs/grok-plugin.md). **Note the skills here overlap the portable
+`supanet-skills` set and `.claude/skills/` - that duplication is inherent to the format (a
+marketplace plugin must be self-contained from one pinned commit), so when a tool's
+name/args or an endpoint changes, update all three.**
+
 ## Companion repos (outside this codebase)
 
 Two **separate public repos** extend how people and agents reach a SupaNet workspace. Neither
@@ -1269,6 +1304,8 @@ supabase/
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
   functions/p/index.ts         Public standalone-page server (verify_jwt: false): serves a shared HTML artifact as raw text/html
   functions/slack-events/index.ts  Public Slack Events endpoint (verify_jwt: false, HMAC-gated): @mention → collections-scoped reply in-thread
+grok-plugin/                   The xAI-marketplace plugin (manifest + ${SUPANET_MCP_URL}
+                               MCP server + slash commands + skills). No hooks, no code.
 railway.json, DEPLOY.md        Deployment config + guide
 ```
 
