@@ -29,5 +29,13 @@ module.exports = {
       files: ['server.js'],
       env: { node: true, browser: false },
     },
+    {
+      // The Chrome extension is plain browser ESM loaded straight by Chrome
+      // (no build step, so it can be side-loaded unpacked) and it uses the
+      // `chrome.*` extension APIs.
+      files: ['extension/**/*.js'],
+      env: { browser: true, webextensions: true, es2022: true },
+      parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+    },
   ],
 }

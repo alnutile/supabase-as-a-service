@@ -54,6 +54,7 @@ It leans on Supabase for the parts that should be boring and solid, and adds a c
 - 🤖 **Agents** — a deployable unit: a system prompt + the tools it may use, managed in a dashboard and runnable from chat.
 - 🔌 **MCP server** — connect **Claude Code / Desktop** to your workspace with a token (Settings → Connect Claude), then say *"build an agent that does X on my intranet"* — Claude authors it and **pushes it in over MCP**, where it shows up in the dashboard. Your app is one way to build these; it isn't the only way.
 - ⌨️ **CLI & Skills** — the workspace is reachable outside the browser too: the [**`supanet` CLI**](https://github.com/alnutile/supanet-cli) drives every tool, to-do, and artifact from a terminal or a script (same token, `run-tool` under the hood), and [**supanet-skills**](https://github.com/alnutile/supanet-skills) is a set of portable Agent Skills that teach Claude Code / pi / Codex how to use it well. See [Companion resources](#companion-resources-cli--skills).
+- 🌐 **Chrome extension** — a one-click web clipper: save the page you're on as a **bookmark** or as a **clean markdown artifact** (the article, converted from HTML, page furniture stripped), filed into a **collection** on the way in. Plain MV3, no build step — *Load unpacked* from [`extension/`](extension) and connect it with the same token. See [`docs/chrome-extension.md`](docs/chrome-extension.md).
 - 📱 **Responsive** — works on desktop and phone (slide-in nav, stacked editor).
 
 The OpenRouter API key lives **only** on the server (a Supabase Edge Function), never in the browser. Data is protected by Postgres **row-level security**, not by hiding keys.
@@ -108,6 +109,7 @@ src/
 supabase/
   migrations/0001_init.sql     Schema + RLS + realtime + storage policies
   functions/chat/index.ts      Edge function that streams the model (via OpenRouter)
+extension/                     Chrome web clipper (unbundled MV3; load unpacked)
 railway.json                   Build/serve config for Railway
 DEPLOY.md                      End-to-end deployment guide
 ```
