@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Save to SupaNet</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <img src="../icons/icon32.png" alt="" width="20" height="20" />
+      <h1>Save to SupaNet</h1>
+      <button id="gear" class="icon-btn" type="button" title="Connection settings" aria-label="Connection settings">⚙</button>
+    </header>
+
+    <!-- Connection setup. Shown until a workspace URL + token are stored. -->
+    <section id="setup" hidden>
+      <p class="hint">
+        Connect this to your workspace. The token is a personal connection token from
+        <strong>Settings &rarr; Connect Claude</strong> in the app - the same one the MCP server and the
+        <code>supanet</code> CLI use. Everything you save is saved as you.
+      </p>
+      <label for="baseUrl">Supabase project URL</label>
+      <input id="baseUrl" type="url" placeholder="https://yourproject.supabase.co" autocomplete="off" spellcheck="false" />
+
+      <label for="token">Connection token</label>
+      <input id="token" type="password" placeholder="Paste your token" autocomplete="off" spellcheck="false" />
+
+      <label for="appUrl">Workspace URL <span class="muted">(optional)</span></label>
+      <input id="appUrl" type="url" placeholder="https://intranet.example.com" autocomplete="off" spellcheck="false" />
+      <p class="hint small">Only used to link you to what you just saved.</p>
+
+      <div class="row">
+        <button id="connect" class="primary" type="button">Connect</button>
+        <button id="cancelSetup" type="button" hidden>Cancel</button>
+      </div>
+      <p id="setupStatus" class="status" role="status"></p>
+    </section>
+
+    <!-- The save form. -->
+    <section id="save" hidden>
+      <p id="pageUrl" class="page-url"></p>
+
+      <div class="modes" role="radiogroup" aria-label="What to save">
+        <label class="mode">
+          <input type="radio" name="mode" value="article" />
+          <span>
+            <strong>Page as article</strong>
+            <em id="articleMeta">reading the page&hellip;</em>
+          </span>
+        </label>
+        <label class="mode">
+          <input type="radio" name="mode" value="link" />
+          <span>
+            <strong>Just the link</strong>
+            <em>a bookmark, with the page's own title and preview</em>
+          </span>
+        </label>
+      </div>
+
+      <label for="title">Title</label>
+      <input id="title" type="text" spellcheck="false" />
+
+      <label for="collection">Collection</label>
+      <select id="collection">
+        <option value="">Loading&hellip;</option>
+      </select>
+      <input id="newCollection" type="text" placeholder="New collection name" hidden />
+
+      <label for="note">Note <span class="muted">(optional)</span></label>
+      <textarea id="note" rows="2" placeholder="Why you saved this"></textarea>
+
+      <details id="preview" hidden>
+        <summary>Preview the markdown</summary>
+        <pre id="previewBody"></pre>
+      </details>
+
+      <div class="row">
+        <button id="saveBtn" class="primary" type="button">Save</button>
+      </div>
+      <p id="saveStatus" class="status" role="status"></p>
+    </section>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
