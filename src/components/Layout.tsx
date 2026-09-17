@@ -95,6 +95,7 @@ export function Layout() {
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [flags, setFlags] = useState<FlagMap>({})
   const [theme, setTheme] = useTheme()
 
@@ -102,10 +103,13 @@ export function Layout() {
     if (!user) return
     supabase
       .from('profiles')
-      .select('is_admin')
+      .select('is_admin, avatar_url')
       .eq('id', user.id)
       .maybeSingle()
-      .then(({ data }) => setIsAdmin(Boolean(data?.is_admin)))
+      .then(({ data }) => {
+        setIsAdmin(Boolean(data?.is_admin))
+        setAvatarUrl(data?.avatar_url ?? null)
+      })
   }, [user])
 
   // Feature flags hide/show sidebar areas workspace-wide. Load them once, then
@@ -298,12 +302,15 @@ export function Layout() {
           </div>
 
           <div className={`flex items-center gap-[11px] ${railed ? 'md:flex-col md:gap-2' : ''}`}>
-            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-primary-soft text-[15px] font-bold text-primary">
-              {initial}
+            <div className="h-[34px] w-[34px] shrink-0 overflow-hidden rounded-full">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Profile" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-primary-soft text-[15px] font-bold text-primary">
+                  {initial}
+                </div>
+              )}
             </div>
-            <span className={`min-w-0 flex-1 truncate text-sm font-semibold text-muted ${railHide}`}>
-              {user?.email}
-            </span>
             <button
               title="Sign out"
               onClick={async () => {

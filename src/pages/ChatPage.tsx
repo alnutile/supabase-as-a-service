@@ -55,7 +55,7 @@ type Artifact = Database['public']['Tables']['artifacts']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
 type Agent = Database['public']['Tables']['agents']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
-type WorkspaceMember = { id: string; email: string | null; display_name: string | null }
+type WorkspaceMember = { id: string; email: string | null; display_name: string | null; avatar_url: string | null }
 
 // "@ai" anywhere in a message summons the assistant in a shared thread.
 const AI_MENTION = /(^|\s)@ai\b/i
@@ -312,6 +312,13 @@ export default function ChatPage() {
   const nameOf = useCallback(
     (id: string) => (id === user?.id ? 'You' : realNameOf(id)),
     [realNameOf, user],
+  )
+  const avatarOf = useCallback(
+    (id: string) => {
+      const m = directory.find((d) => d.id === id)
+      return m?.avatar_url ?? null
+    },
+    [directory],
   )
 
   async function toggleMember(memberId: string) {
@@ -1231,6 +1238,7 @@ export default function ChatPage() {
                   content={m.content}
                   isSelf={m.owner_id === user?.id}
                   senderName={isGroup && m.role === 'user' && m.owner_id !== user?.id ? nameOf(m.owner_id) : undefined}
+                  senderAvatar={isGroup && m.role === 'user' && m.owner_id !== user?.id ? avatarOf(m.owner_id) : undefined}
                   attachments={(m.attachments as ChatAttachment[] | null) ?? undefined}
                   onSaveArtifact={
                     m.role === 'assistant' ? () => saveAsArtifact(m.content) : undefined
@@ -1639,6 +1647,7 @@ function MessageBubble({
   streaming,
   isSelf = true,
   senderName,
+  senderAvatar,
   attachments,
   onSaveArtifact,
   feedback,
@@ -1650,6 +1659,7 @@ function MessageBubble({
   streaming?: boolean
   isSelf?: boolean
   senderName?: string
+  senderAvatar?: string | null
   attachments?: ChatAttachment[]
   onSaveArtifact?: () => void
   feedback?: FeedbackRow
@@ -1668,7 +1678,18 @@ function MessageBubble({
     <div className={`flex ${alignRight ? 'justify-end' : 'justify-start'}`}>
       <div className={`group max-w-[85%] ${alignRight ? 'order-2' : ''}`}>
         {senderName && (
-          <p className="mb-0.5 px-1 text-[11px] font-semibold text-muted">{senderName}</p>
+          <div className="mb-1 flex items-center gap-2 px-1">
+            <div className="h-5 w-5 shrink-0 overflow-hidden rounded-full">
+              {senderAvatar ? (
+                <img src={senderAvatar} alt={senderName} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-primary-soft text-[10px] font-bold text-primary">
+                  {senderName.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] font-semibold text-muted">{senderName}</p>
+          </div>
         )}
         <div
           className={`rounded-2xl px-4 py-2.5 ${

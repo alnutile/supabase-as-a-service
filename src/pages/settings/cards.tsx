@@ -17,10 +17,12 @@ type AllowedEmail = Database['public']['Tables']['allowed_emails']['Row']
 type InviteLink = Database['public']['Tables']['invite_links']['Row']
 type ModelProfile = Database['public']['Tables']['model_profiles']['Row']
 
-// Your profile — email (read-only) + display name.
+// Your profile — email (read-only) + display name + avatar.
 export function ProfileCard() {
   const { user } = useAuth()
   const [displayName, setDisplayName] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -28,27 +30,147 @@ export function ProfileCard() {
     if (!user) return
     supabase
       .from('profiles')
-      .select('display_name')
+      .select('display_name, avatar_url')
       .eq('id', user.id)
       .maybeSingle()
-      .then(({ data }) => setDisplayName(data?.display_name ?? ''))
+      .then(({ data }) => {
+        setDisplayName(data?.display_name ?? '')
+        setAvatarUrl(data?.avatar_url ?? null)
+      })
   }, [user])
+
+  async function uploadAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+
+    // Validate file type
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      alert('Please upload a PNG, JPEG, WebP, or GIF image.')
+      return
+    }
+
+    // Validate file size (2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Image must be smaller than 2MB.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      // Delete old avatar if it exists
+      if (avatarUrl) {
+        const oldPath = avatarUrl.split('/').slice(-2).join('/')
+        await supabase.storage.from('avatars').remove([oldPath])
+      }
+
+      // Upload new avatar
+      const ext = file.name.split('.').pop()
+      const fileName = `avatar-${Date.now()}.${ext}`
+      const filePath = `${user.id}/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+
+      setAvatarUrl(publicUrl)
+    } catch (error) {
+      console.error('Error uploading avatar:', error)
+      alert('Failed to upload avatar. Please try again.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function removeAvatar() {
+    if (!user || !avatarUrl) return
+
+    setUploading(true)
+    try {
+      // Delete from storage
+      const oldPath = avatarUrl.split('/').slice(-2).join('/')
+      await supabase.storage.from('avatars').remove([oldPath])
+
+      // Update profile
+      await supabase
+        .from('profiles')
+        .update({ avatar_url: null, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+
+      setAvatarUrl(null)
+    } catch (error) {
+      console.error('Error removing avatar:', error)
+      alert('Failed to remove avatar. Please try again.')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   async function save() {
     if (!user) return
     setSaving(true)
     await supabase
       .from('profiles')
-      .upsert({ id: user.id, email: user.email, display_name: displayName, updated_at: new Date().toISOString() })
+      .upsert({
+        id: user.id,
+        email: user.email,
+        display_name: displayName,
+        avatar_url: avatarUrl,
+        updated_at: new Date().toISOString()
+      })
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 1500)
   }
 
+  const initial = (user?.email ?? '?').charAt(0).toUpperCase()
+
   return (
     <section className="mt-6 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-sm font-semibold text-text">Profile</h2>
       <div className="mt-4 space-y-4">
+        <div>
+          <span className="mb-2 block text-xs font-medium text-muted">Avatar</span>
+          <div className="flex items-center gap-4">
+            <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-primary-soft text-2xl font-bold text-primary">
+                  {initial}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="cursor-pointer rounded-lg border border-border-strong bg-surface-2 px-4 py-2 text-sm font-medium text-text transition hover:bg-surface-hover">
+                {uploading ? 'Uploading…' : avatarUrl ? 'Change avatar' : 'Upload avatar'}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={uploadAvatar}
+                  disabled={uploading}
+                  className="hidden"
+                />
+              </label>
+              {avatarUrl && (
+                <button
+                  onClick={removeAvatar}
+                  disabled={uploading}
+                  className="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-muted transition hover:border-red-500 hover:text-red-600 disabled:opacity-60"
+                >
+                  Remove avatar
+                </button>
+              )}
+              <p className="text-xs text-muted">PNG, JPEG, WebP, or GIF. Max 2MB.</p>
+            </div>
+          </div>
+        </div>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-muted">Email</span>
           <input
