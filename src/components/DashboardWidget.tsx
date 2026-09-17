@@ -6,6 +6,7 @@ import { bucketByDay, timeAgo } from '../lib/dashboard'
 import {
   CHART_DAYS,
   WIDGET_SOURCES,
+  bucketByCategory,
   clampWidgetLimit,
   describeWidget,
   isWidgetKind,
@@ -14,6 +15,7 @@ import {
   windowStartISO,
   type WidgetSource,
 } from '../lib/widgets'
+import { CategoryChart, SeriesChart } from './widgetCharts'
 import { CloseIcon } from './icons'
 
 type WidgetRow = Database['public']['Tables']['dashboard_widgets']['Row']
@@ -79,8 +81,17 @@ export function DashboardWidget({
           .order(def.timeField, { ascending: false })
           .limit(clampWidgetLimit(spec.limit))
         if (alive) setRows((data ?? []) as Row[])
+      } else if (spec.groupBy) {
+        // grouped chart — count rows per category value (allow-listed field, so
+        // the column name is always ours, never free-form). Window filter still
+        // applies; bucketing happens client-side in bucketByCategory.
+        let q = withFilters(from(def.table).select(spec.groupBy))
+        const start = windowStartISO(spec.window)
+        if (start) q = q.gte(def.timeField, start)
+        const { data } = await q.limit(2000)
+        if (alive) setRows((data ?? []) as Row[])
       } else {
-        // chart — always the last CHART_DAYS, plus mine/status filters.
+        // time-series chart — per-day over the last CHART_DAYS, plus filters.
         const since = new Date()
         since.setDate(since.getDate() - (CHART_DAYS - 1))
         since.setHours(0, 0, 0, 0)
@@ -99,8 +110,12 @@ export function DashboardWidget({
   }, [kind, source, user, spec])
 
   const def = source ? WIDGET_SOURCES[source] : null
-  const buckets = useMemo(() => bucketByDay(rows as { created_at: string }[], CHART_DAYS), [rows])
-  const max = Math.max(1, ...buckets.map((b) => b.count))
+  const viz = spec.viz ?? 'bar'
+  const dayBuckets = useMemo(() => bucketByDay(rows as { created_at: string }[], CHART_DAYS), [rows])
+  const catBuckets = useMemo(
+    () => (source && spec.groupBy ? bucketByCategory(source, spec.groupBy, rows) : []),
+    [source, spec.groupBy, rows],
+  )
 
   const RemoveButton = (
     <button
@@ -140,14 +155,17 @@ export function DashboardWidget({
 
   // ── chart ──
   if (kind === 'chart') {
-    const total = buckets.reduce((s, b) => s + b.count, 0)
+    const grouped = !!spec.groupBy
+    const seriesViz = viz === 'donut' ? 'bar' : viz // donut only valid when grouped
+    const total = (grouped ? catBuckets : dayBuckets).reduce((s, b) => s + b.count, 0)
+    const subtitle = grouped ? describeWidget('chart', source, spec) : `${def.label} · last ${CHART_DAYS} days`
     return (
       <div className="group relative rounded-[18px] border border-border bg-surface p-6 shadow-soft">
         {RemoveButton}
         <div className="mb-5 flex items-end justify-between">
           <div className="min-w-0 pr-6">
             <div className="truncate text-[15px] font-bold tracking-tight text-text">{widget.title}</div>
-            <div className="mt-0.5 text-[12px] font-medium text-faint">{def.label} · last {CHART_DAYS} days</div>
+            <div className="mt-0.5 text-[12px] font-medium text-faint">{subtitle}</div>
           </div>
           <div className="text-right">
             <div className="text-[24px] font-extrabold leading-none tracking-tight text-text">{total}</div>
@@ -156,25 +174,10 @@ export function DashboardWidget({
         </div>
         {loading ? (
           <div className="h-[110px] animate-pulse rounded-xl bg-surface-2" />
+        ) : grouped ? (
+          <CategoryChart buckets={catBuckets} viz={viz === 'donut' ? 'donut' : 'bar'} />
         ) : (
-          <div className="flex h-[110px] items-end gap-[3px]">
-            {buckets.map((b, i) => {
-              const h = b.count === 0 ? 3 : Math.max(6, Math.round((b.count / max) * 100))
-              const label = i === 0 || i === buckets.length - 1
-              return (
-                <div key={b.key} className="group/bar flex flex-1 flex-col items-center justify-end">
-                  <div
-                    title={`${b.count} on ${b.key}`}
-                    className={`w-full rounded-t-[5px] transition-all ${
-                      b.count === 0 ? 'bg-surface-2' : 'bg-primary/80 group-hover/bar:bg-primary'
-                    }`}
-                    style={{ height: `${h}px` }}
-                  />
-                  {label && <span className="mt-1.5 text-[10px] font-medium text-faint">{b.label}</span>}
-                </div>
-              )
-            })}
-          </div>
+          <SeriesChart buckets={dayBuckets} viz={seriesViz} />
         )}
       </div>
     )
