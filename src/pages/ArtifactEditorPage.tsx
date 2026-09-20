@@ -12,6 +12,7 @@ import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
 import { VisibilityControl } from '../components/VisibilityControl'
 import { CollectionSelector } from '../components/CollectionSelector'
 import { CopyButton } from '../components/CopyButton'
+import { RichTextEditor } from '../components/RichTextEditor'
 import { ChatIcon, PaperclipIcon, PinIcon, TrashIcon } from '../components/icons'
 
 type Artifact = Database['public']['Tables']['artifacts']['Row']
@@ -29,6 +30,7 @@ export default function ArtifactEditorPage() {
   const [notFound, setNotFound] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [editorMode, setEditorMode] = useState<'wysiwyg' | 'raw'>('wysiwyg')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const panelResize = usePanelResize('artifact-editor-panel-w', 384)
@@ -441,6 +443,30 @@ export default function ArtifactEditorPage() {
                 </option>
               ))}
             </select>
+            {artifact.type === 'markdown' && (
+              <div className="flex items-center gap-1 rounded-md border border-border">
+                <button
+                  onClick={() => setEditorMode('wysiwyg')}
+                  className={`px-2 py-1 text-xs font-medium transition ${
+                    editorMode === 'wysiwyg'
+                      ? 'bg-primary text-white'
+                      : 'text-muted hover:text-primary'
+                  }`}
+                >
+                  WYSIWYG
+                </button>
+                <button
+                  onClick={() => setEditorMode('raw')}
+                  className={`px-2 py-1 text-xs font-medium transition ${
+                    editorMode === 'raw'
+                      ? 'bg-primary text-white'
+                      : 'text-muted hover:text-primary'
+                  }`}
+                >
+                  Raw
+                </button>
+              </div>
+            )}
             <button
               onClick={() => imageInputRef.current?.click()}
               disabled={uploading}
@@ -523,33 +549,43 @@ export default function ArtifactEditorPage() {
         </div>
 
         <div className="relative flex-1">
-          <textarea
-            ref={textareaRef}
-            value={artifact.content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            onPaste={handlePaste}
-            onDrop={handleDrop}
-            onKeyDown={(e) => {
-              if (showFilePicker && (e.key === 'Escape' || e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  setShowFilePicker(false)
-                }
-              }
-            }}
-            spellCheck={false}
-            className="min-h-[45vh] h-full w-full resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
-            placeholder="Write here…  (paste or drop an image to embed it; paste a URL to make it a link; type /LinkFile to insert a file link)"
-          />
-          {showFilePicker && (
-            <FilePicker
-              ref={filePickerRef}
-              files={availableFiles.filter(f =>
-                (f.title || f.name).toLowerCase().includes(filePickerSearch)
-              )}
-              onSelect={insertFileLink}
-              onClose={() => setShowFilePicker(false)}
+          {artifact.type === 'markdown' && editorMode === 'wysiwyg' ? (
+            <RichTextEditor
+              content={artifact.content}
+              onChange={(content) => patch({ content })}
+              placeholder="Write here…"
             />
+          ) : (
+            <>
+              <textarea
+                ref={textareaRef}
+                value={artifact.content}
+                onChange={(e) => handleContentChange(e.target.value)}
+                onPaste={handlePaste}
+                onDrop={handleDrop}
+                onKeyDown={(e) => {
+                  if (showFilePicker && (e.key === 'Escape' || e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setShowFilePicker(false)
+                    }
+                  }
+                }}
+                spellCheck={false}
+                className="min-h-[45vh] h-full w-full resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
+                placeholder="Write here…  (paste or drop an image to embed it; paste a URL to make it a link; type /LinkFile to insert a file link)"
+              />
+              {showFilePicker && (
+                <FilePicker
+                  ref={filePickerRef}
+                  files={availableFiles.filter(f =>
+                    (f.title || f.name).toLowerCase().includes(filePickerSearch)
+                  )}
+                  onSelect={insertFileLink}
+                  onClose={() => setShowFilePicker(false)}
+                />
+              )}
+            </>
           )}
         </div>
         {uploadError && (

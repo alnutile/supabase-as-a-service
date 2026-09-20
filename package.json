@@ -25,6 +25,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@excalidraw/excalidraw": "^0.18.1",
     "@supabase/supabase-js": "^2.45.4",
+    "@uiw/react-md-editor": "^4.1.2",
     "croner": "^8.1.2",
     "cronstrue": "^2.59.0",
     "express": "^4.22.2",
