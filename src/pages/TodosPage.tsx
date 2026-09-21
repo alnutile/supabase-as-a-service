@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { TODO_STATUSES, filterAndSortTodos, reconcileStatus, statusOf } from '../lib/todos'
 import { openDatePicker } from '../lib/datePicker'
 import { CollectionPicker, CollectionTokens } from '../components/CollectionPicker'
+import { CopyButton } from '../components/CopyButton'
 import { BoardView, CalendarView, FocusView, SourceTag, TimeView, type TodoViewProps } from '../components/TodoBoards'
 import {
   ArrowRightIcon,
@@ -936,6 +937,13 @@ function TodoRow({
           >
             <ArrowRightIcon className="h-4 w-4" />
           </button>
+          <CopyButton
+            text={todo.id}
+            label={null}
+            title="Copy to-do ID (for use with AI tools)"
+            iconClassName="h-4 w-4"
+            className="rounded-md p-1 text-faint hover:bg-surface-hover hover:text-muted"
+          />
           {onRemoveFromCollection && (
             <button
               onClick={onRemoveFromCollection}
@@ -1151,6 +1159,13 @@ function TodoDetailModal({
             >
               <TrashIcon className="h-4 w-4" /> Delete
             </button>
+            <CopyButton
+              text={todo.id}
+              label="Copy ID"
+              title="Copy to-do ID (for use with AI tools)"
+              iconClassName="h-4 w-4"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-primary hover:text-primary"
+            />
             <button
               onClick={onClose}
               className="ml-auto flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-strong"
