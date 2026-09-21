@@ -111,8 +111,12 @@ jobs:
           git checkout "$branch"
           npm ci
           npm run lint
-          npm run build
+          VITE_SUPABASE_URL=https://example.supabase.co \
+            VITE_SUPABASE_ANON_KEY=smoke.anon.key npm run build
           npm test
+          # Same authenticated smoke test as test.yml: proves the signed-in app
+          # still renders, which none of the checks above can see.
+          npm run test:smoke
 
       - uses: denoland/setup-deno@v2
         with:
