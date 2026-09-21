@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { APP_NAME, appTitle } from '../lib/appTitle'
+import { useOrganizationName } from '../lib/useOrganizationName'
 import { GlobalSearch, isMac, openGlobalSearch } from './GlobalSearch'
 import { InstallPrompt } from './InstallPrompt'
 import {
@@ -98,6 +100,17 @@ export function Layout() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [flags, setFlags] = useState<FlagMap>({})
   const [theme, setTheme] = useTheme()
+  const orgName = useOrganizationName()
+
+  // Put the workspace's organization name in the browser tab, so several open
+  // SupaNet workspaces are tellable apart from the tab strip. Restore the plain
+  // app name on unmount (signing out drops back to the public login page).
+  useEffect(() => {
+    document.title = appTitle(orgName)
+    return () => {
+      document.title = APP_NAME
+    }
+  }, [orgName])
 
   useEffect(() => {
     if (!user) return

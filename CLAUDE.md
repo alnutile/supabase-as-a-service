@@ -667,6 +667,17 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   page that manages the flags. Layout subscribes to `feature_flags` so toggles apply live.
   The pure filtering logic (`isFeatureEnabled`/`visibleGroups`/`flaggableGroups`) lives in
   `nav.ts` and is unit-tested (`src/lib/nav.test.ts`).
+- **Organization name (migration 0125):** the workspace's own name, another
+  `workspace_settings` row (`key='organization_name'`, admin-write/member-read/realtime
+  like `timezone`), edited in **Settings → Organization** (`OrganizationSettings`, route
+  `/settings/organization`, admin-only). It leads the **home page** heading and the
+  **browser tab title** (`appTitle()` in `src/lib/appTitle.ts` — `"Acme Corp · SupaNet"`,
+  falling back to the plain app name when unset, whitespace-collapsed and clipped so a
+  long name can't push the app name out of the tab; unit-tested). `Layout` sets
+  `document.title` and restores the app name on unmount, so the public login/share pages
+  are unaffected. Both surfaces read the shared `useOrganizationName()` hook
+  (`src/lib/useOrganizationName.ts`), which subscribes to `workspace_settings` over
+  Realtime — so renaming the workspace re-titles every open tab without a reload.
 - **Workspace timezone (migration 0092):** the IANA clock the agentic automations treat
   as "local" so unattended runs stop assuming UTC. A single `workspace_settings` row
   (`{key:'timezone', value}`, a tiny admin-write/member-read/realtime KV mirroring
