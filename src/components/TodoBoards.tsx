@@ -25,6 +25,7 @@ import {
   parseDueDate,
   sameLocalDate,
   statusOf,
+  weekGrid,
   type DueBucket,
 } from '../lib/todos'
 import { AgentIcon, ApiIcon, ArrowRightIcon, CalendarIcon, CheckIcon, CollectionIcon, InboxIcon, PlayIcon } from './icons'
@@ -428,14 +429,32 @@ function DayCell({
 }
 
 export function CalendarView(props: TodoViewProps) {
-  const [monthOffset, setMonthOffset] = useState(0)
-  const month = useMemo(
-    () => new Date(props.today.getFullYear(), props.today.getMonth() + monthOffset, 1),
-    [props.today, monthOffset],
-  )
-  const cells = useMemo(() => monthGrid(month), [month])
+  type ViewMode = 'month' | 'week'
+  const [viewMode, setViewMode] = useState<ViewMode>('month')
+  const [offset, setOffset] = useState(0)
+
+  // For month view: offset is months, for week view: offset is weeks
+  const referenceDate = useMemo(() => {
+    if (viewMode === 'month') {
+      return new Date(props.today.getFullYear(), props.today.getMonth() + offset, 1)
+    } else {
+      const ref = new Date(props.today)
+      ref.setDate(props.today.getDate() + offset * 7)
+      return ref
+    }
+  }, [props.today, offset, viewMode])
+
+  const cells = useMemo(() => {
+    if (viewMode === 'month') {
+      return monthGrid(referenceDate)
+    } else {
+      return weekGrid(referenceDate)
+    }
+  }, [referenceDate, viewMode])
+
   const open = props.todos.filter((t) => !t.done)
   const undated = open.filter((t) => !t.due_date)
+
   // Pointer drag needs a 4px threshold so a plain click stays a click. The
   // keyboard sensor is not optional decoration: dnd-kit's `attributes` put
   // role="button" and tabIndex on every card, which promises a keyboard user
@@ -446,6 +465,17 @@ export function CalendarView(props: TodoViewProps) {
   )
   const [dragging, setDragging] = useState<string | null>(null)
   const active = dragging ? props.todos.find((t) => t.id === dragging) : null
+
+  const headerLabel = useMemo(() => {
+    if (viewMode === 'month') {
+      return referenceDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    } else {
+      const weekCells = cells as Date[]
+      const start = weekCells[0]
+      const end = weekCells[6]
+      return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+    }
+  }, [viewMode, referenceDate, cells])
 
   return (
     <DndContext
@@ -463,20 +493,44 @@ export function CalendarView(props: TodoViewProps) {
         <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <button
-              onClick={() => setMonthOffset((v) => v - 1)}
+              onClick={() => setOffset((v) => v - 1)}
               className="rounded-md px-2 py-1 text-sm font-semibold text-muted hover:bg-surface-hover"
             >
               ←
             </button>
             <span className="flex-1 text-center text-sm font-bold text-text">
-              {month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+              {headerLabel}
             </span>
             <button
-              onClick={() => setMonthOffset((v) => v + 1)}
+              onClick={() => setOffset((v) => v + 1)}
               className="rounded-md px-2 py-1 text-sm font-semibold text-muted hover:bg-surface-hover"
             >
               →
             </button>
+            <div className="ml-2 flex gap-1 rounded-lg border border-border bg-surface-2 p-0.5">
+              <button
+                onClick={() => {
+                  setViewMode('week')
+                  setOffset(0)
+                }}
+                className={`rounded px-2 py-1 text-xs font-semibold transition ${
+                  viewMode === 'week' ? 'bg-primary text-white' : 'text-muted hover:text-text'
+                }`}
+              >
+                Week
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode('month')
+                  setOffset(0)
+                }}
+                className={`rounded px-2 py-1 text-xs font-semibold transition ${
+                  viewMode === 'month' ? 'bg-primary text-white' : 'text-muted hover:text-text'
+                }`}
+              >
+                Month
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-7 border-b border-border">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
@@ -485,7 +539,7 @@ export function CalendarView(props: TodoViewProps) {
               </div>
             ))}
           </div>
-          <div className="grid flex-1 grid-cols-7 overflow-y-auto">
+          <div className={`grid flex-1 grid-cols-7 ${viewMode === 'month' ? 'overflow-y-auto' : ''}`}>
             {cells.map((c, i) =>
               c ? (
                 <DayCell

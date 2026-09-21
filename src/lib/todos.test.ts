@@ -12,6 +12,7 @@ import {
   reconcileStatus,
   sameLocalDate,
   statusOf,
+  weekGrid,
   type FilterableTodo,
 } from './todos'
 
@@ -221,6 +222,35 @@ describe('monthGrid', () => {
     expect(cells.slice(0, 6).every((c) => c === null)).toBe(true)
     expect(cells[6]?.getDate()).toBe(1)
     expect(cells.filter(Boolean)).toHaveLength(31)
+  })
+})
+
+describe('weekGrid', () => {
+  it('returns exactly 7 days starting from Sunday of the reference week', () => {
+    const cells = weekGrid(TODAY) // Fri 28 Aug 2026
+    expect(cells).toHaveLength(7)
+    // Should start on Sunday 23 Aug
+    expect(cells[0].getDay()).toBe(0) // Sunday
+    expect(cells[0].getDate()).toBe(23)
+    // Should end on Saturday 29 Aug
+    expect(cells[6].getDay()).toBe(6) // Saturday
+    expect(cells[6].getDate()).toBe(29)
+  })
+
+  it('works when the reference date is already a Sunday', () => {
+    const sunday = new Date(2026, 7, 23) // Sun 23 Aug 2026
+    const cells = weekGrid(sunday)
+    expect(cells).toHaveLength(7)
+    expect(cells[0].getDate()).toBe(23)
+    expect(cells[6].getDate()).toBe(29)
+  })
+
+  it('works when the reference date is a Saturday', () => {
+    const saturday = new Date(2026, 7, 22) // Sat 22 Aug 2026
+    const cells = weekGrid(saturday)
+    expect(cells).toHaveLength(7)
+    expect(cells[0].getDate()).toBe(16) // Sunday before
+    expect(cells[6].getDate()).toBe(22)
   })
 })
 
