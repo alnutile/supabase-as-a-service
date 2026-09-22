@@ -30,6 +30,64 @@ import {
 } from '../lib/todos'
 import { AgentIcon, ApiIcon, ArrowRightIcon, CalendarIcon, CheckIcon, CollectionIcon, InboxIcon, PlayIcon } from './icons'
 
+// ---------------------------------------------------------------------------
+// Lane selection menu (iOS drag workaround)
+// ---------------------------------------------------------------------------
+
+function LaneSelectionMenu({
+  currentStatus,
+  onSelectLane,
+  onClose,
+}: {
+  currentStatus: TodoStatus
+  onSelectLane: (status: TodoStatus) => void
+  onClose: () => void
+}) {
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [onClose])
+
+  return (
+    <div
+      ref={menuRef}
+      className="absolute left-1/2 top-full z-50 mt-2 w-48 -translate-x-1/2 rounded-lg border border-border bg-surface shadow-soft-lg"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="p-1">
+        <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-faint">Move to lane</div>
+        {TODO_STATUSES.map((status) => (
+          <button
+            key={status.id}
+            onClick={() => {
+              onSelectLane(status.id)
+              onClose()
+            }}
+            disabled={status.id === currentStatus}
+            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm font-medium transition ${
+              status.id === currentStatus
+                ? 'cursor-not-allowed text-faint'
+                : 'text-text hover:bg-surface-hover'
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[status.tone]}`} />
+            <span className="flex-1">{status.label}</span>
+            {status.id === currentStatus && <span className="text-xs text-faint">Current</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 type Todo = Database['public']['Tables']['todos']['Row']
 
 /** What every view needs from the page: the rows, their collections, and the writes. */
@@ -120,6 +178,10 @@ function TodoCard({
   overlay = false,
   /** Someone else just changed this row — flash it so the move is noticed. */
   remote = false,
+  /** Show lane selection menu (iOS drag workaround) */
+  showLaneMenu = false,
+  onSelectLane,
+  onCloseMenu,
 }: {
   todo: Todo
   collections: string[]
@@ -129,6 +191,9 @@ function TodoCard({
   draggable?: boolean
   overlay?: boolean
   remote?: boolean
+  showLaneMenu?: boolean
+  onSelectLane?: (status: TodoStatus) => void
+  onCloseMenu?: () => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: todo.id,
@@ -159,7 +224,7 @@ function TodoCard({
         down.current = { x: e.clientX, y: e.clientY }
         listeners?.onPointerDown?.(e)
       }}
-      className={`group flex flex-col gap-2 rounded-xl border bg-surface p-3 text-left shadow-soft transition ${
+      className={`group relative flex flex-col gap-2 rounded-xl border bg-surface p-3 text-left shadow-soft transition ${
         draggable && !overlay ? 'cursor-grab active:cursor-grabbing' : ''
       } ${
         overlay
@@ -168,7 +233,9 @@ function TodoCard({
             ? 'border-primary opacity-40'
             : remote
               ? 'border-info ring-2 ring-info/40'
-              : 'border-border hover:border-border-strong hover:shadow-soft-lg'
+              : showLaneMenu
+                ? 'border-primary ring-2 ring-primary/40'
+                : 'border-border hover:border-border-strong hover:shadow-soft-lg'
       }`}
     >
       <div className="flex items-start gap-2">
@@ -200,6 +267,13 @@ function TodoCard({
         <DueChip due={todo.due_date} done={todo.done} today={today} />
         <SourceTag source={todo.source} />
       </div>
+      {showLaneMenu && onSelectLane && onCloseMenu && (
+        <LaneSelectionMenu
+          currentStatus={statusOf(todo)}
+          onSelectLane={onSelectLane}
+          onClose={onCloseMenu}
+        />
+      )}
     </article>
   )
 }
@@ -251,10 +325,16 @@ function LaneBoard({
   lanes,
   props,
   onDrop,
+  menuTodoId,
+  onCloseMenu,
+  onSelectLane,
 }: {
   lanes: Array<{ id: string; label: string; hint: string; dot: string; items: Todo[]; droppable?: boolean }>
   props: TodoViewProps
   onDrop: (todoId: string, laneId: string) => void
+  menuTodoId?: string | null
+  onCloseMenu?: () => void
+  onSelectLane?: (todoId: string, status: TodoStatus) => void
 }) {
   // Pointer drag needs a 4px threshold so a plain click stays a click. The
   // keyboard sensor is not optional decoration: dnd-kit's `attributes` put
@@ -297,6 +377,9 @@ function LaneBoard({
                 onToggleDone={() => props.onToggleDone(t.id)}
                 remote={props.remoteIds.has(t.id)}
                 today={props.today}
+                showLaneMenu={menuTodoId === t.id}
+                onSelectLane={onSelectLane ? (status) => onSelectLane(t.id, status) : undefined}
+                onCloseMenu={onCloseMenu}
               />
             ))}
           </Lane>
@@ -322,6 +405,8 @@ function LaneBoard({
 
 /** Status lanes — drag a card to change what state it's in. */
 export function BoardView(props: TodoViewProps) {
+  const [menuTodoId, setMenuTodoId] = useState<string | null>(null)
+
   const lanes = TODO_STATUSES.map((s) => ({
     id: s.id,
     label: s.label,
@@ -329,7 +414,30 @@ export function BoardView(props: TodoViewProps) {
     dot: TONE_DOT[s.tone],
     items: props.todos.filter((t) => statusOf(t) === s.id),
   }))
-  return <LaneBoard lanes={lanes} props={props} onDrop={(id, lane) => props.onSetStatus(id, lane as TodoStatus)} />
+
+  const handleCardClick = (id: string) => {
+    props.onOpen(id)
+    setMenuTodoId(id)
+  }
+
+  const handleSelectLane = (todoId: string, status: TodoStatus) => {
+    props.onSetStatus(todoId, status)
+    setMenuTodoId(null)
+  }
+
+  return (
+    <LaneBoard
+      lanes={lanes}
+      props={{
+        ...props,
+        onOpen: handleCardClick,
+      }}
+      onDrop={(id, lane) => props.onSetStatus(id, lane as TodoStatus)}
+      menuTodoId={menuTodoId}
+      onCloseMenu={() => setMenuTodoId(null)}
+      onSelectLane={handleSelectLane}
+    />
+  )
 }
 
 /**
