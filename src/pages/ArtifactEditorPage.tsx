@@ -30,7 +30,7 @@ export default function ArtifactEditorPage() {
   const [notFound, setNotFound] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [editorMode, setEditorMode] = useState<'wysiwyg' | 'raw'>('wysiwyg')
+  const [editorMode, setEditorMode] = useState<'wysiwyg' | 'raw'>('raw')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const panelResize = usePanelResize('artifact-editor-panel-w', 384)
