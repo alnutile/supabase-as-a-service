@@ -614,7 +614,7 @@ function CollectionDashboard({
         {!items ? (
           <p className="text-sm text-faint">Loading…</p>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {KIND_ORDER.map((kind) => (
               <Card
                 key={kind}
@@ -713,7 +713,7 @@ function Card({
   const addable = (candidates ?? []).filter((c) => !present.has(c.id))
 
   return (
-    <div className={`flex flex-col rounded-xl border border-border bg-surface ${collapsed ? 'self-start' : ''}`}>
+    <div className={`flex min-w-0 flex-col rounded-xl border border-border bg-surface ${collapsed ? 'self-start' : ''}`}>
       <div className={`flex items-center gap-2 px-4 py-2.5 ${collapsed ? '' : 'border-b border-border'}`}>
         <button
           onClick={onToggleCollapsed}
