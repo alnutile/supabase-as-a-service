@@ -1193,6 +1193,45 @@ than once; the unit suites cannot see that, so check it here.**
   role). Outcomes log as `forge.deploy_core` / `forge.redeploy_all`. Bootstrapping note: the
   `forge` function itself must be deployed once (CLI/Action/MCP) to gain these actions; after that
   it can redeploy everything, including itself.
+- **Chrome extension (web clipper, `extension/`):** save the page you are looking at into the
+  workspace — as a **link** (a `links` row) or as a **markdown artifact** (the article, HTML
+  converted, page furniture stripped) — filed into a **collection** on the way in. It is a plain,
+  **unbundled** MV3 extension (no build step, no npm install): `chrome://extensions` → *Load
+  unpacked* → `extension/`, so the folder you side-load in dev mode is byte-for-byte what gets
+  zipped for the Web Store. It is **not part of the Vite app build**; only its unit tests ride the
+  app's `vitest` (`extension/**/*.test.js` joined the `include`). **It adds NO server-side
+  endpoint** — the same rule the `supanet` CLI follows: auth + collections + `save_link` go through
+  the universal `run-tool` runner, artifacts through the plain-REST `artifacts` function, both
+  authenticated with an ordinary personal `mcp_tokens` bearer (Settings → Connect Claude) that the
+  shared `_shared/apiauth.ts` resolves, so every save runs AS that token's owner. If the clipper
+  ever needs something new, the fix belongs in `run-tool`/the REST functions, not in a bespoke
+  endpoint. Because `run-tool` hands back a tool's *text* result, two small parsers
+  (`parseCollectionList` / `parseSaveLinkResult` in `extension/lib/parse.js`) read it back — both
+  unit-tested, and both **degrade rather than throw**, so a wording change in a builtin means an
+  empty collection picker, not a broken popup. **Permissions are deliberately minimal:**
+  `activeTab` + `scripting` + `storage` and **no host permissions at all** (the calls to the
+  project ride ordinary CORS — both functions answer `Access-Control-Allow-Origin: *` — so the
+  extension never asks to read every site), the token lives in `chrome.storage.local` NOT `sync`
+  (it is a credential; `sync` would copy it to every Chrome profile on that Google account), and
+  the injected snippet is trivial — it returns `document.documentElement.outerHTML` and nothing
+  else, so **all the parsing happens in the popup** and stays testable outside Chrome.
+  **Extraction** is `extension/lib/extract.js`, a readability-style scorer (prose length with
+  diminishing returns + sentence punctuation, penalized by link density, nudged by class/id) rather
+  than per-site selectors — a heuristic degrades to "a bit more chrome than ideal", a selector list
+  degrades to "saved nothing" — feeding `extension/lib/markdown.js` (headings, nested lists, fenced
+  code with a sniffed language, blockquotes, GFM tables, figures, absolute URLs). Junk blocks drop
+  in two tiers (unambiguous names like `catlinks`/`disqus` at any size; ambiguous ones like
+  `sidebar`/`ad` only when small) and **nothing holding >60% of the page's text is ever dropped**,
+  so one unlucky class name can't clip the whole article away. This duplicates
+  `_shared/html_markdown.ts` on purpose: that one converts HTML **the server fetched**, and an
+  extension exists precisely because the server cannot fetch what you are looking at (a logged-in
+  page, a paywalled article you pay for, a client-rendered SPA). The saved artifact leads with a
+  provenance header (source link, byline, captured date) so a collection you chat with — and the
+  knowledge compiler running over it — can point back at where a claim came from. The popup shows
+  the word count and a markdown preview BEFORE you save, so a page the extractor misread is obvious
+  in advance. Full reference: `docs/chrome-extension.md`. *(Planned: an OAuth-style connect flow
+  via the `mcp-oauth` function instead of pasting a token; a context-menu "save selection"; saving
+  a page straight into the knowledge compiler as a source; a Firefox build.)*
 
 ## Companion repos (outside this codebase)
 
@@ -1297,6 +1336,11 @@ supabase/
   functions/mcp/index.ts       Public MCP server (verify_jwt: false) for an external Claude
   functions/p/index.ts         Public standalone-page server (verify_jwt: false): serves a shared HTML artifact as raw text/html
   functions/slack-events/index.ts  Public Slack Events endpoint (verify_jwt: false, HMAC-gated): @mention → collections-scoped reply in-thread
+extension/                     Chrome web clipper (unbundled MV3 — load unpacked from
+                               this folder; popup/ is wiring, lib/ is the tested logic:
+                               parse.js run-tool text parsers, markdown.js DOM->Markdown,
+                               extract.js the content scorer, api.js the run-tool/artifacts
+                               client. Not part of the Vite build; tests ride npm test)
 railway.json, DEPLOY.md        Deployment config + guide
 ```
 
