@@ -121,7 +121,7 @@ export default function LoopsPage() {
             <p className="text-sm text-muted">No loops yet. Create one to get started.</p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {loops.map((l) => (
               <div key={l.id} className="flex flex-col rounded-xl border border-border bg-surface p-4">
                 <div className="flex items-center gap-2">

@@ -1,4 +1,5 @@
-# Lint + typecheck + unit tests, on every PR and every push to main.
+# Lint + typecheck + unit tests + an authenticated smoke test, on every PR
+# and every push to main.
 #
 # Note: PRs opened by the feature bot use the workflow-minted GITHUB_TOKEN,
 # and GitHub does not fire pull_request workflows for those (anti-recursion).
@@ -23,7 +24,19 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: smoke.anon.key
       - run: npm test
+      # Does the signed-in app actually come up? Everything above is blind to a
+      # crash in the shell that wraps every page: lint and typecheck are static,
+      # the unit suite mounts one component at a time, and /login is the only
+      # route that renders without a session. PR #382 shipped a blank page on
+      # every authenticated route with all of it green. This loads real built
+      # routes in a real browser against a stubbed Supabase and fails on an
+      # uncaught page error or an empty #root. It reuses the Chrome already on
+      # the runner, so there is no browser download.
+      - run: npm run test:smoke
 
   edge:
     runs-on: ubuntu-latest

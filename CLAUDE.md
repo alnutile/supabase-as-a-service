@@ -24,6 +24,7 @@ npm run lint           # eslint
 npm run typecheck      # tsc -b --noEmit
 npm test               # vitest (frontend unit tests: src/**/*.test.ts(x))
 npm run test:deno      # deno test supabase/functions/tests/ (edge-function units)
+npm run test:smoke     # headless-browser check that the SIGNED-IN app renders (needs a build first)
 npm run gen:types      # regenerate src/lib/database.types.ts from the linked project
 npm run start          # serve dist/ with SPA fallback (production / Railway)
 ```
@@ -35,9 +36,25 @@ of components/handlers on purpose — the `:::artifact` protocol parser lives in
 `src/lib/artifacts.ts` (not ChatPage), webhook payload validation in
 `supabase/functions/_shared/validate.ts`, the `p` page's HTML/state injection in
 `supabase/functions/p/meta.ts` — follow that pattern: extract pure logic, test the module.
-CI (`.github/workflows/test.yml`) runs lint + build + both suites on PRs and pushes to main;
-`claude-feature.yml` runs the same checks against the bot-built branch (its PRs can't trigger
-PR workflows — GITHUB_TOKEN anti-recursion).
+CI (`.github/workflows/test.yml`) runs lint + build + both suites **+ the smoke test** on PRs
+and pushes to main; `claude-feature.yml` runs the same checks against the bot-built branch (its
+PRs can't trigger PR workflows — GITHUB_TOKEN anti-recursion).
+
+**The smoke test (`scripts/smoke.mjs`) is the only check that renders the authenticated app.**
+Everything else is blind to a crash in the shell that wraps every page: lint/typecheck are
+static, the unit suite mounts one component at a time, and `/login` is the only route that
+renders without a session (no `Layout`). PR #382 shipped a **blank page on every signed-in
+route** with all of that green — a hook opened a realtime channel per component, so mounting it
+twice (`Layout` + `HomePage`) threw during render and unwound the tree. The smoke test builds,
+serves `dist/`, seeds a fake `sb-‹ref›-auth-token` session, intercepts every Supabase call with
+PostgREST-shaped stubs, loads `/home`, `/todos` and `/artifacts` in headless Chrome, and fails
+on an **uncaught page error or an empty `#root`**. It asserts nothing about features on
+purpose — it answers "did the app come up", so it stays fast and never flakes into being
+ignored. It finds a browser that's already installed (override with `PLAYWRIGHT_CHROMIUM_PATH`,
+else the Claude Code image's `/opt/pw-browsers/chromium`, else the runner's Chrome/Chromium), so
+CI never runs `playwright install`. **A hook or provider that allocates a globally-keyed
+resource — a realtime channel topic, a storage key, a singleton — must be safe to mount more
+than once; the unit suites cannot see that, so check it here.**
 
 ## Architecture & data flow
 
@@ -667,6 +684,17 @@ PR workflows — GITHUB_TOKEN anti-recursion).
   page that manages the flags. Layout subscribes to `feature_flags` so toggles apply live.
   The pure filtering logic (`isFeatureEnabled`/`visibleGroups`/`flaggableGroups`) lives in
   `nav.ts` and is unit-tested (`src/lib/nav.test.ts`).
+- **Organization name (migration 0125):** the workspace's own name, another
+  `workspace_settings` row (`key='organization_name'`, admin-write/member-read/realtime
+  like `timezone`), edited in **Settings → Organization** (`OrganizationSettings`, route
+  `/settings/organization`, admin-only). It leads the **home page** heading and the
+  **browser tab title** (`appTitle()` in `src/lib/appTitle.ts` — `"Acme Corp · SupaNet"`,
+  falling back to the plain app name when unset, whitespace-collapsed and clipped so a
+  long name can't push the app name out of the tab; unit-tested). `Layout` sets
+  `document.title` and restores the app name on unmount, so the public login/share pages
+  are unaffected. Both surfaces read the shared `useOrganizationName()` hook
+  (`src/lib/useOrganizationName.ts`), which subscribes to `workspace_settings` over
+  Realtime — so renaming the workspace re-titles every open tab without a reload.
 - **Workspace timezone (migration 0092):** the IANA clock the agentic automations treat
   as "local" so unattended runs stop assuming UTC. A single `workspace_settings` row
   (`{key:'timezone', value}`, a tiny admin-write/member-read/realtime KV mirroring

@@ -27,6 +27,7 @@ import {
   LockIcon,
   PinIcon,
   PlusIcon,
+  SearchIcon,
   SendIcon,
   TableIcon,
   TerminologyIcon,
@@ -78,6 +79,7 @@ export default function CollectionsPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const load = useCallback(async () => {
     const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, stats] = await Promise.all([
@@ -109,6 +111,13 @@ export default function CollectionsPage() {
   }, [load])
 
   const selected = useMemo(() => collections.find((c) => c.id === selectedId) ?? null, [collections, selectedId])
+
+  // Filter collections by search query
+  const filteredCollections = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return collections
+    return collections.filter((c) => c.name.toLowerCase().includes(q))
+  }, [collections, searchQuery])
 
   async function createCollection() {
     if (creating) return
@@ -177,6 +186,19 @@ export default function CollectionsPage() {
             <ArrowRightIcon className="h-5 w-5 rotate-180" />
           </button>
         </div>
+        {!loading && collections.length > 0 && (
+          <div className="border-b border-border px-3 py-2">
+            <div className="relative">
+              <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search collections…"
+                className="w-full rounded-lg border border-border-strong bg-surface py-2 pl-8 pr-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+              />
+            </div>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-3">
           {loading ? (
             <p className="px-2 text-sm text-faint">Loading…</p>
@@ -186,9 +208,13 @@ export default function CollectionsPage() {
               <p className="text-sm text-muted">No collections yet.</p>
               <p className="mt-1 text-xs text-faint">Group content into a collection, then chat with the whole set at once.</p>
             </div>
+          ) : filteredCollections.length === 0 ? (
+            <p className="px-2 py-6 text-center text-sm text-muted">
+              No collections match &quot;{searchQuery.trim()}&quot;.
+            </p>
           ) : (
             <div className="space-y-1">
-              {collections.map((c) => (
+              {filteredCollections.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => navigate(`/collections/${c.id}`)}
@@ -588,7 +614,7 @@ function CollectionDashboard({
         {!items ? (
           <p className="text-sm text-faint">Loading…</p>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {KIND_ORDER.map((kind) => (
               <Card
                 key={kind}
@@ -687,7 +713,7 @@ function Card({
   const addable = (candidates ?? []).filter((c) => !present.has(c.id))
 
   return (
-    <div className={`flex flex-col rounded-xl border border-border bg-surface ${collapsed ? 'self-start' : ''}`}>
+    <div className={`flex min-w-0 flex-col rounded-xl border border-border bg-surface ${collapsed ? 'self-start' : ''}`}>
       <div className={`flex items-center gap-2 px-4 py-2.5 ${collapsed ? '' : 'border-b border-border'}`}>
         <button
           onClick={onToggleCollapsed}

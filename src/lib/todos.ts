@@ -239,6 +239,21 @@ export function monthGrid(month: Date): Array<Date | null> {
   return cells
 }
 
+// Week grid — seven consecutive days starting from Sunday of the reference
+// date's week. No padding needed since a week is exactly 7 days.
+export function weekGrid(referenceDate: Date): Date[] {
+  const ref = startOfDay(referenceDate)
+  const sunday = new Date(ref)
+  sunday.setDate(ref.getDate() - ref.getDay()) // Move back to Sunday
+  const cells: Date[] = []
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(sunday)
+    day.setDate(sunday.getDate() + i)
+    cells.push(day)
+  }
+  return cells
+}
+
 export function sameLocalDate(due: string | null, day: Date): boolean {
   if (!due) return false
   return startOfDay(parseDueDate(due)).getTime() === startOfDay(day).getTime()
