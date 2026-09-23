@@ -1043,10 +1043,10 @@ function TodoDetailModal({
   const overdue = todo && todo !== 'missing' ? isOverdue(todo.due_date, todo.done) : false
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
-        <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+        <div className="flex items-start gap-3 border-b border-border px-3 py-4 sm:px-5">
           <TodoIcon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-base font-semibold text-text">
@@ -1065,7 +1065,7 @@ function TodoDetailModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5">
           {todo === null ? (
             <p className="text-sm text-faint">Loading…</p>
           ) : todo === 'missing' ? (
@@ -1150,7 +1150,7 @@ function TodoDetailModal({
         </div>
 
         {todo && todo !== 'missing' && (
-          <div className="flex items-center gap-2 border-t border-border px-5 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-3 sm:px-5">
             <button
               onClick={() => {
                 if (confirm('Delete this to-do?')) onDeleted(todoId)

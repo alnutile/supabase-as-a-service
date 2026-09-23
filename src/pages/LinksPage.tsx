@@ -359,7 +359,7 @@ function EditLinkModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-4"
       onClick={onClose}
       role="presentation"
     >
@@ -367,7 +367,7 @@ function EditLinkModal({
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <div className="flex items-center justify-between border-b border-border px-3 py-3 sm:px-5">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-text">
             <PencilIcon className="h-4 w-4 text-muted" /> Edit link
           </h2>
@@ -380,7 +380,7 @@ function EditLinkModal({
           </button>
         </div>
 
-        <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
+        <div className="flex flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-5">
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-muted">URL</span>
             <input
@@ -420,7 +420,7 @@ function EditLinkModal({
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-3 py-3 sm:px-5">
           <button
             onClick={onClose}
             className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-surface-hover"
