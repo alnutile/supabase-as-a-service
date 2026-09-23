@@ -1,4 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
@@ -61,8 +73,25 @@ export default function FeaturesPage() {
   const [creating, setCreating] = useState(false)
   const [detail, setDetail] = useState<Feature | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [dragOver, setDragOver] = useState<Lane | null>(null)
-  const dragId = useRef<string | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
+  const activeCard = dragging ? features.find((f) => f.id === dragging) : null
+
+  // Native HTML5 drag-and-drop (`draggable` + onDrop) never fires on iOS
+  // Safari, so the board used to be frozen on an iPhone. dnd-kit's pointer
+  // sensors work on both: the mouse needs a 4px move so a click still opens
+  // the card; touch needs a short press-and-hold so a swipe still scrolls the
+  // lanes instead of grabbing whatever card the finger landed on.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  )
+
+  function onDragEnd(e: DragEndEvent) {
+    setDragging(null)
+    const lane = e.over?.id as Lane | undefined
+    const f = features.find((x) => x.id === String(e.active.id))
+    if (f && lane) moveTo(f, lane)
+  }
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -168,92 +197,36 @@ export default function FeaturesPage() {
         </div>
       )}
 
-      <div className="flex flex-1 gap-4 overflow-x-auto px-6 py-4">
-        {LANES.map((lane) => {
-          const cards = features.filter((f) => f.lane === lane.key)
-          return (
-            <div
-              key={lane.key}
-              onDragOver={(e) => {
-                if (!isAdmin) return
-                e.preventDefault()
-                setDragOver(lane.key)
-              }}
-              onDragLeave={() => setDragOver((d) => (d === lane.key ? null : d))}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDragOver(null)
-                const f = features.find((x) => x.id === dragId.current)
-                if (f) moveTo(f, lane.key)
-              }}
-              className={`flex w-72 shrink-0 flex-col rounded-xl border bg-surface-2/50 ${
-                dragOver === lane.key ? 'border-primary ring-2 ring-primary-soft' : 'border-border'
-              }`}
-            >
-              <div className="px-3 pt-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-text">{lane.title}</h2>
-                  <span className="rounded-full bg-surface-2 px-2 text-xs text-muted">{cards.length}</span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-faint">{lane.hint}</p>
-              </div>
-              <div className="flex-1 space-y-2 overflow-y-auto p-3">
+      <DndContext
+        sensors={sensors}
+        onDragStart={(e: DragStartEvent) => setDragging(String(e.active.id))}
+        onDragCancel={() => setDragging(null)}
+        onDragEnd={onDragEnd}
+      >
+        <div className="flex flex-1 gap-4 overflow-x-auto px-6 py-4">
+          {LANES.map((lane) => {
+            const cards = features.filter((f) => f.lane === lane.key)
+            return (
+              <FeatureLane key={lane.key} lane={lane} count={cards.length}>
                 {cards.map((f) => (
-                  <div
-                    key={f.id}
-                    draggable={isAdmin}
-                    onDragStart={() => (dragId.current = f.id)}
-                    onClick={() => setDetail(f)}
-                    className="cursor-pointer rounded-lg border border-border bg-surface p-3 shadow-sm hover:border-border-strong"
-                  >
-                    <div className="text-sm font-medium text-text">{f.title}</div>
-                    {f.description && (
-                      <p className="mt-1 line-clamp-2 text-xs text-muted">{f.description}</p>
-                    )}
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-faint">
-                      {f.screenshots.length > 0 && (
-                        <span className="flex items-center gap-1">
-                          <PaperclipIcon className="h-3 w-3" /> {f.screenshots.length}
-                        </span>
-                      )}
-                      {f.issue_number && (
-                        <span className="rounded-full bg-surface-2 px-1.5 py-0.5">#{f.issue_number}</span>
-                      )}
-                      {f.pr_url && (
-                        <a
-                          href={f.pr_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium ${
-                            f.pr_state === 'merged'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : f.pr_state === 'closed'
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-primary-soft text-primary'
-                          }`}
-                        >
-                          <LinkIcon className="h-3 w-3" /> PR {f.pr_number} · {f.pr_state ?? 'open'}
-                        </a>
-                      )}
-                      {f.issue_number && !f.pr_url && f.lane === 'approved' && (
-                        <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-amber-700">building…</span>
-                      )}
-                      <span>{formatDate(f.updated_at)}</span>
-                    </div>
-                    {f.last_error && (
-                      <p className="mt-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-700">{f.last_error}</p>
-                    )}
-                  </div>
+                  <FeatureCard key={f.id} feature={f} canDrag={isAdmin} onOpen={() => setDetail(f)} />
                 ))}
                 {!loading && cards.length === 0 && (
                   <p className="px-1 py-2 text-center text-xs text-faint">Empty</p>
                 )}
-              </div>
+              </FeatureLane>
+            )
+          })}
+        </div>
+        {/* A portal copy, so the moving card isn't clipped by its lane's scroll box. */}
+        <DragOverlay>
+          {activeCard && (
+            <div className="rotate-1 cursor-grabbing rounded-lg border border-primary bg-surface p-3 shadow-lg">
+              <FeatureCardBody feature={activeCard} />
             </div>
-          )
-        })}
-      </div>
+          )}
+        </DragOverlay>
+      </DndContext>
 
       {!isAdmin && (
         <p className="px-6 pb-3 text-xs text-faint">
@@ -275,6 +248,11 @@ export default function FeaturesPage() {
           feature={detail}
           isAdmin={isAdmin}
           isOwner={detail.owner_id === user?.id}
+          onMove={(lane) => {
+            const f = detail
+            setDetail(null)
+            moveTo(f, lane)
+          }}
           onClose={() => setDetail(null)}
           onChanged={() => {
             setDetail(null)
@@ -283,6 +261,98 @@ export default function FeaturesPage() {
         />
       )}
     </div>
+  )
+}
+
+function FeatureLane({
+  lane,
+  count,
+  children,
+}: {
+  lane: (typeof LANES)[number]
+  count: number
+  children: ReactNode
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: lane.key })
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex w-72 shrink-0 flex-col rounded-xl border bg-surface-2/50 ${
+        isOver ? 'border-primary ring-2 ring-primary-soft' : 'border-border'
+      }`}
+    >
+      <div className="px-3 pt-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-text">{lane.title}</h2>
+          <span className="rounded-full bg-surface-2 px-2 text-xs text-muted">{count}</span>
+        </div>
+        <p className="mt-0.5 text-[11px] text-faint">{lane.hint}</p>
+      </div>
+      <div className="flex-1 space-y-2 overflow-y-auto p-3">{children}</div>
+    </div>
+  )
+}
+
+function FeatureCard({ feature, canDrag, onOpen }: { feature: Feature; canDrag: boolean; onOpen: () => void }) {
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
+    id: feature.id,
+    disabled: !canDrag,
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      onClick={onOpen}
+      // select-none + no touch callout: a press-and-hold on iOS otherwise
+      // starts a text selection / link preview instead of the drag.
+      style={{ WebkitTouchCallout: 'none' }}
+      className={`cursor-pointer select-none rounded-lg border border-border bg-surface p-3 shadow-sm hover:border-border-strong ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+    >
+      <FeatureCardBody feature={feature} />
+    </div>
+  )
+}
+
+function FeatureCardBody({ feature: f }: { feature: Feature }) {
+  return (
+    <>
+      <div className="text-sm font-medium text-text">{f.title}</div>
+      {f.description && <p className="mt-1 line-clamp-2 text-xs text-muted">{f.description}</p>}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-faint">
+        {f.screenshots.length > 0 && (
+          <span className="flex items-center gap-1">
+            <PaperclipIcon className="h-3 w-3" /> {f.screenshots.length}
+          </span>
+        )}
+        {f.issue_number && <span className="rounded-full bg-surface-2 px-1.5 py-0.5">#{f.issue_number}</span>}
+        {f.pr_url && (
+          <a
+            href={f.pr_url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium ${
+              f.pr_state === 'merged'
+                ? 'bg-emerald-100 text-emerald-700'
+                : f.pr_state === 'closed'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-primary-soft text-primary'
+            }`}
+          >
+            <LinkIcon className="h-3 w-3" /> PR {f.pr_number} · {f.pr_state ?? 'open'}
+          </a>
+        )}
+        {f.issue_number && !f.pr_url && f.lane === 'approved' && (
+          <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-amber-700">building…</span>
+        )}
+        <span>{formatDate(f.updated_at)}</span>
+      </div>
+      {f.last_error && <p className="mt-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-700">{f.last_error}</p>}
+    </>
   )
 }
 
@@ -385,12 +455,14 @@ function DetailModal({
   feature,
   isAdmin,
   isOwner,
+  onMove,
   onClose,
   onChanged,
 }: {
   feature: Feature
   isAdmin: boolean
   isOwner: boolean
+  onMove: (lane: Lane) => void
   onClose: () => void
   onChanged: () => void
 }) {
@@ -443,6 +515,21 @@ function DetailModal({
           </div>
           {feature.last_error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{feature.last_error}</p>
+          )}
+          {isAdmin && (
+            // Tap alternative to dragging — same moveTo (and confirms) as a drop.
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted">Move to:</span>
+              {LANES.filter((l) => l.key !== feature.lane).map((l) => (
+                <button
+                  key={l.key}
+                  onClick={() => onMove(l.key)}
+                  className="rounded-lg border border-border px-2.5 py-1 font-medium text-text hover:bg-surface-hover"
+                >
+                  {l.title}
+                </button>
+              ))}
+            </div>
           )}
           {urls.map((u) => (
             <img key={u} src={u} alt="screenshot" className="max-w-full rounded-lg border border-border" />
