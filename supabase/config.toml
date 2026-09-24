@@ -128,3 +128,6 @@ verify_jwt = false
 # a personal mcp_tokens bearer, exactly like run-tool.
 [functions.compile]
 verify_jwt = false
+
+[functions.github-repositories]
+verify_jwt = false # User JWT is verified with auth.getUser inside the function.

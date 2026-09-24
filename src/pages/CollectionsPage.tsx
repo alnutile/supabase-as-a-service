@@ -1,3 +1,4 @@
+import { CollectionRepositories } from '../components/CollectionRepositories'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Database } from '../lib/database.types'
@@ -82,7 +83,7 @@ export default function CollectionsPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   const load = useCallback(async () => {
-    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, stats] = await Promise.all([
+    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, crRes, stats] = await Promise.all([
       supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id'),
       supabase.from('collection_files').select('collection_id'),
@@ -92,11 +93,12 @@ export default function CollectionsPage() {
       supabase.from('collection_terminology').select('collection_id'),
       supabase.from('collection_agents').select('collection_id'),
       supabase.from('collection_whiteboards').select('collection_id'),
+      supabase.from('collection_repositories').select('collection_id'),
       supabase.rpc('collection_token_stats'),
     ])
     setCollections(cRes.data ?? [])
     const c: Record<string, number> = {}
-    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes]) {
+    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, crRes]) {
       for (const r of res.data ?? []) c[r.collection_id] = (c[r.collection_id] ?? 0) + 1
     }
     setCounts(c)
@@ -611,6 +613,7 @@ function CollectionDashboard({
 
       {/* Cards */}
       <div className="flex-1 overflow-y-auto px-5 py-4 pb-28">
+        <CollectionRepositories key={collection.id} collectionId={collection.id} isOwner={isOwner} shared={collection.visibility === 'workspace'} />
         {!items ? (
           <p className="text-sm text-faint">Loading…</p>
         ) : (
