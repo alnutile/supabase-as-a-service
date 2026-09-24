@@ -27,4 +27,3 @@ grant all on public.collection_repositories to service_role;
 create policy "Read collection repositories" on public.collection_repositories for select to authenticated
 using (exists(select 1 from public.collections c where c.id = collection_id));
 -- Mutations go through the authenticated edge function, which checks ownership.
-
