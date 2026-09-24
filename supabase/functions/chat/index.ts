@@ -332,7 +332,7 @@ Deno.serve(async (req: Request) => {
 
   // Collection scope: inject the chosen collection's artifacts as primary context.
   if (collectionIds.length) {
-    const collectionContext = await loadCollectionsContext(db, collectionIds, userId, MODEL)
+    const collectionContext = await loadCollectionsContext(db, collectionIds, userId, MODEL, [...inMessages].reverse().find(m => m.role === 'user')?.content?.toString() ?? '')
     if (collectionContext) system += `\n\n---\n\n${collectionContext}`
   }
 

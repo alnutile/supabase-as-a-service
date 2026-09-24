@@ -40,6 +40,18 @@ export interface UserTableColumn {
 export interface Database {
   public: {
     Tables: {
+      collection_repositories: {
+        Row: {
+          id: string; collection_id: string; owner_id: string; vault_secret_id: string | null;
+          repository: string; branch: string; path_prefix: string; status: string;
+          commit_sha: string | null; synced_at: string | null; sync_started_at: string | null;
+          run_id: string | null; error: string | null; files: Json;
+          file_count: number; omitted_count: number; created_at: string;
+        }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
       profiles: {
         Row: {
           id: string

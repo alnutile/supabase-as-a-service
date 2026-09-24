@@ -20,7 +20,8 @@ const ORIGIN = `http://localhost:${PORT}`
 // Any syntactically valid project URL; every call to it is intercepted below.
 const SUPABASE_URL = 'https://example.supabase.co'
 const PROJECT_REF = 'example'
-const ROUTES = ['/home', '/todos', '/artifacts']
+const COLLECTION_ID = '00000000-0000-4000-8000-000000000010'
+const ROUTES = ['/home', '/todos', '/artifacts', `/collections/${COLLECTION_ID}`]
 
 // Find a browser without downloading one: an explicit override, the browser
 // preinstalled in the Claude Code image, or a Chrome/Chromium the runner
@@ -94,6 +95,16 @@ function stubBody(url, accept) {
   if (url.includes('/auth/v1/')) {
     return JSON.stringify(url.includes('/user') ? fakeSession().user : fakeSession())
   }
+  if (table === 'collections') {
+    const collection = { id: COLLECTION_ID, owner_id: fakeSession().user.id, name: 'Repository smoke', visibility: 'private', description: '', pinned: false }
+    return JSON.stringify(wantsObject ? collection : [collection])
+  }
+  if (table === 'collection_repositories') return JSON.stringify([{
+    id: '00000000-0000-4000-8000-000000000020', collection_id: COLLECTION_ID,
+    owner_id: fakeSession().user.id, repository: 'example/service', branch: 'main',
+    status: 'ready', file_count: 12, omitted_count: 3, commit_sha: 'abc12345',
+    synced_at: '2026-09-24T12:00:00Z', path_prefix: '', vault_secret_id: null,
+  }])
   if (!wantsObject) return '[]'
   switch (table) {
     case 'profiles':
@@ -177,6 +188,13 @@ async function run() {
         failures.push(`${route}: redirected to /login, so no protected route was rendered`)
       } else {
         console.log(`  ok  ${route} -> ${landedOn} (#root ${rootSize} chars)`)
+      }
+      if (route.startsWith('/collections/')) {
+        await page.getByRole('heading', { name: 'GitHub repositories' }).waitFor()
+        await page.getByRole('link', { name: 'example/service' }).waitFor()
+        await page.getByRole('button', { name: 'Connect repository' }).click()
+        await page.getByLabel('Repository', { exact: true }).waitFor()
+        if (process.env.SMOKE_SCREENSHOT) await page.screenshot({ path: process.env.SMOKE_SCREENSHOT, fullPage: true })
       }
       await page.close()
     }
