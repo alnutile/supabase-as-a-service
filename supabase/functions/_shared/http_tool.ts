@@ -31,7 +31,7 @@ export interface HttpToolRow {
 
 const VAULT_REF = /\{\{\s*vault:([^}]+?)\s*\}\}/g
 
-function hostMatches(host: string, entries: string[]): boolean {
+export function hostMatches(host: string, entries: string[]): boolean {
   const h = host.toLowerCase()
   return entries.some((e) => {
     const rule = (e ?? '').trim().toLowerCase()

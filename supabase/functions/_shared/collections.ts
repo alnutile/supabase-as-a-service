@@ -16,6 +16,7 @@
 // selected collections are DEDUPED, and the large items (artifacts + files) are
 // budgeted to the model's real context window so the meter matches what's sent.
 
+import { repositoryContext, type RepoSnapshot } from './github_repositories.ts'
 import { sceneToText } from './whiteboard_scene.ts'
 import { cardsToText } from './card_board.ts'
 import { compiledContextBlock, type CompiledPage } from './compiler.ts'
@@ -57,6 +58,7 @@ export async function loadCollectionsContext(
   collectionIds: string[],
   userId: string | null,
   model: string,
+  query = '',
 ): Promise<string> {
   if (!db || !userId || !collectionIds.length) return ''
   try {
@@ -245,6 +247,16 @@ export async function loadCollectionsContext(
         .map((c) => ({ title: c.title, text: cardsToText({ cards: c.cards }) }))
     }
 
+    // Repository snapshots inherit collection access. Only already-authorized ids
+    // are queried; credentials are never loaded into context.
+    const { data: repos } = await db.from('collection_repositories')
+      .select('repository,branch,commit_sha,synced_at,status,files,omitted_count')
+      .in('collection_id', visibleIds).order('created_at').limit(20)
+    const repoDocs = ((repos ?? []) as RepoSnapshot[]).map(repo => ({
+      label: `## GitHub: ${repo.repository}`,
+      body: repositoryContext(repo, query, Math.max(1500, Math.floor(32000 / Math.max(1, repos.length)))),
+    }))
+
     // Compiled knowledge pages — the MAINTAINED understanding of this subject.
     // Loaded first and rendered first so the assistant answers from what the
     // workspace knows, treating the raw items below as the evidence behind it.
@@ -252,12 +264,13 @@ export async function loadCollectionsContext(
 
     if (
       !readable.length && !todos.length && !fileDocs.length && !tableDocs.length &&
-      !webLinks.length && !agents.length && !whiteboards.length && !cardBoards.length
+      !webLinks.length && !agents.length && !whiteboards.length && !cardBoards.length && !repoDocs.length
     ) return compiled
 
     const parts: string[] = []
 
     const budgeted: Array<{ label: string; body: string }> = [
+      ...repoDocs,
       ...readable.map((a) => ({ label: `## ${a.title} (${a.type})`, body: a.content ?? '' })),
       ...fileDocs,
       ...tableDocs,
@@ -321,7 +334,7 @@ export async function loadCollectionsContext(
 
     const itemCount =
       readable.length + fileDocs.length + tableDocs.length + todos.length + webLinks.length + agents.length +
-      whiteboards.length + cardBoards.length
+      whiteboards.length + cardBoards.length + repoDocs.length
     const label =
       names.length === 1 ? `the "${names[0]}" collection` : `${names.length} collections (${names.map((n) => `"${n}"`).join(', ')})`
     const raw =

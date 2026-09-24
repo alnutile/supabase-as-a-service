@@ -1,0 +1,16 @@
+# Start Supabase first: supabase start
+# Populate infra/.env.review with the local API URL and anon key from supabase status.
+# docker compose --env-file infra/.env.review -f infra/docker-compose.review.yml up -d --build
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.review
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    environment:
+      SUPABASE_FUNCTIONS_URL: http://host.docker.internal:54321/functions/v1
+    ports:
+      - "127.0.0.1:5180:8080"
+    restart: unless-stopped
