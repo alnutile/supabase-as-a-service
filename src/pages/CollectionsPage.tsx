@@ -246,7 +246,7 @@ export default function CollectionsPage() {
       </div>
 
       {/* Detail pane */}
-      <div className={`relative min-w-0 flex-1 ${selected ? 'flex' : 'hidden md:flex'} flex-col bg-bg`}>
+      <div className={`relative min-w-0 flex-1 ${selected ? 'flex' : 'hidden md:flex'} flex-col overflow-x-hidden bg-bg`}>
         {selected ? (
           <CollectionDashboard
             key={selected.id}
@@ -529,7 +529,7 @@ function CollectionDashboard({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-border bg-surface px-5 py-4">
+      <div className="border-b border-border bg-surface px-3 py-4 sm:px-5">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="rounded-lg p-1.5 text-muted hover:bg-surface-hover md:hidden" aria-label="Back">
             <ArrowRightIcon className="h-5 w-5 rotate-180" />
@@ -612,7 +612,7 @@ function CollectionDashboard({
       </div>
 
       {/* Cards */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 pb-28">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 pb-28 sm:px-5">
         <CollectionRepositories key={collection.id} collectionId={collection.id} isOwner={isOwner} shared={collection.visibility === 'workspace'} />
         {!items ? (
           <p className="text-sm text-faint">Loading…</p>
@@ -797,7 +797,7 @@ function Card({
           </div>
 
           {/* Add existing */}
-          <div className="max-h-44 overflow-y-auto border-t border-border">
+          <div className="max-h-44 overflow-y-auto overflow-x-hidden border-t border-border">
             {candidates === null ? (
               <p className="px-4 py-3 text-xs text-faint">Loading…</p>
             ) : addable.length === 0 ? (
@@ -1013,10 +1013,10 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
-        <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+        <div className="flex items-start gap-3 border-b border-border px-3 py-4 sm:px-5">
           <Icon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-base font-semibold text-text">
@@ -1029,7 +1029,7 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-5">
           {detail === null ? (
             <p className="text-sm text-faint">Loading…</p>
           ) : detail === 'missing' ? (
@@ -1040,7 +1040,7 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
         </div>
 
         {detail && detail !== 'missing' && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-3 sm:px-5">
             {kind === 'todo' && (
               <button
                 onClick={toggleTodoDone}
@@ -1143,7 +1143,7 @@ function CollectionChat({ collection, onChanged }: { collection: Collection; onC
   }
 
   return (
-    <div className="absolute bottom-5 right-5 z-30 flex h-[70%] max-h-[560px] w-[calc(100%-2.5rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+    <div className="absolute bottom-3 right-3 z-30 flex h-[70%] max-h-[560px] w-[calc(100%-1.5rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl sm:bottom-5 sm:right-5 sm:w-[calc(100%-2.5rem)]">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <CollectionIcon className="h-4 w-4 text-primary" />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{collection.name}</span>
