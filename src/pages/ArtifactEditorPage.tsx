@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
-import { standalonePageUrl, supabase } from '../lib/supabase'
+import { artifactImageUrl, standalonePageUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { imageMarkdown, insertAtCursor, isImageFile, isUrl, sanitizeImageName, urlToMarkdown } from '../lib/artifactImages'
 import { uploadPickedFile } from '../lib/upload'
@@ -88,11 +88,10 @@ export default function ArtifactEditorPage() {
           const name = sanitizeImageName(file.name, file.type)
           const path = `${user.id}/${crypto.randomUUID()}/${name}`
           await uploadPickedFile(path, file, IMAGE_BUCKET, { artifact_id: artifact.id })
-          const { data, error } = await supabase.storage
-            .from(IMAGE_BUCKET)
-            .createSignedUrl(path, 60 * 60 * 24 * 7)
-          if (error) throw error
-          urls.push(data.signedUrl)
+          // Use the artifact-image proxy which checks artifact visibility on each request.
+          // This ensures images automatically respect the artifact's current public/private state,
+          // solving the "artifact becomes private" problem without URL expiration issues.
+          urls.push(artifactImageUrl(path))
         }
         const block = urls.map((u) => imageMarkdown(u)).join('\n')
         const el = textareaRef.current
