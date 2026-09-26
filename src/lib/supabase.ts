@@ -47,6 +47,14 @@ export const forgeFunctionUrl = `${supabaseUrl}/functions/v1/forge`
  */
 export const standalonePageUrl = (slug: string) => `${window.location.origin}/p/${slug}`
 
+/**
+ * Artifact image proxy URL — generates a URL that serves images through the
+ * artifact-image edge function, which checks artifact visibility on each request.
+ * This ensures images automatically respect the artifact's current public/private state.
+ */
+export const artifactImageUrl = (storagePath: string) =>
+  `${supabaseUrl}/functions/v1/artifact-image/${storagePath}`
+
 /** Shareable invite link — hand this out instead of allowlisting an email. */
 export const inviteLinkUrl = (token: string) => `${window.location.origin}/join/${token}`
 
