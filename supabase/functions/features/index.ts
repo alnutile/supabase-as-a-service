@@ -145,7 +145,7 @@ Deno.serve(async (req: Request) => {
   const { data: profile } = await db.from('profiles').select('is_admin').eq('id', userId).maybeSingle()
   if (!profile?.is_admin) return json({ error: 'Admins only.' }, 403)
 
-  const { data: pat } = await db.rpc('read_vault_secret', { p_name: 'github_pat', p_user_id: null })
+  const { data: pat } = await db.rpc('read_vault_secret', { p_name: 'github_pat', p_user_id: userId })
   if (!pat || typeof pat !== 'string') {
     return json({ error: 'Add a workspace secret named "github_pat" (a GitHub token with repo scope) in Secrets first.' }, 400)
   }
