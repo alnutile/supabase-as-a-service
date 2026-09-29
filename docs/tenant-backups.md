@@ -31,6 +31,14 @@ records which role it used in the object metadata. It connects through the
 IPv4 Supavisor pooler in session mode (port 5432). The direct `db.<ref>` host is
 IPv6-only, and Railway can't reach it.
 
+### Dead-man switch
+
+The alert webhook only fires if the job runs. `.github/workflows/backup-deadman.yml`
+checks from outside Railway every day at 09:00 UTC. It fails if any live tenant has
+no `backup.ok` event from the last 26h, and GitHub emails you when a scheduled
+workflow fails. It reuses the `SUPABASE_ACCESS_TOKEN` secret and `CONTROL_PLANE_REF`
+variable, so it needs no new secrets. Run it by hand from the Actions tab to check it.
+
 ## Setup
 
 1. **S3 bucket** with versioning and a lifecycle rule. Pick your own names:
