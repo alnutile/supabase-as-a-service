@@ -11,6 +11,7 @@ import {
   stamp,
   storageKey,
   storagePrefix,
+  targetRole,
 } from './plan.ts'
 
 const A = 'abcdefghijklmnopqrst'
@@ -64,4 +65,10 @@ test('encodeObjectPath keeps separators and escapes segments', () => {
 test('sqlLiteral escapes quotes', () => {
   assert.equal(sqlLiteral("o'brien"), "'o''brien'")
   assert.equal(sqlLiteral(null), 'null')
+})
+
+test('targetRole maps a temporary CLI login to the role it SET ROLEs into', () => {
+  assert.equal(targetRole('cli_login_postgres'), 'postgres')
+  assert.equal(targetRole('cli_login_supabase_read_only_user'), 'supabase_read_only_user')
+  assert.equal(targetRole('postgres'), 'postgres')
 })

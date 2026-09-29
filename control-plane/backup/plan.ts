@@ -110,6 +110,14 @@ export function sqlLiteral(v: string | null): string {
   return v === null ? 'null' : `'${v.replace(/'/g, "''")}'`
 }
 
+// The Management API's temporary logins (cli_login_postgres,
+// cli_login_supabase_read_only_user) do NOT inherit their target role's
+// privileges — the Supabase CLI connects and then `SET ROLE`s into the target.
+// pg_dump does the same via --role; without it every schema is permission-denied.
+export function targetRole(loginRole: string): string {
+  return loginRole.replace(/^cli_login_/, '') || loginRole
+}
+
 // pg_dump's -n list. Application data lives in public (incl. the ut_* user
 // tables); auth + storage hold users and object metadata; supabase_migrations
 // records which migrations a restore target already has.
