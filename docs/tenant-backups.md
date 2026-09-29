@@ -70,22 +70,26 @@ IPv6-only, and Railway can't reach it.
    Because the key has no delete permission and the bucket is versioned, a
    leaked key can't wipe your backups.
 
-3. **Railway service.** In the control-plane Railway project, add a service from
-   this repo. Set the variable `RAILWAY_CONFIG_FILE=infra/railway/tenant-backup.json`,
-   or set the Dockerfile path and cron schedule by hand. Leave Root Directory
-   unset. Then set these service variables:
+3. **Railway service.** In the control-plane Railway project (`supanet-control`),
+   add a service from this repo on `main` with Root Directory unset. Railway has
+   deprecated config-file paths, so set these in the service settings directly.
+   `infra/railway/tenant-backup.json` records the intended values:
+   `RAILWAY_DOCKERFILE_PATH=control-plane/backup/Dockerfile`, cron `0 7 * * *`,
+   restart policy **Never**. The image's `npm start` and `npm run backup` both
+   run the backup, so the frontend start command in the root `railway.json`
+   can't hijack it. Then set these service variables:
 
    | Var | Value |
    | --- | --- |
-   | `SUPANET_MGMT_PAT` | the org PAT (same as the provisioner) |
+   | `SUPANET_MGMT_PAT` | `${{provisioner-worker.SUPANET_MGMT_PAT}}`, a reference, so there's one copy |
    | `CONTROL_PLANE_REF` | control-plane project ref |
    | `BACKUP_EXTRA_REFS` | origin app ref, control-plane ref (optional) |
    | `BACKUP_S3_BUCKET` / `AWS_REGION` | from step 1 |
    | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | from step 2 |
    | `BACKUP_ALERT_WEBHOOK` | Slack incoming webhook (optional, recommended) |
 
-   The default schedule is `0 7 * * *` (07:00 UTC). To run it right away, use
-   **Deploy** on the service. Check that `runs/<timestamp>.json` shows
+   The default schedule is `0 7 * * *` (07:00 UTC). A deploy also runs the job
+   once. Check that `runs/<timestamp>.json` shows
    `"failed": 0`.
 
 To run it locally, fill in the Backups block in `control-plane/.env`, put

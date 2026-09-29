@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Runner shim so the backup image is the WORKDIR's package: whether Railway starts it with `npm start` (the repo-root railway.json) or `npm run backup`, the backup job runs — never the provisioner, which is control-plane's `start`.",
+  "scripts": {
+    "start": "../node_modules/.bin/tsx index.ts",
+    "backup": "../node_modules/.bin/tsx index.ts"
+  }
+}

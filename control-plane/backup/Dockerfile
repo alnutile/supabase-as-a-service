@@ -27,7 +27,8 @@ COPY control-plane/tsconfig.json control-plane/
 COPY control-plane/engine control-plane/engine
 COPY control-plane/backup control-plane/backup
 
-# Railway runs `npm start` from WORKDIR regardless of CMD (learned on the
-# provisioner), so point both at the backup script explicitly.
-WORKDIR /app/control-plane
+# Railway may start the service with the repo-root railway.json's `npm run start`
+# regardless of CMD. From control-plane/ that would be the PROVISIONER, so the
+# WORKDIR is backup/, whose package.json maps both `start` and `backup` here.
+WORKDIR /app/control-plane/backup
 CMD ["npm", "run", "backup"]
