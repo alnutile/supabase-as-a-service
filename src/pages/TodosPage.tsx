@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { TODO_STATUSES, filterAndSortTodos, reconcileStatus, statusOf } from '../lib/todos'
 import { openDatePicker } from '../lib/datePicker'
 import { CollectionPicker, CollectionTokens } from '../components/CollectionPicker'
+import { CollectionContextHeader } from '../components/CollectionContextHeader'
 import { CopyButton } from '../components/CopyButton'
 import { BoardView, CalendarView, FocusView, SourceTag, TimeView, type TodoViewProps } from '../components/TodoBoards'
 import {
@@ -525,8 +526,22 @@ export default function TodosPage() {
   // the list keeps the narrow, page-scrolling column it always had.
   const wide = view !== 'list'
 
+  // Show the collection context header only when exactly one collection is selected
+  const singleCollection = useMemo(() => {
+    if (activeCollections.size !== 1) return null
+    const id = [...activeCollections][0]
+    return collections.find((c) => c.id === id) ?? null
+  }, [activeCollections, collections])
+
   return (
     <div className={wide ? 'flex h-full flex-col overflow-hidden' : 'h-full overflow-y-auto'}>
+      {singleCollection && (
+        <CollectionContextHeader
+          collectionId={singleCollection.id}
+          collectionName={singleCollection.name}
+          onClear={() => setActiveCollections(new Set())}
+        />
+      )}
       <div
         className={`mx-auto flex w-full flex-col ${
           wide ? 'min-h-0 max-w-[110rem] flex-1 px-6 py-6' : 'max-w-3xl px-6 py-8'

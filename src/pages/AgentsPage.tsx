@@ -8,6 +8,7 @@ import { CRON_EXAMPLES, describeCron, isValidCron, localTimezone, nextCronRuns }
 import { allToolsSelected as allSelected, toggleAllTools } from '../lib/agentTools'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import { CollectionPicker } from '../components/CollectionPicker'
+import { CollectionContextHeader } from '../components/CollectionContextHeader'
 import { ActivityIcon, AgentIcon, ChatIcon, CheckIcon, CloseIcon, PlayIcon, PlusIcon, SearchIcon, SkillIcon, TrashIcon } from '../components/icons'
 
 // Stable identity for "nothing picked" — the picker memoizes on `selected`.
@@ -172,8 +173,20 @@ export default function AgentsPage() {
     }
   }
 
+  const activeCollectionName = useMemo(() => {
+    if (!activeCollection) return null
+    return collections.find((c) => c.id === activeCollection)?.name ?? null
+  }, [activeCollection, collections])
+
   return (
     <div className="h-full overflow-y-auto">
+      {activeCollection && activeCollectionName && (
+        <CollectionContextHeader
+          collectionId={activeCollection}
+          collectionName={activeCollectionName}
+          onClear={() => setActiveCollection(null)}
+        />
+      )}
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="mb-1 flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight text-text">Agents</h1>

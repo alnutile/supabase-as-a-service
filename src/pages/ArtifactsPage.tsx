@@ -8,6 +8,7 @@ import { estimateTokensFromChars } from '../lib/tokens'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextMeter } from '../components/ContextMeter'
 import { CollectionPicker } from '../components/CollectionPicker'
+import { CollectionContextHeader } from '../components/CollectionContextHeader'
 import { generateMarkdownContent, generateFilename, downloadMarkdown } from '../lib/artifactDownload'
 import {
   ArtifactIcon,
@@ -396,6 +397,13 @@ export default function ArtifactsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
+      {activeCollection && (
+        <CollectionContextHeader
+          collectionId={activeCollection.id}
+          collectionName={activeCollection.name}
+          onClear={() => setActiveId(null)}
+        />
+      )}
       <div className="mx-auto max-w-4xl px-6 py-8">
         <div className="mb-5 flex items-center justify-between">
           <div>
