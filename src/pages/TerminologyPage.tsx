@@ -135,6 +135,11 @@ export default function TerminologyPage() {
 
   // --- render --------------------------------------------------------------
 
+  const activeCollectionName = useMemo(() => {
+    if (!activeCollection) return null
+    return collections.find((c) => c.id === activeCollection)?.name ?? null
+  }, [activeCollection, collections])
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -152,11 +157,6 @@ export default function TerminologyPage() {
     for (const id of members[c.id] ?? []) if (visibleIds.has(id)) n++
     collectionCounts[c.id] = n
   }
-
-  const activeCollectionName = useMemo(() => {
-    if (!activeCollection) return null
-    return collections.find((c) => c.id === activeCollection)?.name ?? null
-  }, [activeCollection, collections])
 
   return (
     <div className="h-full overflow-y-auto">
