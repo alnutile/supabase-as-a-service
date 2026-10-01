@@ -512,27 +512,52 @@ function DayCell({
   today,
   onOpen,
   remoteIds,
+  viewMode,
+  onToggleDone,
+  collectionsOf,
 }: {
   day: Date
   items: Todo[]
   today: Date
   onOpen: (id: string) => void
   remoteIds: ReadonlySet<string>
+  viewMode: 'month' | 'week'
+  onToggleDone: (id: string) => void
+  collectionsOf: (todoId: string) => string[]
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${isoDate(day)}` })
   const isToday = day.toDateString() === today.toDateString()
+
+  // Week view uses full TodoCard components, month view uses compact DayChip
+  const useFullCards = viewMode === 'week'
+
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-h-[6rem] flex-col gap-1 border-b border-r border-border p-1.5 transition ${
+      className={`flex ${useFullCards ? 'min-h-[12rem]' : 'min-h-[6rem]'} flex-col gap-1 border-b border-r border-border p-1.5 transition ${
         isOver ? 'bg-primary-soft' : isToday ? 'bg-primary-soft/40' : 'bg-surface'
       }`}
     >
       <span className={`text-xs ${isToday ? 'font-extrabold text-primary' : 'font-semibold text-faint'}`}>{day.getDate()}</span>
-      {items.slice(0, 3).map((t) => (
-        <DayChip key={t.id} todo={t} today={today} onOpen={() => onOpen(t.id)} remote={remoteIds.has(t.id)} />
-      ))}
-      {items.length > 3 && <span className="text-[10px] font-semibold text-faint">+{items.length - 3} more</span>}
+      {useFullCards ? (
+        // Week view: show all todos as full cards
+        items.map((t) => (
+          <TodoCard
+            key={t.id}
+            todo={t}
+            collections={collectionsOf(t.id)}
+            onOpen={() => onOpen(t.id)}
+            onToggleDone={() => onToggleDone(t.id)}
+            remote={remoteIds.has(t.id)}
+            today={today}
+          />
+        ))
+      ) : (
+        // Month view: show all todos as compact chips (no truncation)
+        items.map((t) => (
+          <DayChip key={t.id} todo={t} today={today} onOpen={() => onOpen(t.id)} remote={remoteIds.has(t.id)} />
+        ))
+      )}
     </div>
   )
 }
@@ -658,6 +683,9 @@ export function CalendarView(props: TodoViewProps) {
                   onOpen={props.onOpen}
                   remoteIds={props.remoteIds}
                   items={open.filter((t) => sameLocalDate(t.due_date, c))}
+                  viewMode={viewMode}
+                  onToggleDone={props.onToggleDone}
+                  collectionsOf={props.collectionsOf}
                 />
               ) : (
                 <div key={i} className="min-h-[6rem] border-b border-r border-border bg-surface-2" />
