@@ -1,0 +1,43 @@
+name: Backup dead-man switch
+
+# The backup job (control-plane/backup, a Railway cron) alerts when it FAILS —
+# but if it never runs at all (cron not firing, broken build, service removed)
+# nothing would say so. This checks from the outside, on GitHub's clock rather
+# than Railway's: every live tenant must have a `backup.ok` cp_events row from
+# the last 26h, else this workflow fails and GitHub emails the repo owner.
+#
+# Uses the same PAT + control-plane ref as release-tenants.yml — no new secrets.
+# Runs 2h after the 07:00 UTC backup.
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      CONTROL_PLANE_REF: ${{ vars.CONTROL_PLANE_REF }}
+    steps:
+      - name: Every live tenant backed up in the last 26h
+        run: |
+          set -euo pipefail
+          SQL="select t.slug, t.project_ref, max(e.created_at) as last_ok
+               from public.tenants t
+               left join public.cp_events e
+                 on e.tenant_id = t.id and e.type = 'backup.ok'
+               where t.status in ('active','past_due','canceled') and t.project_ref is not null
+               group by t.slug, t.project_ref
+               having max(e.created_at) is null or max(e.created_at) < now() - interval '26 hours'"
+          RES=$(curl -sf -X POST "https://api.supabase.com/v1/projects/$CONTROL_PLANE_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg q "$SQL" '{query:$q}')")
+          STALE=$(echo "$RES" | jq 'length')
+          if [ "$STALE" != "0" ]; then
+            echo "::error::$STALE tenant(s) have no successful backup in 26h — check the tenant-backup Railway service"
+            echo "$RES" | jq -r '.[] | "  \(.slug) (\(.project_ref)): last ok \(.last_ok // "never")"'
+            exit 1
+          fi
+          echo "All live tenants backed up within 26h."

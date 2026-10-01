@@ -1152,6 +1152,17 @@ than once; the unit suites cannot see that, so check it here.**
   `src/lib/rollout.ts` (unit-tested). Functions deploy via `supabase functions deploy --project-ref`
   (PAT-only). `fail-fast:false` so one bad tenant never halts the fleet; `workflow_dispatch` offers a
   dry-run.
+- **Tenant backups (`control-plane/backup/`, Railway cron):** nightly off-platform backups of
+  every live tenant (control-plane `tenants` status `active|past_due|canceled`, + `BACKUP_EXTRA_REFS`)
+  into an S3 bucket — a `pg_dump -Fc` of `public/auth/storage/supabase_migrations` to
+  `db/<ref>/<stamp>.dump` plus an incremental mirror of Storage objects to `storage/<ref>/…`, and a
+  `runs/<stamp>.json` summary + `cp_events` `backup.ok/error` rows. **PAT-only, like the fan-out:**
+  tenant DB passwords are discarded at provisioning, so each dump authenticates with a temporary
+  Management-API login role (`POST /cli/login-role`, read-only first, falling back to the
+  postgres-member role if RLS hides rows) through the IPv4 Supavisor pooler (session port 5432 —
+  the direct host is IPv6-only). Exits non-zero + pings `BACKUP_ALERT_WEBHOOK` on any failure.
+  Pure logic in `backup/plan.ts` (unit-tested); setup, S3 lifecycle/IAM and the restore runbook in
+  `docs/tenant-backups.md`.
 - **DB migrations on `main`:** a **GitHub Action** (`.github/workflows/deploy-migrations.yml`)
   runs `supabase db push` whenever a file under `supabase/migrations/**` changes on `main`, so new
   migrations go live automatically (the CLI's migration history makes re-runs apply only what's

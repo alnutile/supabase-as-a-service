@@ -12,6 +12,8 @@
 //   PATCH  /v1/projects/{ref}/config/auth        site_url + uri_allow_list
 //   POST   /v1/projects/{ref}/functions/deploy   multipart, same contract as Forge
 //   POST   /v1/projects/{ref}/pause | /restore   lifecycle
+//   POST   /v1/projects/{ref}/cli/login-role     temporary Postgres login (backups)
+//   GET    /v1/projects/{ref}/config/database/pooler  Supavisor host (backups)
 // The functions/deploy contract is copied verbatim from _shared/management.ts
 // (verified there). Re-verify the others against current docs on first live run.
 
@@ -88,6 +90,37 @@ export async function getApiKeys(
   const serviceRole = keys.find((k) => k.name === 'service_role')?.api_key
   if (!anon || !serviceRole) throw new Error('api keys response missing anon/service_role')
   return { anon, serviceRole }
+}
+
+// A short-lived Postgres login minted by the Management API — the same thing
+// `supabase link` uses now that a PAT can't read the DB password (the
+// provisioner deliberately discards it). `readOnly` → a member of
+// supabase_read_only_user; otherwise a member of postgres. The password is only
+// valid for `ttlSeconds` to AUTHENTICATE — a connection opened inside that
+// window keeps running, so a long pg_dump is fine.
+export async function createLoginRole(
+  pat: string,
+  ref: string,
+  readOnly: boolean,
+): Promise<{ role: string; password: string; ttlSeconds: number }> {
+  const json = await must(
+    await req(pat, 'POST', `/projects/${ref}/cli/login-role`, { read_only: readOnly }),
+    'create login role',
+  )
+  if (!json.role || !json.password) throw new Error('login-role response missing role/password')
+  return { role: json.role, password: json.password, ttlSeconds: Number(json.ttl_seconds ?? 0) }
+}
+
+// The project's Supavisor pooler host. The direct db.<ref>.supabase.co host is
+// IPv6-only, which most containers (Railway included) can't reach; the pooler
+// is IPv4. Session mode is port 5432 on the same host (the API reports the
+// transaction-mode 6543 port, which pg_dump can't use).
+export async function poolerHost(pat: string, ref: string): Promise<string> {
+  const json = await must(await req(pat, 'GET', `/projects/${ref}/config/database/pooler`), 'get pooler config')
+  const rows: Array<{ database_type?: string; db_host?: string }> = Array.isArray(json) ? json : []
+  const host = (rows.find((r) => r.database_type === 'PRIMARY') ?? rows[0])?.db_host
+  if (!host) throw new Error('pooler config response missing db_host')
+  return host
 }
 
 // Transient infra errors surface as 400s whose body carries a socket-level

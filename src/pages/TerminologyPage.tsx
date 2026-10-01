@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import { CollectionPicker } from '../components/CollectionPicker'
+import { CollectionContextHeader } from '../components/CollectionContextHeader'
 import {
   ArrowRightIcon,
   CloseIcon,
@@ -134,6 +135,11 @@ export default function TerminologyPage() {
 
   // --- render --------------------------------------------------------------
 
+  const activeCollectionName = useMemo(() => {
+    if (!activeCollection) return null
+    return collections.find((c) => c.id === activeCollection)?.name ?? null
+  }, [activeCollection, collections])
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -154,6 +160,13 @@ export default function TerminologyPage() {
 
   return (
     <div className="h-full overflow-y-auto">
+      {activeCollection && activeCollectionName && (
+        <CollectionContextHeader
+          collectionId={activeCollection}
+          collectionName={activeCollectionName}
+          onClear={() => setActiveCollection(null)}
+        />
+      )}
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="flex items-center justify-between">
           <div>

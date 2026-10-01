@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { buildLinkEditPatch, fetchLinkMeta, isDropboxUrl, matchesLinkQuery, normalizeUrl, summarizeLink } from '../lib/links'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import { CollectionPicker } from '../components/CollectionPicker'
+import { CollectionContextHeader } from '../components/CollectionContextHeader'
 import {
   CheckIcon,
   CloseIcon,
@@ -94,6 +95,11 @@ export default function LinksPage() {
     for (const c of collections) out[c.id] = (members[c.id] ?? new Set()).size
     return out
   }, [collections, members])
+
+  const activeCollectionName = useMemo(() => {
+    if (!activeCollection) return null
+    return collections.find((c) => c.id === activeCollection)?.name ?? null
+  }, [activeCollection, collections])
 
   const visible = useMemo(() => {
     let list = links
@@ -209,6 +215,13 @@ export default function LinksPage() {
 
   return (
     <div className="h-full overflow-y-auto">
+      {activeCollection && activeCollectionName && (
+        <CollectionContextHeader
+          collectionId={activeCollection}
+          collectionName={activeCollectionName}
+          onClear={() => setActiveCollection(null)}
+        />
+      )}
       <div className="mx-auto max-w-6xl px-6 py-8">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-text">

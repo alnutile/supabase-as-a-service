@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "_comment": "Railway CRON service for nightly tenant backups to S3 (control-plane/backup). Build context is the REPO ROOT. Railway starts the container on cronSchedule (UTC) and the job exits when done — restartPolicy NEVER so a failed run isn't retried in a loop (it alerts via BACKUP_ALERT_WEBHOOK and the next night runs again). Service variables: SUPANET_MGMT_PAT, CONTROL_PLANE_REF, BACKUP_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, optional BACKUP_EXTRA_REFS / BACKUP_S3_PREFIX / BACKUP_ALERT_WEBHOOK. See docs/tenant-backups.md.",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "control-plane/backup/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "npm run backup",
+    "cronSchedule": "0 7 * * *",
+    "restartPolicyType": "NEVER",
+    "numReplicas": 1
+  }
+}

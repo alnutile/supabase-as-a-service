@@ -493,14 +493,15 @@ function DayChip({ todo, today, onOpen, remote }: { todo: Todo; today: Date; onO
         if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 4) return
         onOpen()
       }}
-      title={todo.title}
-      className={`cursor-grab truncate rounded border-l-2 bg-surface-2 px-1.5 py-0.5 text-left text-[11px] font-semibold text-text transition active:cursor-grabbing hover:bg-surface-hover ${
+      title={todo.notes ? `${todo.title}\n\n${todo.notes}` : todo.title}
+      className={`flex cursor-grab flex-col gap-0.5 rounded border-l-2 bg-surface-2 px-1.5 py-0.5 text-left transition active:cursor-grabbing hover:bg-surface-hover ${
         isDragging ? 'opacity-40' : ''
       } ${remote ? 'ring-1 ring-info' : ''} ${
         daysUntilDue(todo.due_date!, today) < 0 ? 'border-red-500' : 'border-primary'
       }`}
     >
-      {todo.title}
+      <span className="truncate text-[11px] font-semibold text-text">{todo.title}</span>
+      {todo.notes && <span className="line-clamp-1 text-[10px] leading-tight text-muted">{todo.notes}</span>}
     </div>
   )
 }
