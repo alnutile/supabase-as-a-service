@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { imageMarkdown, insertAtCursor, isImageFile, isUrl, sanitizeImageName, urlToMarkdown } from '../lib/artifactImages'
 import { uploadPickedFile } from '../lib/upload'
 import { makeSlug } from '../lib/util'
+import { useIOSKeyboard } from '../lib/useIOSKeyboard'
 import { ArtifactFrame } from '../components/ArtifactFrame'
 import { Markdown } from '../components/Markdown'
 import { ResizeHandle, usePanelResize } from '../components/ResizeHandle'
@@ -40,6 +41,7 @@ export default function ArtifactEditorPage() {
   const [slashCommandStart, setSlashCommandStart] = useState<number | null>(null)
   const [availableFiles, setAvailableFiles] = useState<Array<{ id: string; name: string; title: string | null }>>([])
   const filePickerRef = useRef<HTMLDivElement>(null)
+  const { viewportHeight, isKeyboardShown } = useIOSKeyboard()
 
   useEffect(() => {
     if (!artifactId) return
@@ -571,7 +573,22 @@ export default function ArtifactEditorPage() {
                     }
                   }
                 }}
+                onFocus={() => {
+                  // On iOS, scroll the focused element into view after a short delay
+                  // to ensure the keyboard has appeared and the viewport has adjusted.
+                  if (isKeyboardShown) {
+                    setTimeout(() => {
+                      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    }, 100)
+                  }
+                }}
                 spellCheck={false}
+                style={{
+                  // On mobile with keyboard shown, constrain height to visible viewport
+                  // minus header (~100px) to prevent textarea from extending below keyboard.
+                  // The viewport height already accounts for the keyboard on iOS.
+                  ...(isKeyboardShown && { maxHeight: `${viewportHeight - 100}px` }),
+                }}
                 className="min-h-[45vh] h-full w-full resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text outline-none md:min-h-0 md:p-5"
                 placeholder="Write here…  (paste or drop an image to embed it; paste a URL to make it a link; type /LinkFile to insert a file link)"
               />
