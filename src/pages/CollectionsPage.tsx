@@ -39,21 +39,30 @@ import {
 
 type Collection = Database['public']['Tables']['collections']['Row']
 type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'agent' | 'whiteboard'
+type SortOption = 'name' | 'created_at' | 'updated_at'
 
 // Per-kind wiring: the base table it lives in, the join table, and the join's
 // item column — so one set of helpers handles every content type.
 const KINDS: Record<
   Kind,
-  { title: string; icon: (p: { className?: string }) => JSX.Element; base: string; link: string; col: string; label: string }
+  {
+    title: string
+    icon: (p: { className?: string }) => JSX.Element
+    base: string
+    link: string
+    col: string
+    label: string
+    sortOptions: SortOption[]
+  }
 > = {
-  todo: { title: 'To-dos', icon: TodoIcon, base: 'todos', link: 'collection_todos', col: 'todo_id', label: 'title' },
-  artifact: { title: 'Artifacts', icon: ArtifactIcon, base: 'artifacts', link: 'collection_artifacts', col: 'artifact_id', label: 'title' },
-  file: { title: 'Files', icon: FileIcon, base: 'files', link: 'collection_files', col: 'file_id', label: 'name' },
-  table: { title: 'Tables', icon: TableIcon, base: 'user_tables', link: 'collection_tables', col: 'table_id', label: 'name' },
-  link: { title: 'Links', icon: LinkIcon, base: 'links', link: 'collection_links', col: 'link_id', label: 'title' },
-  term: { title: 'Terminology', icon: TerminologyIcon, base: 'terminology', link: 'collection_terminology', col: 'term_id', label: 'term' },
-  agent: { title: 'Agents', icon: AgentIcon, base: 'agents', link: 'collection_agents', col: 'agent_id', label: 'name' },
-  whiteboard: { title: 'Whiteboards', icon: WhiteboardIcon, base: 'whiteboards', link: 'collection_whiteboards', col: 'whiteboard_id', label: 'title' },
+  todo: { title: 'To-dos', icon: TodoIcon, base: 'todos', link: 'collection_todos', col: 'todo_id', label: 'title', sortOptions: ['created_at', 'name'] },
+  artifact: { title: 'Artifacts', icon: ArtifactIcon, base: 'artifacts', link: 'collection_artifacts', col: 'artifact_id', label: 'title', sortOptions: ['created_at', 'name'] },
+  file: { title: 'Files', icon: FileIcon, base: 'files', link: 'collection_files', col: 'file_id', label: 'name', sortOptions: ['created_at', 'name'] },
+  table: { title: 'Tables', icon: TableIcon, base: 'user_tables', link: 'collection_tables', col: 'table_id', label: 'name', sortOptions: ['name'] },
+  link: { title: 'Links', icon: LinkIcon, base: 'links', link: 'collection_links', col: 'link_id', label: 'title', sortOptions: ['created_at', 'name'] },
+  term: { title: 'Terminology', icon: TerminologyIcon, base: 'terminology', link: 'collection_terminology', col: 'term_id', label: 'term', sortOptions: ['name'] },
+  agent: { title: 'Agents', icon: AgentIcon, base: 'agents', link: 'collection_agents', col: 'agent_id', label: 'name', sortOptions: ['name'] },
+  whiteboard: { title: 'Whiteboards', icon: WhiteboardIcon, base: 'whiteboards', link: 'collection_whiteboards', col: 'whiteboard_id', label: 'title', sortOptions: ['created_at', 'name'] },
 }
 const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'whiteboard', 'term', 'agent']
 
@@ -61,7 +70,7 @@ const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'whiteb
 const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links', term: 'terminology', agent: 'agents', whiteboard: 'whiteboards' }
 const SLUG_TO_KIND: Record<string, Kind> = Object.fromEntries(Object.entries(KIND_TO_SLUG).map(([k, s]) => [s, k as Kind]))
 
-type Item = { id: string; label: string; meta?: string }
+type Item = { id: string; label: string; meta?: string; created_at?: string; updated_at?: string }
 type Items = Record<Kind, Item[]>
 
 export default function CollectionsPage() {
@@ -325,16 +334,37 @@ function CollectionDashboard({
     })
   }
 
+  // Sort preferences per collection and kind, remembered across visits.
+  // Default: created_at descending (newest first) for kinds that support it, name for others.
+  const sortKey = `collections:sort:${collection.id}`
+  const [sortBy, setSortBy] = useState<Partial<Record<Kind, SortOption>>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(sortKey) ?? '{}')
+    } catch {
+      return {}
+    }
+  })
+  function updateSort(kind: Kind, option: SortOption) {
+    setSortBy((prev) => {
+      const v = { ...prev, [kind]: option }
+      localStorage.setItem(sortKey, JSON.stringify(v))
+      return v
+    })
+  }
+  function getSortOption(kind: Kind): SortOption {
+    return sortBy[kind] ?? (KINDS[kind].sortOptions.includes('created_at') ? 'created_at' : 'name')
+  }
+
   const loadItems = useCallback(async () => {
     const [a, f, t, u, l, tr, g, w] = await Promise.all([
-      supabase.from('collection_artifacts').select('artifacts(id, title, type, updated_at)').eq('collection_id', collection.id),
-      supabase.from('collection_files').select('files(id, name, size_bytes)').eq('collection_id', collection.id),
-      supabase.from('collection_todos').select('todos(id, title, done, due_date)').eq('collection_id', collection.id),
-      supabase.from('collection_tables').select('user_tables(id, name, updated_at)').eq('collection_id', collection.id),
-      supabase.from('collection_links').select('links(id, title, url)').eq('collection_id', collection.id),
-      supabase.from('collection_terminology').select('terminology(id, term, definition)').eq('collection_id', collection.id),
-      supabase.from('collection_agents').select('agents(id, name, description)').eq('collection_id', collection.id),
-      supabase.from('collection_whiteboards').select('whiteboards(id, title, updated_at)').eq('collection_id', collection.id),
+      supabase.from('collection_artifacts').select('artifacts(id, title, type, created_at, updated_at)').eq('collection_id', collection.id),
+      supabase.from('collection_files').select('files(id, name, size_bytes, created_at, updated_at)').eq('collection_id', collection.id),
+      supabase.from('collection_todos').select('todos(id, title, done, due_date, created_at, updated_at)').eq('collection_id', collection.id),
+      supabase.from('collection_tables').select('user_tables(id, name, created_at, updated_at)').eq('collection_id', collection.id),
+      supabase.from('collection_links').select('links(id, title, url, created_at, updated_at)').eq('collection_id', collection.id),
+      supabase.from('collection_terminology').select('terminology(id, term, definition, created_at)').eq('collection_id', collection.id),
+      supabase.from('collection_agents').select('agents(id, name, description, created_at)').eq('collection_id', collection.id),
+      supabase.from('collection_whiteboards').select('whiteboards(id, title, created_at, updated_at)').eq('collection_id', collection.id),
     ])
     const pluck = (rows: unknown, key: string) =>
       ((rows ?? []) as Array<Record<string, unknown>>).map((r) => r[key]).filter(Boolean) as Array<Record<string, unknown>>
@@ -345,18 +375,30 @@ function CollectionDashboard({
           id: String(x.id),
           label: String(x.title),
           meta: `${x.done ? 'done' : 'open'}${x.due_date ? ` · due ${x.due_date}` : ''}`,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+          created_at: String(x.created_at ?? ''),
+          updated_at: String(x.updated_at ?? ''),
+        })),
       artifact: pluck(a.data, 'artifacts').map((x) => ({
         id: String(x.id),
         label: String(x.title),
         meta: `${x.type} · ${formatDate(String(x.updated_at))}`,
-      }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-      file: pluck(f.data, 'files').map((x) => ({ id: String(x.id), label: String(x.name), meta: formatBytes(Number(x.size_bytes ?? 0)) }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-      table: pluck(u.data, 'user_tables').map((x) => ({ id: String(x.id), label: String(x.name), meta: `updated ${formatDate(String(x.updated_at))}` }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        created_at: String(x.created_at ?? ''),
+        updated_at: String(x.updated_at ?? ''),
+      })),
+      file: pluck(f.data, 'files').map((x) => ({
+        id: String(x.id),
+        label: String(x.name),
+        meta: formatBytes(Number(x.size_bytes ?? 0)),
+        created_at: String(x.created_at ?? ''),
+        updated_at: String(x.updated_at ?? ''),
+      })),
+      table: pluck(u.data, 'user_tables').map((x) => ({
+        id: String(x.id),
+        label: String(x.name),
+        meta: `updated ${formatDate(String(x.updated_at))}`,
+        created_at: String(x.created_at ?? ''),
+        updated_at: String(x.updated_at ?? ''),
+      })),
       link: pluck(l.data, 'links').map((x) => {
         let host = String(x.url)
         try {
@@ -364,27 +406,33 @@ function CollectionDashboard({
         } catch {
           // keep the raw url
         }
-        return { id: String(x.id), label: String(x.title) || host, meta: host }
-      })
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        return {
+          id: String(x.id),
+          label: String(x.title) || host,
+          meta: host,
+          created_at: String(x.created_at ?? ''),
+          updated_at: String(x.updated_at ?? ''),
+        }
+      }),
       term: pluck(tr.data, 'terminology').map((x) => ({
         id: String(x.id),
         label: String(x.term),
         meta: String(x.definition).substring(0, 80) + (String(x.definition).length > 80 ? '...' : ''),
-      }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        created_at: String(x.created_at ?? ''),
+      })),
       agent: pluck(g.data, 'agents').map((x) => ({
         id: String(x.id),
         label: String(x.name),
         meta: x.description ? String(x.description) : undefined,
-      }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        created_at: String(x.created_at ?? ''),
+      })),
       whiteboard: pluck(w.data, 'whiteboards').map((x) => ({
         id: String(x.id),
         label: String(x.title),
         meta: `updated ${formatDate(String(x.updated_at))}`,
-      }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        created_at: String(x.created_at ?? ''),
+        updated_at: String(x.updated_at ?? ''),
+      })),
     })
   }, [collection.id])
 
@@ -624,6 +672,8 @@ function CollectionDashboard({
                 kind={kind}
                 items={items[kind]}
                 collapsed={!!collapsed[kind]}
+                sortBy={getSortOption(kind)}
+                onSortChange={(option) => updateSort(kind, option)}
                 onToggleCollapsed={() => toggleCollapsed(kind)}
                 onExpand={() => toggleCollapsed(kind, false)}
                 onOpen={(id) => viewItem(kind, id)}
@@ -661,6 +711,8 @@ function Card({
   kind,
   items,
   collapsed,
+  sortBy,
+  onSortChange,
   onToggleCollapsed,
   onExpand,
   onOpen,
@@ -672,6 +724,8 @@ function Card({
   kind: Kind
   items: Item[]
   collapsed: boolean
+  sortBy: SortOption
+  onSortChange: (option: SortOption) => void
   onToggleCollapsed: () => void
   onExpand: () => void
   onOpen: (id: string) => void
@@ -690,6 +744,20 @@ function Card({
   const present = useMemo(() => new Set(items.map((i) => i.id)), [items])
 
   const noun = cfg.title.replace(/s$/, '').toLowerCase()
+
+  // Sort items based on the selected option
+  const sortedItems = useMemo(() => {
+    const sorted = [...items]
+    if (sortBy === 'name') {
+      sorted.sort((a, b) => a.label.localeCompare(b.label))
+    } else if (sortBy === 'created_at') {
+      // Default: newest first (descending)
+      sorted.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+    } else if (sortBy === 'updated_at') {
+      sorted.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+    }
+    return sorted
+  }, [items, sortBy])
 
   async function openPicker() {
     const next = !adding
@@ -729,9 +797,23 @@ function Card({
           <span className="text-sm font-semibold text-text">{cfg.title}</span>
           <span className="text-xs text-faint">{items.length}</span>
         </button>
+        {!collapsed && cfg.sortOptions.length > 1 && (
+          <select
+            value={sortBy}
+            onChange={(e) => onSortChange(e.target.value as SortOption)}
+            className="shrink-0 rounded-md border border-border bg-surface px-2 py-1 text-xs text-muted outline-none hover:bg-surface-hover focus:border-primary focus:ring-1 focus:ring-primary-soft"
+            title="Sort by"
+          >
+            {cfg.sortOptions.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt === 'name' ? 'Name' : opt === 'created_at' ? 'Newest' : 'Recently updated'}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={openPicker}
-          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary-soft"
+          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary-soft"
         >
           <PlusIcon className="h-3.5 w-3.5" /> Add
         </button>
@@ -823,10 +905,10 @@ function Card({
 
       {!collapsed && (
       <div className="min-h-[3rem] divide-y divide-border">
-        {items.length === 0 ? (
+        {sortedItems.length === 0 ? (
           <p className="px-4 py-4 text-xs text-faint">None yet.</p>
         ) : (
-          items.map((i) => (
+          sortedItems.map((i) => (
             <div key={i.id} className="group flex items-center gap-3 px-4 py-2">
               <button onClick={() => onOpen(i.id)} className="min-w-0 flex-1 text-left">
                 <p className="truncate text-sm font-medium text-text group-hover:text-primary">{i.label}</p>
