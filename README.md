@@ -154,6 +154,7 @@ Then sign up, and start chatting.
 | Edge function secret | `OPENROUTER_API_KEY` | **Server-only.** `supabase secrets set OPENROUTER_API_KEY=…` |
 | Edge function secret | `OPENROUTER_MODEL` | Optional fallback slug when a `model_profiles` row can't be read. Defaults to `anthropic/claude-sonnet-4.5`. |
 | Edge function secret | `OPENROUTER_EFFORT` | Optional. `low` \| `medium` \| `high` reasoning effort. Defaults to none. |
+| Edge function secret | `APP_URL` | Recommended. The deployed frontend origin (e.g. `https://intranet.example.com`). The MCP server and artifact tools use it to return absolute `url` / `public_url` (`/share/a/<slug>`) / `standalone_url` (`/p/<slug>`) links. Falls back to `SITE_URL`, then `OPENROUTER_SITE_URL`; unset → root-relative paths. `supabase secrets set APP_URL=https://…` |
 
 `VITE_*` vars are read at **build time** — on a host like Railway they must be set before the build runs.
 

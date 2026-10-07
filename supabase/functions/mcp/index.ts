@@ -6,7 +6,16 @@
 // shows up in the dashboard. Auth is a per-user token from `mcp_tokens`; every
 // action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
-import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from '../_shared/artifacts.ts'
+import {
+  artifactUrlLines,
+  artifactUrls,
+  clampLimit,
+  collectionRefs,
+  isArtifactId,
+  normalizeArtifactType,
+  PUBLIC_LINK_GUIDANCE,
+  resolveAppUrl,
+} from '../_shared/artifacts.ts'
 import { HUB_INCLUDES, parseIncludes, parseSince } from '../_shared/collection_hub.ts'
 import { ingestText } from '../_shared/knowledge.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from '../_shared/files.ts'
@@ -326,7 +335,8 @@ const TOOLS = [
   {
     name: 'create_artifact',
     description:
-      'Create a shareable artifact (document). Optionally file it into one or more collections (by name; created if missing) to centralize content from other systems — e.g. push a blog post or a YouTube transcript into a "Blog" or "YouTube" collection the team can chat with. Returns its id and link.',
+      'Create a shareable artifact (document). Optionally file it into one or more collections (by name; created if missing) to centralize content from other systems — e.g. push a blog post or a YouTube transcript into a "Blog" or "YouTube" collection the team can chat with. Returns its id and link. New artifacts are private (public_url null) — call share_artifact to publish one. ' +
+      PUBLIC_LINK_GUIDANCE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -349,7 +359,8 @@ const TOOLS = [
   {
     name: 'list_artifacts',
     description:
-      'List artifacts you can access, most recent first, with their ids — so after create_artifact (or a chat :::artifact) you can retrieve the id to file it into a collection. Optionally filter by collection (name/id), title_contains, type, or archived (the recovery area).',
+      'List artifacts you can access, most recent first, with their ids — so after create_artifact (or a chat :::artifact) you can retrieve the id to file it into a collection. Optionally filter by collection (name/id), title_contains, type, or archived (the recovery area). Each row includes url (the signed-in editor), visibility, public_url and (html only) standalone_url. ' +
+      PUBLIC_LINK_GUIDANCE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -365,7 +376,8 @@ const TOOLS = [
   {
     name: 'get_artifact',
     description:
-      'Read one artifact by its id OR its exact title: returns the id, title, type, url, collections it is in, and content. Title lookup finds artifacts created earlier in this session.',
+      'Read one artifact by its id OR its exact title: returns the id, title, type, url (the signed-in editor), visibility, public_slug, public_url, standalone_url (html only), collections it is in, and content. Title lookup finds artifacts created earlier in this session. ' +
+      PUBLIC_LINK_GUIDANCE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -384,6 +396,20 @@ const TOOLS = [
         artifact: { type: 'string', description: 'The artifact id or its exact title.' },
         title: { type: 'string', description: 'New title (optional).' },
         content: { type: 'string', description: 'New full content (optional).' },
+      },
+      required: ['artifact'],
+    },
+  },
+  {
+    name: 'share_artifact',
+    description:
+      'Publish an artifact you own by link (by id or exact title): sets its visibility to "unlisted" (default — anyone with the link) or "public", creates its public slug if missing, and returns public_url (and standalone_url for html). Owner only. ' +
+      PUBLIC_LINK_GUIDANCE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact: { type: 'string', description: 'The artifact id or its exact title.' },
+        visibility: { type: 'string', enum: ['unlisted', 'public'], description: 'Default "unlisted".' },
       },
       required: ['artifact'],
     },
@@ -1397,12 +1423,28 @@ async function resolveArtifact(
   db: DB,
   owner: string,
   ref: string,
-): Promise<{ id: string; title: string; type: string; content: string; data: unknown } | null> {
-  let q = db.from('artifacts').select('id, title, type, content, data, owner_id, visibility, updated_at')
+): Promise<McpArtifact | null> {
+  let q = db.from('artifacts').select('id, title, type, content, data, owner_id, visibility, public_slug, updated_at')
   q = q.or(`owner_id.eq.${owner},visibility.neq.private`).is('deleted_at', null)
   q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('title', ref)
   const { data } = await q.order('updated_at', { ascending: false }).limit(1)
-  return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
+  return (data?.[0] as McpArtifact | undefined) ?? null
+}
+
+type McpArtifact = {
+  id: string
+  title: string
+  type: string
+  content: string
+  data: unknown
+  visibility: string
+  public_slug: string | null
+}
+
+// The app origin for absolute artifact URLs (APP_URL / SITE_URL env; see
+// resolveAppUrl in _shared/artifacts.ts).
+function appUrl(): string {
+  return resolveAppUrl((k) => Deno.env.get(k))
 }
 
 // Skill/prompt resolution + CRUD now live in _shared/builtins.ts and are reached
@@ -1500,7 +1542,7 @@ async function buildCollectionBundle(
     if (ids.length) {
       let q = db
         .from('artifacts')
-        .select('id, title, type, content, updated_at, owner_id, visibility')
+        .select('id, title, type, content, updated_at, owner_id, visibility, public_slug')
         .in('id', ids)
         .is('deleted_at', null)
         .order('updated_at', { ascending: false })
@@ -1508,7 +1550,17 @@ async function buildCollectionBundle(
       const { data } = await q
       for (const a of (data ?? []) as Array<Record<string, unknown>>) {
         if (a.owner_id !== owner && a.visibility === 'private') continue
-        out.push({ id: a.id, title: a.title, type: a.type, content: a.content ?? '', updated_at: a.updated_at, url: `/artifacts/${a.id}` })
+        const u = artifactUrls(a as { id: string; type: string; visibility: string; public_slug: string | null }, appUrl())
+        out.push({
+          id: a.id,
+          title: a.title,
+          type: a.type,
+          content: a.content ?? '',
+          updated_at: a.updated_at,
+          visibility: a.visibility,
+          public_slug: a.public_slug ?? null,
+          ...u,
+        })
       }
     }
     bundle.artifacts = out
@@ -1677,12 +1729,14 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         type,
         content: args.content,
         visibility: 'private',
-      }).select('id').single()
+      }).select('id, type, visibility, public_slug').single()
       if (error) return text(`Error: ${error.message}`, true)
       const refs = collectionRefs(args)
       const filed = refs.length ? await fileArtifactIntoCollections(db, owner, data.id, refs) : []
       const note = filed.length ? ` Filed into collection${filed.length > 1 ? 's' : ''}: ${filed.join(', ')}.` : ''
-      return text(`Created artifact "${args.title}" (id ${data.id}) at /artifacts/${data.id}.${note}`)
+      return text(
+        [`Created artifact "${args.title}" (id ${data.id}).${note}`, ...artifactUrlLines(data, appUrl())].join('\n'),
+      )
     }
     case 'list_artifacts': {
       const limit = clampLimit(args.limit, 20, 100)
@@ -1698,7 +1752,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       const wantArchived = args.archived === true
       let q = db
         .from('artifacts')
-        .select('id, title, type, created_at')
+        .select('id, title, type, created_at, visibility, public_slug')
         .order('created_at', { ascending: false })
         .limit(limit)
       q = wantArchived
@@ -1714,17 +1768,23 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (memberIds) q = q.in('id', memberIds)
       const { data, error } = await q
       if (error) return text(`Error: ${error.message}`, true)
-      const rows = (data ?? []) as Array<{ id: string; title: string; type: string; created_at: string }>
+      const rows = (data ?? []) as Array<
+        { id: string; title: string; type: string; created_at: string; visibility: string; public_slug: string | null }
+      >
       if (!rows.length) return text('No artifacts match. Use create_artifact to make one.')
       const cols = await artifactCollectionsMap(db, rows.map((r) => r.id))
+      const base = appUrl()
       return text(
         rows
           .map((r) => {
             const inCols = cols.get(r.id) ?? []
             const when = new Date(r.created_at).toISOString().slice(0, 10)
+            const u = artifactUrls(r, base)
             return `• ${r.title} (${r.type}) — id: ${r.id} — created ${when}${
               inCols.length ? ` — collections: ${inCols.join(', ')}` : ''
-            } — /artifacts/${r.id}`
+            } — ${u.url} — visibility: ${r.visibility} — public_url: ${u.public_url ?? 'null'}${
+              u.standalone_url ? ` — standalone_url: ${u.standalone_url}` : ''
+            }`
           })
           .join('\n'),
       )
@@ -1742,7 +1802,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
         `id: ${art.id}`,
         `title: ${art.title}`,
         `type: ${art.type}`,
-        `url: /artifacts/${art.id}`,
+        ...artifactUrlLines(art, appUrl()),
         `collections: ${inCols.length ? inCols.join(', ') : '(none)'}`,
         `content${clipped ? ` (first ${cap} chars — it is longer)` : ''}:`,
         content,
@@ -1752,6 +1812,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       return text(await runBuiltin(db, 'update_artifact', args, owner))
     case 'delete_artifact':
     case 'restore_artifact':
+    case 'share_artifact':
       return text(await runBuiltin(db, name, args, owner))
     case 'get_collection': {
       const ref = String(args.collection ?? '').trim()

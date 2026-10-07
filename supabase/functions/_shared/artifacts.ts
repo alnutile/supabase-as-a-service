@@ -84,3 +84,84 @@ export function parseArtifactBlocks(text: string): ParsedChunk[] {
   if (last < text.length) chunks.push({ kind: 'text', text: text.slice(last) })
   return chunks
 }
+
+// ---------------------------------------------------------------------------
+// Public link building. The app's public share route is `/share/a/:slug` and it
+// resolves by `artifacts.public_slug` — NOT the artifact id — so an agent that
+// builds `/share/a/<id>` gets a 404. Every tool that returns an artifact hands
+// back these ready-made URLs instead, so nothing ever has to assemble one.
+
+// Visibilities that are reachable by a link outside the workspace. `workspace`
+// is internal-only (no slug, no share link) — same rule as the editor UI.
+export const LINK_SHARED_VISIBILITIES = ['unlisted', 'public'] as const
+
+export function isLinkShared(visibility: unknown): boolean {
+  return (LINK_SHARED_VISIBILITIES as readonly string[]).includes(String(visibility))
+}
+
+// The frontend origin (where `/share/a/:slug` and `/p/:slug` live). Edge
+// functions can't know it, so it comes from an env var: APP_URL first, then
+// SITE_URL, then the OpenRouter ranking header (which most deployments already
+// set to the app origin). Trailing slashes are dropped; '' when none is set, in
+// which case the URLs stay root-relative (the pre-APP_URL behavior).
+export function resolveAppUrl(env: (key: string) => string | undefined): string {
+  for (const key of ['APP_URL', 'SITE_URL', 'OPENROUTER_SITE_URL']) {
+    const v = (env(key) ?? '').trim()
+    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, '')
+  }
+  return ''
+}
+
+export type ArtifactLinkRow = {
+  id: string
+  type?: string | null
+  visibility?: string | null
+  public_slug?: string | null
+}
+
+export type ArtifactUrls = {
+  // The signed-in editor route (works for anyone who can see the artifact in-app).
+  url: string
+  // The public share page, or null when the artifact isn't link-shared.
+  public_url: string | null
+  // The chrome-free full-page view for html artifacts, or null.
+  standalone_url: string | null
+}
+
+export function artifactUrls(row: ArtifactLinkRow, appUrl: string): ArtifactUrls {
+  const base = appUrl.replace(/\/+$/, '')
+  const slug = typeof row.public_slug === 'string' ? row.public_slug.trim() : ''
+  const shared = !!slug && isLinkShared(row.visibility)
+  const enc = encodeURIComponent(slug)
+  return {
+    url: `${base}/artifacts/${row.id}`,
+    public_url: shared ? `${base}/share/a/${enc}` : null,
+    standalone_url: shared && row.type === 'html' ? `${base}/p/${enc}` : null,
+  }
+}
+
+// One-line-per-field rendering for the text tool results (get_artifact etc.).
+export function artifactUrlLines(row: ArtifactLinkRow, appUrl: string): string[] {
+  const u = artifactUrls(row, appUrl)
+  return [
+    `url: ${u.url}`,
+    `visibility: ${row.visibility ?? 'private'}`,
+    `public_slug: ${row.public_slug ?? 'null'}`,
+    `public_url: ${u.public_url ?? 'null (not shared — use share_artifact to publish it)'}`,
+    `standalone_url: ${u.standalone_url ?? 'null'}`,
+  ]
+}
+
+// A short, URL-safe random slug — the same alphabet/length as the editor UI's
+// makeSlug (src/lib/util.ts) and the REST artifacts function.
+export function makeSlug(len = 10): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  const bytes = new Uint8Array(len)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')
+}
+
+// The description fragment every artifact-returning tool repeats, so the model
+// never falls back to assembling a share link from the id.
+export const PUBLIC_LINK_GUIDANCE =
+  'To link to an artifact publicly, use public_url. Never build share links from the id. If public_url is null the artifact is not shared.'

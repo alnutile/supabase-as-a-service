@@ -123,6 +123,15 @@ than once; the unit suites cannot see that, so check it here.**
 - **Artifacts:** `ArtifactsPage` (list/create) and `ArtifactEditorPage` (edit, preview,
   set visibility, delete). Public/unlisted artifacts are read anonymously by slug in
   `PublicArtifactPage` at route `/share/a/:slug`.
+  **Public links over the tool surface (migration 0129):** `/share/a/:slug` resolves by
+  `public_slug`, NOT the id, so an agent that builds `/share/a/<id>` gets a 404. Every
+  artifact-returning tool (`get_artifact`, `list_artifacts`, `create_artifact`,
+  `update_artifact`, `get_collection`'s artifacts — MCP and builtins alike) returns
+  `visibility`, `public_slug`, an absolute `url` (editor), `public_url` (null unless
+  `unlisted`/`public` with a slug) and `standalone_url` (`/p/:slug`, html only), built by
+  the pure, unit-tested `artifactUrls()` in `_shared/artifacts.ts` from the `APP_URL` edge
+  secret. The `share_artifact` builtin (owner-only) is the tool-side Sharing panel: sets
+  unlisted/public, mints a slug if missing, returns `public_url`.
   **Soft delete / archive + recovery (migration 0101):** artifacts (and skills) carry a
   nullable `deleted_at`. Deleting ARCHIVES by default (sets `deleted_at`) — the row is
   hidden from every normal view (grids, search, `p`/share pages, collections context) but
@@ -1396,6 +1405,7 @@ call (it's a one-line edit in Settings → Models).
 | Edge secret | `OPENROUTER_API_KEY` | `supabase secrets set ...` — never commit |
 | Edge secret | `OPENROUTER_MODEL` / `OPENROUTER_EFFORT` | Optional overrides (slug fallback / effort) |
 | Edge secret | `OPENROUTER_SITE_URL` / `OPENROUTER_APP_NAME` | Optional OpenRouter ranking headers |
+| Edge secret | `APP_URL` | Frontend origin for absolute artifact links from the MCP/builtin tools (falls back to `SITE_URL`, then `OPENROUTER_SITE_URL`; unset → root-relative) |
 
 `VITE_*` are read at **build time** — they must exist before `npm run build`.
 

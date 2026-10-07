@@ -673,7 +673,7 @@ export function CalendarView(props: TodoViewProps) {
               </div>
             ))}
           </div>
-          <div className={`grid flex-1 grid-cols-7 ${viewMode === 'month' ? 'overflow-y-auto' : ''}`}>
+          <div className="grid flex-1 grid-cols-7 overflow-y-auto">
             {cells.map((c, i) =>
               c ? (
                 <DayCell
