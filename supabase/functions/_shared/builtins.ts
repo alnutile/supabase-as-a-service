@@ -22,7 +22,16 @@
 // authoring builtins run with the service role, so they re-enforce the
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
-import { clampLimit, collectionRefs, isArtifactId, normalizeArtifactType } from './artifacts.ts'
+import {
+  artifactUrlLines,
+  artifactUrls,
+  clampLimit,
+  collectionRefs,
+  isArtifactId,
+  makeSlug,
+  normalizeArtifactType,
+  resolveAppUrl,
+} from './artifacts.ts'
 import { normalizeTodoVisibility, TODO_VISIBILITIES, visibilityNote } from './todos.ts'
 import { ingestText } from './knowledge.ts'
 import { citationLabel, hybridChunkSearch } from './retrieval.ts'
@@ -122,6 +131,8 @@ export async function runBuiltin(
       return deleteArtifact(db, input, userId)
     case 'restore_artifact':
       return restoreArtifact(db, input, userId)
+    case 'share_artifact':
+      return shareArtifact(db, input, userId)
     case 'list_collections':
       return listCollections(db, userId)
     case 'create_collection':
@@ -1045,7 +1056,7 @@ async function createArtifact(
   const { data, error } = await db
     .from('artifacts')
     .insert({ owner_id: userId, title, type, content, visibility: 'private' })
-    .select('id')
+    .select('id, type, visibility, public_slug')
     .single()
   if (error) return `Could not create the artifact: ${error.message}`
   // Reads run against the primary (this same connection), so the row — and its id —
@@ -1054,7 +1065,14 @@ async function createArtifact(
   const filed = refs.length ? await fileArtifactIntoCollections(db, userId, data.id, refs) : []
   const note = filed.length ? ` Filed into collection${filed.length > 1 ? 's' : ''}: ${filed.join(', ')}.` : ''
   await logActivity(db, 'artifact.created', `Created artifact "${title}"`, { id: data.id, collections: filed }, userId)
-  return `Created artifact "${title}" (id ${data.id}) at /artifacts/${data.id}.${note}`
+  const u = artifactUrls(data, appUrl())
+  return `Created artifact "${title}" (id ${data.id}) at ${u.url}.${note} It is private (public_url: null) — use share_artifact to get a public link.`
+}
+
+// The app origin for absolute artifact URLs (APP_URL / SITE_URL env; see
+// resolveAppUrl). Read per call so a secret change applies without a redeploy.
+function appUrl(): string {
+  return resolveAppUrl((k) => Deno.env.get(k))
 }
 
 // list_artifacts: the retrieval gap-filler. After create_artifact (or a :::artifact
@@ -1085,7 +1103,7 @@ async function listArtifacts(
   const wantArchived = input?.archived === true
   let query = db
     .from('artifacts')
-    .select('id, title, type, created_at')
+    .select('id, title, type, created_at, visibility, public_slug')
     .order('created_at', { ascending: false })
     .limit(limit)
   query = wantArchived
@@ -1101,17 +1119,23 @@ async function listArtifacts(
 
   const { data, error } = await query
   if (error) return `Could not list artifacts: ${error.message}`
-  const rows = (data ?? []) as Array<{ id: string; title: string; type: string; created_at: string }>
+  const rows = (data ?? []) as Array<
+    { id: string; title: string; type: string; created_at: string; visibility: string; public_slug: string | null }
+  >
   if (!rows.length) return 'No artifacts match. Use create_artifact to make one.'
 
   const cols = await artifactCollectionsMap(db, rows.map((r) => r.id))
+  const base = appUrl()
   return rows
     .map((r) => {
       const inCols = cols.get(r.id) ?? []
       const when = new Date(r.created_at).toISOString().slice(0, 10)
+      const u = artifactUrls(r, base)
       return `• ${r.title} (${r.type}) — id: ${r.id} — created ${when}${
         inCols.length ? ` — collections: ${inCols.join(', ')}` : ''
-      } — /artifacts/${r.id}`
+      } — ${u.url} — visibility: ${r.visibility} — public_url: ${u.public_url ?? 'null'}${
+        u.standalone_url ? ` — standalone_url: ${u.standalone_url}` : ''
+      }`
     })
     .join('\n')
 }
@@ -1147,16 +1171,26 @@ async function resolveArtifact(
   ref: string,
   ownOnly: boolean,
   archived: 'live' | 'archived' | 'any' = 'live',
-): Promise<{ id: string; title: string; type: string; content: string; data: unknown } | null> {
+): Promise<ResolvedArtifact | null> {
   let q = db
     .from('artifacts')
-    .select('id, title, type, content, data, owner_id, visibility, updated_at')
+    .select('id, title, type, content, data, owner_id, visibility, public_slug, updated_at')
   q = ownOnly ? q.eq('owner_id', userId) : q.or(`owner_id.eq.${userId},visibility.neq.private`)
   if (archived === 'live') q = q.is('deleted_at', null)
   else if (archived === 'archived') q = q.not('deleted_at', 'is', null)
   q = isArtifactId(ref) ? q.eq('id', ref) : q.ilike('title', ref)
   const { data } = await q.order('updated_at', { ascending: false }).limit(1)
-  return (data?.[0] as { id: string; title: string; type: string; content: string; data: unknown } | undefined) ?? null
+  return (data?.[0] as ResolvedArtifact | undefined) ?? null
+}
+
+type ResolvedArtifact = {
+  id: string
+  title: string
+  type: string
+  content: string
+  data: unknown
+  visibility: string
+  public_slug: string | null
 }
 
 async function getArtifact(
@@ -1176,7 +1210,7 @@ async function getArtifact(
     `id: ${art.id}`,
     `title: ${art.title}`,
     `type: ${art.type}`,
-    `url: /artifacts/${art.id}`,
+    ...artifactUrlLines(art, appUrl()),
     `collections: ${inCols.length ? inCols.join(', ') : '(none)'}`,
     `saved interactive state (data): ${JSON.stringify(art.data ?? {})}`,
     `content${clipped ? ` (first ${ARTIFACT_CONTENT_CAP} chars — it is longer)` : ''}:`,
@@ -1215,7 +1249,41 @@ async function updateArtifact(
     { id: art.id, fields: Object.keys(patch) },
     userId,
   )
-  return `Updated artifact "${(patch.title as string) ?? art.title}" (/artifacts/${art.id}). Open views refresh live.`
+  const u = artifactUrls(art, appUrl())
+  return `Updated artifact "${(patch.title as string) ?? art.title}" (${u.url}). public_url: ${
+    u.public_url ?? 'null (not shared)'
+  }. Open views refresh live.`
+}
+
+// share_artifact: publish an artifact you own by link — the MCP/agent mirror of
+// the editor's Sharing panel. Sets visibility to unlisted (default) or public and
+// mints a public_slug when missing (same rule as ArtifactEditorPage's
+// changeVisibility), then returns the ready-made public_url. Owner-only. A
+// password-protected artifact keeps its password (viewers still get the gate).
+async function shareArtifact(
+  db: DB | null,
+  input: Record<string, unknown>,
+  userId: string | null,
+): Promise<string> {
+  if (!db || !userId) return 'Artifacts are unavailable.'
+  const ref = String(input?.artifact ?? '').trim()
+  if (!ref) return 'Pass the artifact id or its exact title.'
+  const want = String(input?.visibility ?? 'unlisted').trim().toLowerCase()
+  if (want !== 'unlisted' && want !== 'public') {
+    return 'visibility must be "unlisted" (anyone with the link) or "public".'
+  }
+  const art = await resolveArtifact(db, userId, ref, true)
+  if (!art) return `No artifact you own matches "${ref}".`
+  const slug = art.public_slug || makeSlug()
+  const { error } = await db
+    .from('artifacts')
+    .update({ visibility: want, public_slug: slug })
+    .eq('id', art.id)
+    .eq('owner_id', userId)
+  if (error) return `Could not share the artifact: ${error.message}`
+  await logActivity(db, 'artifact.shared', `Shared artifact "${art.title}" (${want})`, { id: art.id, visibility: want }, userId)
+  const lines = artifactUrlLines({ ...art, visibility: want, public_slug: slug }, appUrl())
+  return [`Shared artifact "${art.title}" (${want}).`, `id: ${art.id}`, ...lines].join('\n')
 }
 
 // Archive (soft delete) by default — hides the artifact from every normal view
