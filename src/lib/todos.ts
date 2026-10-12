@@ -254,6 +254,12 @@ export function weekGrid(referenceDate: Date): Date[] {
   return cells
 }
 
+// Day grid — a single day. Returns an array with one date for consistency
+// with weekGrid and monthGrid, making it easy to swap view modes.
+export function dayGrid(referenceDate: Date): Date[] {
+  return [startOfDay(referenceDate)]
+}
+
 export function sameLocalDate(due: string | null, day: Date): boolean {
   if (!due) return false
   return startOfDay(parseDueDate(due)).getTime() === startOfDay(day).getTime()

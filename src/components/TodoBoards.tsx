@@ -16,6 +16,7 @@ import {
   DUE_BUCKETS,
   TODO_STATUSES,
   bucketOf,
+  dayGrid,
   daysUntilDue,
   dueForBucket,
   focusQueue,
@@ -521,15 +522,15 @@ function DayCell({
   today: Date
   onOpen: (id: string) => void
   remoteIds: ReadonlySet<string>
-  viewMode: 'month' | 'week'
+  viewMode: 'month' | 'week' | 'day'
   onToggleDone: (id: string) => void
   collectionsOf: (todoId: string) => string[]
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${isoDate(day)}` })
   const isToday = day.toDateString() === today.toDateString()
 
-  // Week view uses full TodoCard components, month view uses compact DayChip
-  const useFullCards = viewMode === 'week'
+  // Week and day views use full TodoCard components, month view uses compact DayChip
+  const useFullCards = viewMode === 'week' || viewMode === 'day'
 
   return (
     <div
@@ -563,17 +564,21 @@ function DayCell({
 }
 
 export function CalendarView(props: TodoViewProps) {
-  type ViewMode = 'month' | 'week'
+  type ViewMode = 'month' | 'week' | 'day'
   const [viewMode, setViewMode] = useState<ViewMode>('month')
   const [offset, setOffset] = useState(0)
 
-  // For month view: offset is months, for week view: offset is weeks
+  // For month view: offset is months, for week view: offset is weeks, for day view: offset is days
   const referenceDate = useMemo(() => {
     if (viewMode === 'month') {
       return new Date(props.today.getFullYear(), props.today.getMonth() + offset, 1)
-    } else {
+    } else if (viewMode === 'week') {
       const ref = new Date(props.today)
       ref.setDate(props.today.getDate() + offset * 7)
+      return ref
+    } else {
+      const ref = new Date(props.today)
+      ref.setDate(props.today.getDate() + offset)
       return ref
     }
   }, [props.today, offset, viewMode])
@@ -581,8 +586,10 @@ export function CalendarView(props: TodoViewProps) {
   const cells = useMemo(() => {
     if (viewMode === 'month') {
       return monthGrid(referenceDate)
-    } else {
+    } else if (viewMode === 'week') {
       return weekGrid(referenceDate)
+    } else {
+      return dayGrid(referenceDate)
     }
   }, [referenceDate, viewMode])
 
@@ -603,11 +610,13 @@ export function CalendarView(props: TodoViewProps) {
   const headerLabel = useMemo(() => {
     if (viewMode === 'month') {
       return referenceDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-    } else {
+    } else if (viewMode === 'week') {
       const weekCells = cells as Date[]
       const start = weekCells[0]
       const end = weekCells[6]
       return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+    } else {
+      return referenceDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     }
   }, [viewMode, referenceDate, cells])
 
@@ -644,6 +653,17 @@ export function CalendarView(props: TodoViewProps) {
             <div className="ml-2 flex gap-1 rounded-lg border border-border bg-surface-2 p-0.5">
               <button
                 onClick={() => {
+                  setViewMode('day')
+                  setOffset(0)
+                }}
+                className={`rounded px-2 py-1 text-xs font-semibold transition ${
+                  viewMode === 'day' ? 'bg-primary text-white' : 'text-muted hover:text-text'
+                }`}
+              >
+                Day
+              </button>
+              <button
+                onClick={() => {
                   setViewMode('week')
                   setOffset(0)
                 }}
@@ -666,14 +686,16 @@ export function CalendarView(props: TodoViewProps) {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-7 border-b border-border">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-              <div key={d} className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-faint">
-                {d}
-              </div>
-            ))}
-          </div>
-          <div className="grid flex-1 grid-cols-7 overflow-y-auto">
+          {viewMode !== 'day' && (
+            <div className="grid grid-cols-7 border-b border-border">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                <div key={d} className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-faint">
+                  {d}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={`grid flex-1 overflow-y-auto ${viewMode === 'day' ? 'grid-cols-1' : 'grid-cols-7'}`}>
             {cells.map((c, i) =>
               c ? (
                 <DayCell
