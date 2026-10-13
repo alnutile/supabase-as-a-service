@@ -3,7 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { ArtifactType, Database, Json, Visibility } from '../lib/database.types'
 import { standalonePageUrl, supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { imageMarkdown, insertAtCursor, isImageFile, isUrl, sanitizeImageName, urlToMarkdown } from '../lib/artifactImages'
+import {
+  ARTIFACT_IMAGE_BUCKET,
+  imageMarkdown,
+  insertAtCursor,
+  isImageFile,
+  isUrl,
+  sanitizeImageName,
+  urlToMarkdown,
+} from '../lib/artifactImages'
+import { publishArtifactImages, unpublishArtifactImages } from '../lib/artifactImageSync'
 import { uploadPickedFile } from '../lib/upload'
 import { makeSlug } from '../lib/util'
 import { useIOSKeyboard } from '../lib/useIOSKeyboard'
@@ -19,7 +28,7 @@ import { ChatIcon, PaperclipIcon, PinIcon, TrashIcon } from '../components/icons
 type Artifact = Database['public']['Tables']['artifacts']['Row']
 
 const TYPES: ArtifactType[] = ['markdown', 'code', 'html', 'text']
-const IMAGE_BUCKET = 'artifact-images'
+const IMAGE_BUCKET = ARTIFACT_IMAGE_BUCKET
 
 export default function ArtifactEditorPage() {
   const { artifactId } = useParams()
@@ -73,10 +82,11 @@ export default function ArtifactEditorPage() {
     setDirty(true)
   }, [])
 
-  // GitHub-style image drop/paste: upload each image to the public
-  // `artifact-images` bucket (a stable, non-expiring URL that keeps working
-  // when the artifact is shared publicly) and splice a markdown `![](url)`
-  // link into the body at the caret. Non-image files are ignored.
+  // GitHub-style image drop/paste: upload each image to the private
+  // `artifact-images` bucket and splice a markdown `![](url)` link into the body
+  // at the caret. The signed URL expires, but the renderer re-signs it, and
+  // saving a shared artifact swaps it for a permanent public URL (see save()).
+  // Non-image files are ignored.
   const insertImages = useCallback(
     async (files: File[]) => {
       if (!user || !artifact) return
@@ -254,6 +264,24 @@ export default function ArtifactEditorPage() {
       if (!artifact) return
       const next = { ...artifact, ...overrides }
       setSaving(true)
+      // Shared artifacts get permanent public image URLs; private ones get their
+      // images pulled back out of the public bucket. Best-effort: a storage
+      // hiccup leaves the old links rather than blocking the save.
+      if (user && next.owner_id === user.id) {
+        const before = next.content
+        try {
+          next.content =
+            next.visibility === 'unlisted' || next.visibility === 'public'
+              ? await publishArtifactImages(before, user.id)
+              : await unpublishArtifactImages(before, user.id)
+        } catch {
+          next.content = before
+        }
+        if (next.content !== before) {
+          // Only swap the editor text if nobody typed while the images moved.
+          setArtifact((a) => (a && a.content === before ? { ...a, content: next.content } : a))
+        }
+      }
       const { error } = await supabase
         .from('artifacts')
         .update({
@@ -268,7 +296,7 @@ export default function ArtifactEditorPage() {
       setSaving(false)
       if (!error) setDirty(false)
     },
-    [artifact],
+    [artifact, user],
   )
 
   // Interactive-state saves from the preview iframe (checkboxes, notes, …).
