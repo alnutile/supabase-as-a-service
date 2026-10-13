@@ -8,7 +8,7 @@
 // to-do private while the caller believed it was shared.
 
 import { assertEquals } from 'jsr:@std/assert'
-import { normalizeTodoVisibility, TODO_VISIBILITIES, visibilityNote } from '../_shared/todos.ts'
+import { formatTodoList, normalizeTodoVisibility, TODO_VISIBILITIES, visibilityNote } from '../_shared/todos.ts'
 
 Deno.test('normalizeTodoVisibility accepts the canonical values', () => {
   assertEquals(normalizeTodoVisibility('private'), 'private')
@@ -50,4 +50,33 @@ Deno.test('visibilityNote only speaks up when visibility was actually set', () =
   assertEquals(visibilityNote('private', 'is now'), ' It is now private to you.')
   assertEquals(visibilityNote(undefined), '')
   assertEquals(visibilityNote(null), '')
+})
+
+const row = {
+  id: 't1',
+  title: 'Renew insurance',
+  notes: null as string | null,
+  due_date: '2026-10-15',
+  done: false,
+  status: 'next',
+  source: null,
+  visibility: 'workspace',
+}
+
+Deno.test('formatTodoList: title, meta and id on the head line', () => {
+  assertEquals(formatTodoList([row]), '• [ ] Renew insurance (next, due 2026-10-15, team) — t1')
+})
+
+Deno.test('formatTodoList: notes are included, indented under the to-do', () => {
+  const out = formatTodoList([{ ...row, notes: 'Call Dana\r\nPolicy #123' }])
+  assertEquals(
+    out,
+    '• [ ] Renew insurance (next, due 2026-10-15, team) — t1\n  notes:\n    Call Dana\n    Policy #123',
+  )
+})
+
+Deno.test('formatTodoList: blank notes add nothing; long notes are clipped and say so', () => {
+  assertEquals(formatTodoList([{ ...row, notes: '   ' }]).includes('notes'), false)
+  const out = formatTodoList([{ ...row, notes: 'x'.repeat(50) }], 10)
+  assertEquals(out.endsWith('notes (first 10 chars):\n    xxxxxxxxxx'), true)
 })

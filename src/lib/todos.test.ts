@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   bucketOf,
+  dayGrid,
   daysUntilDue,
   dueForBucket,
   filterAndSortTodos,
@@ -251,6 +252,36 @@ describe('weekGrid', () => {
     expect(cells).toHaveLength(7)
     expect(cells[0].getDate()).toBe(16) // Sunday before
     expect(cells[6].getDate()).toBe(22)
+  })
+})
+
+describe('dayGrid', () => {
+  it('returns exactly one day at the start of the day', () => {
+    const cells = dayGrid(TODAY) // Fri 28 Aug 2026
+    expect(cells).toHaveLength(1)
+    expect(cells[0].getDate()).toBe(28)
+    expect(cells[0].getHours()).toBe(0)
+    expect(cells[0].getMinutes()).toBe(0)
+    expect(cells[0].getSeconds()).toBe(0)
+    expect(cells[0].getMilliseconds()).toBe(0)
+  })
+
+  it('strips time from dates with time components', () => {
+    const withTime = new Date(2026, 7, 28, 14, 30, 45) // Fri 28 Aug 2026 14:30:45
+    const cells = dayGrid(withTime)
+    expect(cells).toHaveLength(1)
+    expect(cells[0].getDate()).toBe(28)
+    expect(cells[0].getHours()).toBe(0)
+    expect(cells[0].getMinutes()).toBe(0)
+  })
+
+  it('works for different reference dates', () => {
+    const jan1 = new Date(2026, 0, 1) // Thu 1 Jan 2026
+    const cells = dayGrid(jan1)
+    expect(cells).toHaveLength(1)
+    expect(cells[0].getDate()).toBe(1)
+    expect(cells[0].getMonth()).toBe(0)
+    expect(cells[0].getFullYear()).toBe(2026)
   })
 })
 

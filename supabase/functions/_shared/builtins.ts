@@ -32,7 +32,13 @@ import {
   normalizeArtifactType,
   resolveAppUrl,
 } from './artifacts.ts'
-import { normalizeTodoVisibility, TODO_VISIBILITIES, visibilityNote } from './todos.ts'
+import {
+  formatTodoList,
+  normalizeTodoVisibility,
+  TODO_VISIBILITIES,
+  type TodoListRow,
+  visibilityNote,
+} from './todos.ts'
 import { ingestText } from './knowledge.ts'
 import { citationLabel, hybridChunkSearch } from './retrieval.ts'
 import { addFileToCollection, createFile, deleteFile, getFile, listFiles } from './files.ts'
@@ -1509,7 +1515,7 @@ async function listTodos(
   if (!db || !userId) return 'To-dos are unavailable.'
   let query = db
     .from('todos')
-    .select('id, title, due_date, done, status, source, visibility')
+    .select('id, title, notes, due_date, done, status, source, visibility')
     .or(`owner_id.eq.${userId},visibility.eq.workspace`)
     .order('done', { ascending: true })
     .order('due_date', { ascending: true, nullsFirst: false })
@@ -1531,27 +1537,7 @@ async function listTodos(
   }
   const { data } = await query
   if (!data || !data.length) return 'No to-dos.'
-  return (
-    data as Array<{
-      id: string
-      title: string
-      due_date: string | null
-      done: boolean
-      status: string | null
-      source: string | null
-      visibility: string | null
-    }>
-  )
-    .map((t) => {
-      const meta = [t.status ?? (t.done ? 'done' : 'triage')]
-      if (t.due_date) meta.push(`due ${t.due_date}`)
-      if (t.source) meta.push(`from ${t.source}`)
-      // Say which ones the team can see, so "share these with the team" has
-      // something to act on without a second lookup.
-      if (t.visibility === 'workspace') meta.push('team')
-      return `• [${t.done ? 'x' : ' '}] ${t.title} (${meta.join(', ')}) — ${t.id}`
-    })
-    .join('\n')
+  return formatTodoList(data as TodoListRow[])
 }
 
 async function completeTodo(

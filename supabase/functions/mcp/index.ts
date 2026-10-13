@@ -522,7 +522,7 @@ const TOOLS = [
   {
     name: 'list_todos',
     description:
-      'List to-dos (optionally filter by collection name/id, or by status). Shows each one\'s lane, due date, provenance, whether the team can see it, and its id.',
+      'List to-dos (optionally filter by collection name/id, or by status). Shows each one\'s title, lane, due date, provenance, whether the team can see it, its id, and its notes (indented under it; long notes are clipped at 2000 chars).',
     inputSchema: {
       type: 'object',
       properties: {
