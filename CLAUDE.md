@@ -160,15 +160,21 @@ than once; the unit suites cannot see that, so check it here.**
   (password validation, gate decision) is in `src/lib/artifactShare.ts` and unit-tested. The
   raw `p` edge function has no gate, so password-protected artifacts simply 404 there.
   **Inline images (GitHub-style):** in `ArtifactEditorPage` you can paste, drag-drop, or
-  attach (📎 "Image") an image into the body; it uploads to the **public `artifact-images`
-  bucket** (migration 0059) and a markdown `![](url)` link is spliced in at the caret. The
-  bucket is public (not owner-private like `files`) on purpose: the URL is baked into stored
-  markdown and re-rendered forever — a signed URL (7-day max) would break — and it must load
-  for anonymous visitors once the artifact is shared. Objects live under
-  `‹owner›/‹uuid›/‹name›` (unguessable "secret-URL" privacy, same trust model as public
-  slugs); writes are folder-scoped, reads are public. Pure logic (image detection, filename
-  sanitizing, cursor-aware markdown insertion) lives in `src/lib/artifactImages.ts` and is
-  unit-tested; the resilient upload reuses `uploadPickedFile(path, file, bucket)`.
+  attach (📎 "Image") an image into the body; it uploads to the **private `artifact-images`
+  bucket** (0059 created it public; 0073 made it private) under `‹owner›/‹uuid›/‹name›` and
+  a markdown `![](signed-url)` link is spliced in at the caret. A signed URL dies after 7
+  days, so two things keep images alive: (1) `Markdown` re-signs any `artifact-images` link
+  on display (`resolveImageUrl`), healing expired links for anyone who can read the object;
+  (2) **saving an unlisted/public artifact publishes its images** — each private image the
+  owner links is copied into the public `public-files` bucket at
+  `‹owner›/artifact-images/‹uuid›/‹name›` and the link is rewritten to that permanent public
+  URL (so shared pages, raw content and MCP readers get a link that never expires). Saving it
+  private again reverses that: links point back at the private originals and the public
+  copies are deleted. The `artifact-images/` path segment is what keeps the reverse step from
+  touching files published from Files. Pure URL logic (parse/rewrite/which-to-publish) is in
+  `src/lib/artifactImages.ts` (unit-tested); the storage I/O is `src/lib/artifactImageSync.ts`.
+  Only the editor's save path does this — the `share_artifact` builtin / REST visibility
+  changes don't move images yet.
   **Standalone hosting:** an `html` artifact can also be viewed as a clean, chrome-free
   full-viewport page at the app's own public **`/p/:slug` route** (`StandaloneArtifactPage`)
   — for sharing "a great diagram in HTML" with the public without deploying a whole app.
