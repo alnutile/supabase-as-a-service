@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 
 // Drag-to-resize for a right-hand side panel (artifact preview/live panel).
 // The handle sits on the panel's LEFT edge; dragging left widens it. Desktop
-// only — on mobile these panels are full-width overlays.
+// only — on mobile these panels span the full width (stacked or overlaid).
 //
 // The width is exposed as a CSS variable (--panel-w) that callers consume
 // with `md:w-[var(--panel-w)]`, so it only applies at the breakpoints where

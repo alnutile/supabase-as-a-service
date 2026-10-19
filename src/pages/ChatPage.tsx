@@ -923,7 +923,9 @@ export default function ChatPage() {
       : onDemandSkills
 
   return (
-    <div className="relative flex h-full">
+    // Column on mobile so an open artifact panel stacks ABOVE the thread
+    // (no rotating the phone to see both); a row of side panels on md+.
+    <div className="relative flex h-full flex-col md:flex-row">
       {/* Conversation list — static sidebar on md+, slide-over on mobile */}
       {showConvos && (
         <div
@@ -1076,7 +1078,7 @@ export default function ChatPage() {
       </div>
 
       {/* Message panel */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Mobile: open the conversation list */}
         <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2 md:hidden">
           <button
@@ -1570,13 +1572,14 @@ export default function ChatPage() {
         </form>
       </div>
 
-      {/* Live artifact panel — Claude.ai-style split view. Full-screen overlay
-          on mobile, side panel on md+. html artifacts are interactive: clicks
+      {/* Live artifact panel — Claude.ai-style split view. On mobile it stacks
+          on top (order-first, half the height) with the chat below it, so the
+          thread stays usable in portrait; side panel on md+. html artifacts are interactive: clicks
           persist via ArtifactFrame and edits stream in over Realtime. */}
       {panelArtifact && (
         <div
           style={panelResize.panelStyle}
-          className="absolute inset-0 z-30 flex flex-col bg-surface md:relative md:inset-auto md:z-auto md:w-[var(--panel-w)] md:shrink-0 md:border-l md:border-border"
+          className="relative order-first flex h-1/2 shrink-0 flex-col border-b border-border bg-surface md:order-none md:h-auto md:w-[var(--panel-w)] md:border-b-0 md:border-l"
         >
           <ResizeHandle onPointerDown={panelResize.onPointerDown} />
           <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
