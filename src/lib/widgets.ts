@@ -17,6 +17,9 @@
 export type WidgetKind = 'stat' | 'list' | 'chart'
 export type WidgetSource = 'todos' | 'artifacts' | 'files' | 'links' | 'collections' | 'activity'
 export type WidgetWindow = 'today' | '7d' | '30d' | 'all'
+/** How a `chart` widget draws. bar/line/area are time-series; donut is a
+ *  grouped breakdown (implies a `groupBy`). Default is 'bar'. */
+export type WidgetViz = 'bar' | 'line' | 'area' | 'donut'
 
 export type WidgetSpec = {
   /** Time filter on the source's timeField. Omitted/'all' = no time filter. */
@@ -27,7 +30,17 @@ export type WidgetSpec = {
   status?: 'open' | 'done'
   /** For `list` widgets: how many rows (clamped). */
   limit?: number
+  /** For `chart` widgets: the drawing style (default 'bar'). */
+  viz?: WidgetViz
+  /** For `chart` widgets: an allow-listed dimension field to group + count by
+   *  (a categorical breakdown) instead of the per-day time series. Validated
+   *  against the source's `dimensions` — a stored value is always one of our
+   *  own column names, never free-form, so it's safe to pass to `.select()`. */
+  groupBy?: string
 }
+
+/** A categorical dimension a chart can group by (a low-cardinality column). */
+export type DimensionDef = { field: string; label: string }
 
 export type SourceDef = {
   /** Physical table name queried under RLS. */
@@ -44,6 +57,9 @@ export type SourceDef = {
   subtitleField?: string
   /** Whether a `status` (done) filter applies. */
   supportsStatus?: boolean
+  /** Low-cardinality columns a `chart` may group + count by (allow-listed, so a
+   *  stored `groupBy` is always one of these — never free-form). */
+  dimensions?: DimensionDef[]
 }
 
 // The allow-list. Adding a source here is the ONLY way to widen what widgets
@@ -58,6 +74,7 @@ export const WIDGET_SOURCES: Record<WidgetSource, SourceDef> = {
     titleField: 'title',
     subtitleField: 'notes',
     supportsStatus: true,
+    dimensions: [{ field: 'done', label: 'Status' }],
   },
   artifacts: {
     table: 'artifacts',
@@ -66,6 +83,7 @@ export const WIDGET_SOURCES: Record<WidgetSource, SourceDef> = {
     timeField: 'created_at',
     titleField: 'title',
     subtitleField: 'type',
+    dimensions: [{ field: 'type', label: 'Type' }],
   },
   files: {
     table: 'files',
@@ -74,6 +92,7 @@ export const WIDGET_SOURCES: Record<WidgetSource, SourceDef> = {
     timeField: 'created_at',
     titleField: 'name',
     subtitleField: 'mime_type',
+    dimensions: [{ field: 'mime_type', label: 'File type' }],
   },
   links: {
     table: 'links',
@@ -98,10 +117,12 @@ export const WIDGET_SOURCES: Record<WidgetSource, SourceDef> = {
     timeField: 'created_at',
     titleField: 'summary',
     subtitleField: 'type',
+    dimensions: [{ field: 'type', label: 'Type' }],
   },
 }
 
 export const WIDGET_KINDS: WidgetKind[] = ['stat', 'list', 'chart']
+export const WIDGET_VIZ: WidgetViz[] = ['bar', 'line', 'area', 'donut']
 
 export function isWidgetKind(v: unknown): v is WidgetKind {
   return typeof v === 'string' && (WIDGET_KINDS as string[]).includes(v)
@@ -109,6 +130,20 @@ export function isWidgetKind(v: unknown): v is WidgetKind {
 
 export function isWidgetSource(v: unknown): v is WidgetSource {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(WIDGET_SOURCES, v)
+}
+
+export function isWidgetViz(v: unknown): v is WidgetViz {
+  return typeof v === 'string' && (WIDGET_VIZ as string[]).includes(v)
+}
+
+/** The dimension defs a source allows grouping by (empty if none). */
+export function widgetDimensions(source: WidgetSource): DimensionDef[] {
+  return WIDGET_SOURCES[source].dimensions ?? []
+}
+
+/** True if `field` is an allow-listed groupBy dimension for the source. */
+export function isWidgetDimension(source: WidgetSource, field: unknown): field is string {
+  return typeof field === 'string' && widgetDimensions(source).some((d) => d.field === field)
 }
 
 const DEFAULT_LIST_LIMIT = 5
@@ -151,7 +186,55 @@ export function normalizeSpec(source: WidgetSource, raw: unknown): WidgetSpec {
     spec.status = r.status
   }
   if (r.limit !== undefined) spec.limit = clampWidgetLimit(r.limit)
+  // groupBy must name one of the source's allow-listed dimensions, else it's
+  // dropped (so we never pass an unknown column to the query builder).
+  if (isWidgetDimension(source, r.groupBy)) spec.groupBy = r.groupBy
+  if (isWidgetViz(r.viz)) {
+    // A donut only makes sense as a grouped breakdown; without a groupBy it
+    // falls back to the default bar time-series.
+    spec.viz = r.viz === 'donut' && !spec.groupBy ? 'bar' : r.viz
+  }
   return spec
+}
+
+export type CategoryBucket = { key: string; label: string; count: number }
+
+const EMPTY_CATEGORY = 'None'
+const OTHER_CATEGORY = 'Other'
+
+/** Pretty label for a raw dimension value (booleans → Open/Done, empty → None). */
+export function dimensionValueLabel(source: WidgetSource, field: string, raw: unknown): string {
+  if (source === 'todos' && field === 'done') {
+    if (raw === true || raw === 'true') return 'Done'
+    if (raw === false || raw === 'false') return 'Open'
+  }
+  const s = raw === null || raw === undefined ? '' : String(raw).trim()
+  return s || EMPTY_CATEGORY
+}
+
+/**
+ * Group rows by a categorical field and count each value, biggest first. Keeps
+ * the top `topN` and folds the rest into an "Other" bucket, so a donut/bar never
+ * grows unbounded. Pure — the widget does the query, this does the tally.
+ */
+export function bucketByCategory(
+  source: WidgetSource,
+  field: string,
+  rows: Record<string, unknown>[],
+  topN = 8,
+): CategoryBucket[] {
+  const counts = new Map<string, number>()
+  for (const row of rows) {
+    const label = dimensionValueLabel(source, field, row[field])
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+  const sorted = [...counts.entries()]
+    .map(([label, count]) => ({ key: label, label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  if (sorted.length <= topN) return sorted
+  const head = sorted.slice(0, topN)
+  const rest = sorted.slice(topN).reduce((s, b) => s + b.count, 0)
+  return [...head, { key: OTHER_CATEGORY, label: OTHER_CATEGORY, count: rest }]
 }
 
 const WINDOW_LABEL: Record<WidgetWindow, string> = {
@@ -171,6 +254,12 @@ export function describeWidget(kind: WidgetKind, source: WidgetSource, spec: Wid
   if (spec.window && spec.window !== 'all') bits.push(WINDOW_LABEL[spec.window])
   const subject = bits.join(' ')
   if (kind === 'stat') return `Count of ${subject}`
-  if (kind === 'chart') return `${def.label} per day (last ${CHART_DAYS} days)`
+  if (kind === 'chart') {
+    if (spec.groupBy) {
+      const dim = widgetDimensions(source).find((d) => d.field === spec.groupBy)
+      return `${def.label} by ${(dim?.label ?? spec.groupBy).toLowerCase()}`
+    }
+    return `${def.label} per day (last ${CHART_DAYS} days)`
+  }
   return `Latest ${subject}`
 }

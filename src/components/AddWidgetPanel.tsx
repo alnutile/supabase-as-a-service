@@ -8,15 +8,16 @@ import { CloseIcon, SendIcon, SparkleIcon } from './icons'
 // call. Kept terse + concrete: the tool schema does the heavy validation, this
 // just steers source/kind/spec choice and asks for a short confirmation.
 const WIDGET_SYSTEM = `You add widgets to the user's Home dashboard by calling the create_widget tool. When the user describes what they want to see, choose the best fit and call create_widget:
-- kind: "stat" (a single count), "list" (recent rows), or "chart" (per-day bar chart, last 14 days).
+- kind: "stat" (a single count), "list" (recent rows), or "chart".
 - source: one of todos | artifacts | files | links | collections | activity.
-- spec (optional): {"window":"today"|"7d"|"30d"|"all", "mine":true, "status":"open"|"done" (todos only), "limit":1-20 (list only)}.
+- spec (optional): {"window":"today"|"7d"|"30d"|"all", "mine":true, "status":"open"|"done" (todos only), "limit":1-20 (list only), "viz":"bar"|"line"|"area"|"donut" (chart only), "groupBy":<dimension> (chart only)}.
+Charts: by default a chart shows a per-day count over the last 14 days — use "viz":"line" or "area" for a trend line. To show a BREAKDOWN by category instead, set "groupBy" to one of the source's dimensions and optionally "viz":"donut": todos→"done", artifacts→"type", files→"mime_type", activity→"type". (links/collections have no groupBy.) Example: "artifacts by type as a donut" → kind:"chart", source:"artifacts", spec:{"groupBy":"type","viz":"donut","mine":true}.
 Default to "mine": true unless the user clearly means the whole team. Give the widget a short, clear title. If the request can't map to one of those sources, say so briefly instead of guessing. After the tool succeeds, confirm in one short sentence what you added. Do not create more than one widget unless the user asks for several.`
 
 const SUGGESTIONS = [
   'My open to-dos as a count',
-  'Artifacts I added today',
-  'A chart of my activity',
+  'Artifacts by type as a donut',
+  'A trend line of my activity',
   'My latest 5 files',
 ]
 
