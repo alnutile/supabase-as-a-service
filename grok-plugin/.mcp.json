@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "supanet": {
+      "type": "http",
+      "url": "${SUPANET_MCP_URL}",
+      "note": "Your own SupaNet workspace endpoint - every workspace is a separate deployment, so there is no shared URL to hardcode. Set SUPANET_MCP_URL to https://<your-workspace-domain>/mcp before starting Grok (run /supanet-connect for help finding it). Auth is OAuth 2.1 + PKCE with dynamic client registration: on first connection Grok opens your workspace's own login page in a browser, you sign in with your workspace email and approve. No API key to paste. Every tool call then runs as that user and Postgres row-level security still applies."
+    }
+  }
+}
