@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SupaNet</title>
+    <!--
+      Desktop-only launcher (copied into dist/launcher by `npm run desktop:frontend`).
+      Checks Docker + the Supabase CLI, collects the edge-function secrets, boots the
+      local stack via the Rust commands in src-tauri/src/stack.rs, then opens the
+      workspace window. Plain HTML/JS on purpose: it must work before any stack exists.
+    -->
+    <style>
+      :root {
+        --bg: #f6f7f6;
+        --card: #ffffff;
+        --text: #17201c;
+        --muted: #5d6a64;
+        --border: #dfe4e1;
+        --brand: #15795b;
+        --brand-text: #ffffff;
+        --ok: #15795b;
+        --bad: #b42318;
+        --warn: #b54708;
+        --log-bg: #101614;
+        --log-text: #cfe0d8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1412;
+          --card: #171e1b;
+          --text: #e6ece9;
+          --muted: #93a29b;
+          --border: #2a3430;
+          --brand: #2fa67f;
+          --brand-text: #06110c;
+          --ok: #3cc596;
+          --bad: #f97066;
+          --warn: #fdb022;
+          --log-bg: #0a0e0c;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      main { max-width: 640px; margin: 0 auto; padding: 28px 16px 40px; }
+      header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+      header img { width: 40px; height: 40px; border-radius: 10px; }
+      h1 { font-size: 20px; margin: 0; }
+      header p { margin: 0; color: var(--muted); }
+      section {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 10px; }
+      .check { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+      .check:first-of-type { border-top: 0; }
+      .dot { flex: none; width: 18px; text-align: center; font-weight: 700; }
+      .dot.ok { color: var(--ok); }
+      .dot.bad { color: var(--bad); }
+      .dot.wait { color: var(--muted); }
+      .check strong { display: block; }
+      .detail { color: var(--muted); white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+      .fix { margin-top: 4px; font-size: 13px; }
+      code { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+      label { display: block; font-weight: 600; margin: 10px 0 4px; }
+      label.inline { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+      input[type='password'], input[type='text'] {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+      }
+      .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+      button {
+        font: inherit;
+        font-weight: 600;
+        border-radius: 8px;
+        padding: 9px 16px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--text);
+        cursor: pointer;
+      }
+      button.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-text); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      a { color: var(--brand); cursor: pointer; }
+      ol.steps { margin: 0; padding: 0; list-style: none; }
+      ol.steps li { display: flex; gap: 10px; padding: 4px 0; color: var(--muted); }
+      ol.steps li.active { color: var(--text); font-weight: 600; }
+      ol.steps li.done { color: var(--text); }
+      .error { color: var(--bad); white-space: pre-wrap; word-break: break-word; margin-top: 10px; }
+      details { margin-top: 12px; }
+      summary { cursor: pointer; color: var(--muted); }
+      pre.log {
+        background: var(--log-bg);
+        color: var(--log-text);
+        border-radius: 8px;
+        padding: 10px;
+        height: 220px;
+        overflow: auto;
+        font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 8px 0 0;
+      }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="/favicon.svg" alt="" />
+        <div>
+          <h1>SupaNet</h1>
+          <p>Your intranet, running on this machine.</p>
+        </div>
+      </header>
+
+      <section>
+        <h2>Requirements</h2>
+        <div class="check" id="check-docker"></div>
+        <div class="check" id="check-docker-running"></div>
+        <div class="check" id="check-supabase"></div>
+        <div class="actions">
+          <button id="recheck">Check again</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Settings</h2>
+        <label for="openrouter-key">OpenRouter API key</label>
+        <input id="openrouter-key" type="password" autocomplete="off" placeholder="sk-or-…" />
+        <div class="hint">
+          Powers the AI chat. Stored only on this computer and passed to the local edge functions.
+          Get one at <a data-href="https://openrouter.ai/keys">openrouter.ai/keys</a>.
+        </div>
+        <label for="openrouter-model">Default model <span class="hint">(optional)</span></label>
+        <input id="openrouter-model" type="text" autocomplete="off" placeholder="anthropic/claude-sonnet-4.5" />
+        <label class="inline"><input id="stop-on-quit" type="checkbox" checked /> Stop Supabase when SupaNet quits</label>
+        <div class="hint">Your data is kept either way — stopping just frees the memory Docker uses.</div>
+      </section>
+
+      <section>
+        <h2>Start</h2>
+        <ol class="steps" id="steps"></ol>
+        <div class="error hidden" id="error"></div>
+        <div class="actions">
+          <button class="primary" id="start" disabled>Start SupaNet</button>
+        </div>
+        <details id="log-details">
+          <summary>Log</summary>
+          <pre class="log" id="log"></pre>
+        </details>
+      </section>
+    </main>
+
+    <script>
+      const { invoke } = window.__TAURI__.core
+      const { listen } = window.__TAURI__.event
+
+      const STEPS = [
+        ['prepare', 'Prepare the project files'],
+        ['start', 'Start Supabase (the first run downloads Docker images — a few minutes)'],
+        ['migrate', 'Apply database migrations'],
+        ['cron', 'Set up scheduled jobs'],
+        ['functions', 'Start the edge functions'],
+        ['ready', 'Open your workspace'],
+      ]
+      const $ = (id) => document.getElementById(id)
+      let prereqsOk = false
+      let starting = false
+
+      const openUrl = (url) => invoke('plugin:opener|open_url', { url })
+      document.addEventListener('click', (e) => {
+        const a = e.target.closest('a[data-href]')
+        if (a) openUrl(a.dataset.href)
+      })
+
+      function renderCheck(el, ok, title, detail, fix) {
+        el.innerHTML = ''
+        const dot = document.createElement('span')
+        dot.className = 'dot ' + (ok === null ? 'wait' : ok ? 'ok' : 'bad')
+        dot.textContent = ok === null ? '…' : ok ? '✓' : '✕'
+        const body = document.createElement('div')
+        const strong = document.createElement('strong')
+        strong.textContent = title
+        const d = document.createElement('div')
+        d.className = 'detail'
+        d.textContent = detail
+        body.append(strong, d)
+        if (!ok && fix) {
+          const f = document.createElement('div')
+          f.className = 'fix'
+          f.innerHTML = fix
+          body.append(f)
+        }
+        el.append(dot, body)
+      }
+
+      async function checkPrereqs() {
+        renderCheck($('check-docker'), null, 'Docker', 'Checking…')
+        renderCheck($('check-docker-running'), null, 'Docker is running', 'Checking…')
+        renderCheck($('check-supabase'), null, 'Supabase CLI', 'Checking…')
+        const p = await invoke('check_prereqs')
+        renderCheck($('check-docker'), p.dockerInstalled, 'Docker', p.dockerInstalled ? 'Installed' : p.dockerDetail,
+          'Install <a data-href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a> (or OrbStack / Colima), then check again.')
+        renderCheck($('check-docker-running'), p.dockerRunning, 'Docker is running', p.dockerDetail,
+          'Open Docker Desktop and wait for it to finish starting, then check again.')
+        renderCheck($('check-supabase'), p.supabaseOk, 'Supabase CLI', p.supabaseDetail,
+          p.supabaseInstalled
+            ? 'The CLI is installed but failed to run. Reinstalling usually fixes it: <code>brew reinstall supabase</code>'
+            : 'Install it with <code>brew install supabase/tap/supabase</code> — or see <a data-href="https://supabase.com/docs/guides/local-development/cli/getting-started">the install guide</a>.')
+        prereqsOk = p.dockerInstalled && p.dockerRunning && p.supabaseOk
+        $('start').disabled = !prereqsOk || starting
+        return prereqsOk
+      }
+
+      function renderSteps(current, failed) {
+        const idx = STEPS.findIndex(([k]) => k === current)
+        $('steps').innerHTML = ''
+        STEPS.forEach(([key, label], i) => {
+          const li = document.createElement('li')
+          const dot = document.createElement('span')
+          dot.className = 'dot'
+          if (i < idx || (current === 'ready' && !failed)) { li.className = 'done'; dot.classList.add('ok'); dot.textContent = '✓' }
+          else if (i === idx) { li.className = 'active'; dot.classList.add(failed ? 'bad' : 'wait'); dot.textContent = failed ? '✕' : '›' }
+          else { dot.classList.add('wait'); dot.textContent = '·' }
+          const text = document.createElement('span')
+          text.textContent = label
+          li.append(dot, text)
+          $('steps').append(li)
+        })
+      }
+
+      function appendLog(line) {
+        const log = $('log')
+        const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4
+        log.textContent += line + '\n'
+        if (log.textContent.length > 200000) log.textContent = log.textContent.slice(-150000)
+        if (atBottom) log.scrollTop = log.scrollHeight
+      }
+
+      function readSettings() {
+        return {
+          openrouterApiKey: $('openrouter-key').value.trim(),
+          openrouterModel: $('openrouter-model').value.trim(),
+          stopOnQuit: $('stop-on-quit').checked,
+        }
+      }
+
+      let currentStep = null
+      async function start() {
+        if (starting || !prereqsOk) return
+        starting = true
+        $('start').disabled = true
+        $('error').classList.add('hidden')
+        try {
+          await invoke('save_settings', { settings: readSettings() })
+          currentStep = 'prepare'
+          renderSteps(currentStep)
+          const info = await invoke('start_stack')
+          renderSteps('ready')
+          await invoke('open_workspace', { apiUrl: info.apiUrl, anonKey: info.anonKey })
+        } catch (e) {
+          renderSteps(currentStep, true)
+          $('error').textContent = String(e)
+          $('error').classList.remove('hidden')
+          $('log-details').open = true
+          starting = false
+          $('start').disabled = !prereqsOk
+        }
+      }
+
+      listen('stack-step', (e) => { currentStep = e.payload; renderSteps(currentStep) })
+      listen('stack-log', (e) => appendLog(e.payload))
+      listen('functions-log', (e) => appendLog('[functions] ' + e.payload))
+      $('recheck').addEventListener('click', checkPrereqs)
+      $('start').addEventListener('click', start)
+
+      ;(async () => {
+        renderSteps(null)
+        const saved = await invoke('load_settings')
+        if (saved) {
+          $('openrouter-key').value = saved.openrouterApiKey || ''
+          $('openrouter-model').value = saved.openrouterModel || ''
+          $('stop-on-quit').checked = saved.stopOnQuit !== false
+        }
+        const ok = await checkPrereqs()
+        // Returning users go straight to their workspace. The first run, or one without an
+        // OpenRouter key (chat can't work without it), waits on this screen for Start.
+        if (ok && saved && saved.openrouterApiKey) start()
+      })()
+    </script>
+  </body>
+</html>

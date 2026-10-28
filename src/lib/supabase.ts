@@ -1,8 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './database.types'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+// The desktop (Tauri) shell boots a local Supabase stack at launch, so its URL and
+// key aren't known at build time — it injects them as `window.__SUPANET_CONFIG__`
+// before the app loads (see src-tauri/). The web build never sets it.
+const runtimeConfig = (
+  globalThis as { __SUPANET_CONFIG__?: { supabaseUrl?: string; supabaseAnonKey?: string } }
+).__SUPANET_CONFIG__
+
+const supabaseUrl = runtimeConfig?.supabaseUrl || (import.meta.env.VITE_SUPABASE_URL as string)
+const supabaseAnonKey =
+  runtimeConfig?.supabaseAnonKey || (import.meta.env.VITE_SUPABASE_ANON_KEY as string)
 
 if (!supabaseUrl || !supabaseAnonKey) {
   // Surfaced early and loudly so misconfiguration is obvious in dev.

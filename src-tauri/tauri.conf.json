@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SupaNet",
+  "version": "0.1.1",
+  "identifier": "studio.dailyai.supanet",
+  "build": {
+    "frontendDist": "../dist",
+    "beforeDevCommand": "npm run desktop:frontend",
+    "beforeBuildCommand": "npm run desktop:frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "launcher",
+        "title": "SupaNet",
+        "url": "launcher/index.html",
+        "width": 720,
+        "height": 760,
+        "minWidth": 560,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Your team intranet, running on your own machine",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../supabase/config.toml": "stack/supabase/config.toml",
+      "../supabase/migrations/": "stack/supabase/migrations/",
+      "../supabase/functions/": "stack/supabase/functions/"
+    }
+  }
+}

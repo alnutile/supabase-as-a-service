@@ -10,6 +10,7 @@ module.exports = {
     'dist',
     '.eslintrc.cjs',
     'supabase/functions',
+    'src-tauri',
     // Generated build artifact (esbuild bundle of dc-runtime/src/*.ts, marked
     // "do not edit") — a committed build output like dist/, not source to lint.
     'control-plane/demo-user-interface/support.js',

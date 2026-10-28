@@ -32,3 +32,6 @@ supabase/.env
 
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json
+
+# tauri desktop build output
+src-tauri/target

@@ -18,7 +18,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:deno": "deno test supabase/functions/tests/",
-    "test:smoke": "node scripts/smoke.mjs"
+    "test:smoke": "node scripts/smoke.mjs",
+    "desktop:frontend": "npm run build && node -e \"require('fs').cpSync('src-tauri/launcher','dist/launcher',{recursive:true})\"",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -38,6 +42,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.5",

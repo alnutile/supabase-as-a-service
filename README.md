@@ -86,6 +86,9 @@ browser. Data is protected by Postgres **row-level security**, not by hiding key
 
 - **Self-host (this repo).** Free and MIT-licensed — the whole product on your own Supabase
   project and hosting. [Quick start](#quick-start-local) is below; plan on an afternoon.
+- **Desktop app (beta).** Nothing to host — a Tauri app that boots a local Supabase stack in
+  Docker and opens the workspace in its own window. Needs Docker and the Supabase CLI. See
+  [docs/desktop.md](docs/desktop.md).
 - **[SupaNet Cloud](https://supanet.dailyai.studio)** — the same open-source product, set up
   for you: one flat price per workspace, never per seat, on your own dedicated database.
   If you ever leave, the project transfers to you. It's your infrastructure from day one.
