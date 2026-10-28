@@ -5,9 +5,19 @@
 //   POST {action:'retry', tenant_id}              → requeue a failed job
 // Teardown queues a `kind:'teardown'` job for the worker (which holds the infra
 // credentials); this function never touches Railway/Cloudflare/etc. itself.
-import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { createClient } from 'npm:@supabase/supabase-js@2.110.7'
 
-const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+// Prefer the project's new-style secret key (injected as SUPABASE_SECRET_KEYS) so the
+// legacy JWT keys can stay disabled; fall back to the legacy service-role key.
+function serviceKey(): string {
+  try {
+    const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') ?? '{}')
+    if (keys.default) return keys.default
+  } catch { /* fall through */ }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+}
+
+const db = createClient(Deno.env.get('SUPABASE_URL')!, serviceKey())
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',

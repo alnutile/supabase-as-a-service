@@ -2,9 +2,19 @@
 // control-plane user, i.e. a customer who completed the magic link).
 // POST { tenant_id, action: 'billing_portal' } → a Stripe customer-portal URL
 // for that tenant, only if the caller's email matches the tenant's admin_email.
-import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
+import { createClient } from 'npm:@supabase/supabase-js@2.110.7'
 
-const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+// Prefer the project's new-style secret key (injected as SUPABASE_SECRET_KEYS) so the
+// legacy JWT keys can stay disabled; fall back to the legacy service-role key.
+function serviceKey(): string {
+  try {
+    const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') ?? '{}')
+    if (keys.default) return keys.default
+  } catch { /* fall through */ }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+}
+
+const db = createClient(Deno.env.get('SUPABASE_URL')!, serviceKey())
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
