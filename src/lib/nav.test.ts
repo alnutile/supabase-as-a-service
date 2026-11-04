@@ -67,7 +67,7 @@ describe('nav config invariants', () => {
     // Settings items are alwaysOn and live outside navGroups → never flaggable.
     for (const s of settingsGroup.items) expect(flaggableKeys).not.toContain(s.key)
     // A regular feature area is flaggable.
-    expect(flaggableKeys).toContain('inbox')
+    expect(flaggableKeys).toContain('collections')
     expect(flaggableKeys).toContain('tables')
   })
 

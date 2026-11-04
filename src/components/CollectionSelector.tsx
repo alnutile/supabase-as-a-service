@@ -16,7 +16,7 @@ export function CollectionSelector({
   itemType,
 }: {
   itemId: string
-  itemType: 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'agent' | 'whiteboard' | 'card_board'
+  itemType: 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'whiteboard' | 'card_board'
 }) {
   const { user } = useAuth()
   const [collections, setCollections] = useState<Collection[]>([])
@@ -33,7 +33,6 @@ export function CollectionSelector({
     todo: { table: 'collection_todos', col: 'todo_id' },
     link: { table: 'collection_links', col: 'link_id' },
     term: { table: 'collection_terminology', col: 'term_id' },
-    agent: { table: 'collection_agents', col: 'agent_id' },
     whiteboard: { table: 'collection_whiteboards', col: 'whiteboard_id' },
     card_board: { table: 'collection_card_boards', col: 'card_board_id' },
   }[itemType]
