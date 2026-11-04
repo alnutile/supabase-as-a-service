@@ -135,7 +135,7 @@ export async function executeSuiteRun(
   const sandboxTools = suite.sandbox_tools !== false
 
   // Agents were removed; suites that targeted one can no longer run.
-  if (suite.target_kind === 'agent') return await fail('agent suites are no longer supported — switch the target to chat')
+  if (suite.target_kind === 'agent') return await fail('agent suites are no longer supported, switch the target to chat')
 
   let passedCount = 0
   let totalCost = 0

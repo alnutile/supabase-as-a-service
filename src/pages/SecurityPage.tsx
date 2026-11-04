@@ -208,7 +208,7 @@ export default function SecurityPage() {
           </button>
         </div>
         <p className="mb-6 text-sm text-muted">
-          Deterministic checks over the workspace's configuration — guardrails, tools, secrets,
+          Deterministic checks over the workspace's configuration: guardrails, tools, secrets,
           sharing. Dismiss a finding to accept the risk (it stays dismissed on future runs).
         </p>
 

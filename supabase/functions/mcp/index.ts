@@ -1,9 +1,9 @@
 // Supabase Edge Function: `mcp` (PUBLIC — verify_jwt=false).
 // A Model Context Protocol server (JSON-RPC over HTTP) that an external Claude
-// (Claude Code / Desktop) connects to. It exposes the workspace — artifacts,
-// collections, files, tables, to-dos, links, memory, skills and more — so an
-// external Claude can read from and write to this second brain. Auth is a per-user token from `mcp_tokens`; every
-// action runs as that token's owner.
+// (Claude Code / Desktop) connects to. It exposes the workspace (artifacts,
+// collections, files, tables, to-dos, links, memory, skills and more) so an
+// external Claude can read from and write to this second brain. Auth is a
+// per-user token from `mcp_tokens`; every action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import {
   artifactUrlLines,
