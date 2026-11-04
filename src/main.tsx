@@ -4,7 +4,13 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { registerServiceWorker } from './lib/pwa'
+import { setBackend } from './lib/data'
+import { supabaseBackend } from './lib/data/supabase'
 import './index.css'
+
+// The hosted build talks to Supabase. The local build will swap in the SQLite
+// sidecar backend here (docs/local-first.md).
+setBackend(supabaseBackend)
 
 // Register the service worker in production only (avoids caching interfering with
 // the Vite dev server). This is what lets the browser offer to install the app.

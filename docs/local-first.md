@@ -147,12 +147,19 @@ almost 1:1.
 
 1. **Remove features (this branch).** Done: UI, edge functions, MCP tools and
    builtins trimmed. The hosted build still works.
-2. **Data-access seam.** Move every `supabase.from()`, `.rpc()`, `.channel()`
-   and `.storage` call in `src/` behind `src/lib/data/<domain>.ts` functions,
-   one domain per PR (chat, files, tables, meetings, terminology, secrets,
-   mcp, ...). Hosted behaviour stays identical, and each step can be checked
-   with `npm run build` + `npm test` + the smoke test. This is the step that
-   makes the local backend possible without a big-bang rewrite.
+2. **Data-access seam (in progress).** Move every `supabase.from()`,
+   `.rpc()`, `.channel()` and `.storage` call in `src/` behind
+   `src/lib/data/`, one domain per step. Hosted behaviour stays identical.
+   - `src/lib/data/stores.ts`: the store interfaces every backend implements.
+   - `src/lib/data/supabase/`: the hosted backend. `main.tsx` selects it with
+     `setBackend()`.
+   - `src/lib/data/memory/`: an in-memory backend for tests and as the
+     reference for SQLite.
+   - `src/lib/data/contract.ts`: one vitest suite every backend must pass.
+   - Done: Terminology, and collection membership for every item kind
+     (`AddToCollectionBar`, `CollectionSelector`).
+   - Next, in rough order: Memory, Links, To-dos, Artifacts, Collections
+     page, Tables, Meeting notes, Files, Secrets, Chat, then the rest.
 3. **Sidecar + SQLite.** New `local/` package: Bun app, SQLite schema +
    migrations, ports of `_shared/{builtins,retrieval,collections,mcp,
    orchestrator}` and `chat/index.ts`. Add a `local` implementation of each
@@ -168,7 +175,7 @@ almost 1:1.
 6. **Hosted later.** Decide whether hosted stays a separate product, becomes
    optional sync, or turns into federation between local brains.
 
-## Retrieval without vectors first (proposal)
+## Retrieval: FTS5 first (decided)
 
 The second brain is mostly curated: collections, artifacts, notes, to-dos,
 terminology. Most of that fits in context, so the main path does not need
@@ -197,8 +204,6 @@ added.
 
 ## Open questions
 
-- Retrieval: start without vectors? See "Retrieval without vectors first"
-  below. Not decided yet.
 - Should the hosted build eventually drop the now-unused tables (inbox,
   agents, loops, events, webhooks, features, knowledge_*)? That would be a
   destructive migration, so it waits until the local build is settled.
