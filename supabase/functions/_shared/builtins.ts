@@ -1,25 +1,14 @@
 // Shared executor for `builtin` tools — tools run in-function (as opposed to
 // `http` tools that POST to a URL, or `web` tools that switch on OpenRouter's
-// web-search plugin). Centralized here so ALL THREE agent loops (chat,
-// webhook, scheduler) can run them: the "morning agent emails me" flow runs
-// through the scheduler, so this is load-bearing, not a refactor nicety.
+// web-search plugin). Chat, evals and the MCP server all run them through here.
 //
-// Builtins: search_documents (RAG over the workspace knowledge base), the knowledge
-// compiler tools (compile_collection / list_knowledge_pages / get_knowledge_page /
-// update_knowledge_page / list_conflicts / resolve_conflict / get_change_brief /
-// set_compile_policy — the COMPILED layer, where a raw file is evidence rather
-// than an answer), send_email,
-// check_email, the user-table tools (list_tables / query_table / add_table_row /
-// update_table_row / delete_table_row / create_table — the "Tables" feature), the team-vault tools (list_secrets /
-// get_secret), and the content-authoring tools (create_artifact / list_artifacts /
-// get_artifact / update_artifact / list_collections /
-// create_collection / add_to_collection / add_note) — the in-app mirror of the MCP
-// server's authoring actions, so the internal AI/agents can push articles, notes, and
-// docs into artifacts + collections + the knowledge base (the "ingest GitHub articles
-// into a collection we can chat with" flow). send_email and get_secret are
-// exfiltration-capable — send_email enforces a recipient allowlist + rate limit and
-// get_secret returns a raw credential, so both log every use. The table, vault, and
-// authoring builtins run with the service role, so they re-enforce the
+// Builtins: search_documents (RAG over uploaded files), the user-table tools
+// (list_tables / query_table / add_table_row / update_table_row /
+// delete_table_row / create_table), the team-vault tools (list_secrets /
+// get_secret), and the content-authoring tools (artifacts, collections, notes,
+// to-dos, links, whiteboards, card boards, terminology, files, memory, skills).
+// get_secret returns a raw credential, so every use is logged. The table, vault,
+// and authoring builtins run with the service role, so they re-enforce the
 // private/workspace access rule in code (owner = caller).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import {
@@ -50,49 +39,11 @@ import { dateColumn, formatLinkList, type LinkRow, parseDateBound } from './link
 import { fetchLinkMetadata } from './linkmeta.ts'
 import { htmlToMarkdown } from './html_markdown.ts'
 import { buildScene, elementCount, sceneToText } from './whiteboard_scene.ts'
-import { postSlackMessage, toMrkdwn } from './slack.ts'
 import { buildCards, cardCount, cardsToText } from './card_board.ts'
 import { validateWidget } from './widgets.ts'
-import {
-  compileCollection,
-  getChangeBrief,
-  getKnowledgePage,
-  listConflicts,
-  listKnowledgePages,
-  resolveConflict,
-  setCompilePolicy,
-  updateKnowledgePage,
-} from './compiler_tools.ts'
-import {
-  buildIdempotencyKey,
-  clampPriority,
-  DEFAULT_MAX_ATTEMPTS,
-  DEFAULT_PRIORITY,
-  normalizeInputManifest,
-  OPEN_STATUSES,
-  summarizeJob,
-  validateOperation,
-} from './agent_jobs.ts'
-import {
-  createLoop,
-  findOrCreateLoopAgent,
-  formatRun,
-  getRun,
-  latestRunForLoop,
-  listLoopsText,
-  resolveAgent,
-  resolveFeedbackTool,
-  resolveLoop,
-  triggerLoopRun,
-} from './loops.ts'
 
 type DB = ReturnType<typeof createClient>
 
-const EMAIL_NOT_CONFIGURED = "Email isn't configured. An admin can set it up in Settings → Email."
-const SEND_LIMIT_PER_HOUR = 20
-const SLACK_NOT_CONFIGURED = "Slack isn't connected. An admin can set it up in Settings → Slack."
-const SLACK_SEND_LIMIT_PER_HOUR = 30
-const MAX_BODY_PREVIEW = 500
 
 export async function runBuiltin(
   db: DB | null,
@@ -103,12 +54,6 @@ export async function runBuiltin(
   switch (name) {
     case 'search_documents':
       return searchDocuments(db, input, userId)
-    case 'send_email':
-      return sendEmail(db, input, userId)
-    case 'send_slack_message':
-      return sendSlackMessage(db, input, userId)
-    case 'check_email':
-      return checkEmail(db, input)
     case 'list_tables':
       return listTables(db, userId)
     case 'query_table':
@@ -147,12 +92,6 @@ export async function runBuiltin(
       return addToCollection(db, input, userId)
     case 'add_note':
       return addNote(db, input, userId)
-    case 'start_loop':
-      return startLoop(db, input, userId)
-    case 'check_loop':
-      return checkLoop(db, input, userId)
-    case 'list_loops':
-      return listLoops(db, userId)
     case 'create_todo':
       return createTodo(db, input, userId)
     case 'list_todos':
@@ -201,12 +140,6 @@ export async function runBuiltin(
       return addLinkToCollection(db, input, userId)
     case 'set_link_screenshot':
       return setLinkScreenshot(db, input, userId)
-    case 'save_message':
-      return saveMessage(db, input, userId)
-    case 'list_messages':
-      return listMessages(db, input, userId)
-    case 'add_message_to_collection':
-      return addMessageToCollection(db, input, userId)
     case 'add_table_to_collection':
       return addTableToCollection(db, input, userId)
     case 'create_file':
@@ -239,26 +172,6 @@ export async function runBuiltin(
       return runSecurityScan(db, userId)
     case 'summarize_resource':
       return summarizeResource(db, input, userId)
-    case 'create_agent_job':
-      return createAgentJob(db, input, userId)
-    case 'get_agent_job':
-      return getAgentJob(db, input, userId)
-    case 'list_agent_jobs':
-      return listAgentJobs(db, input, userId)
-    case 'cancel_agent_job':
-      return cancelAgentJob(db, input, userId)
-    case 'list_agents':
-      return listAgents(db, userId)
-    case 'create_agent':
-      return createAgent(db, input, userId)
-    case 'update_agent':
-      return updateAgent(db, input, userId)
-    case 'list_tools':
-      return listTools(db, userId)
-    case 'create_http_tool':
-      return createHttpTool(db, input, userId)
-    case 'create_webhook':
-      return createWebhook(db, input, userId)
     case 'create_skill':
       return createSkill(db, input, userId)
     case 'list_skills':
@@ -271,24 +184,6 @@ export async function runBuiltin(
       return deleteSkill(db, input, userId)
     case 'restore_skill':
       return restoreSkill(db, input, userId)
-    // Knowledge compiler — compiled pages are the maintained answer; raw
-    // sources are the evidence behind them (see _shared/compiler.ts).
-    case 'compile_collection':
-      return compileCollection(db, input, userId)
-    case 'list_knowledge_pages':
-      return listKnowledgePages(db, input, userId)
-    case 'get_knowledge_page':
-      return getKnowledgePage(db, input, userId)
-    case 'update_knowledge_page':
-      return updateKnowledgePage(db, input, userId)
-    case 'list_conflicts':
-      return listConflicts(db, input, userId)
-    case 'resolve_conflict':
-      return resolveConflict(db, input, userId)
-    case 'get_change_brief':
-      return getChangeBrief(db, input, userId)
-    case 'set_compile_policy':
-      return setCompilePolicy(db, input, userId)
     default:
       return `Unknown builtin: ${name}`
   }
@@ -482,151 +377,6 @@ async function searchDocuments(
   }
 }
 
-// Exact address ('alice@x.com') or '@domain.com' suffix matches.
-function recipientAllowed(to: string, allowed: string[]): boolean {
-  const addr = to.toLowerCase()
-  return allowed.some((a) => {
-    const rule = (a ?? '').trim().toLowerCase()
-    if (!rule) return false
-    return rule.startsWith('@') ? addr.endsWith(rule) : addr === rule
-  })
-}
-
-async function sendViaProvider(
-  provider: string,
-  key: string,
-  from: string,
-  to: string,
-  subject: string,
-  body: string,
-): Promise<{ ok: boolean; status: number; detail: string }> {
-  if (provider === 'postmark') {
-    const res = await fetch('https://api.postmarkapp.com/email', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'X-Postmark-Server-Token': key,
-      },
-      body: JSON.stringify({ From: from, To: to, Subject: subject, TextBody: body, MessageStream: 'outbound' }),
-    })
-    return { ok: res.ok, status: res.status, detail: (await res.text()).slice(0, 500) }
-  }
-  // resend
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject, text: body }),
-  })
-  return { ok: res.ok, status: res.status, detail: (await res.text()).slice(0, 500) }
-}
-
-async function sendEmail(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db) return EMAIL_NOT_CONFIGURED
-  const to = String(input?.to ?? '').trim()
-  const subject = String(input?.subject ?? '')
-  const body = String(input?.body ?? '')
-  if (!to) return 'No recipient address was provided.'
-
-  // Service-role read bypasses RLS; the row holds only non-secret config.
-  const { data: integ } = await db
-    .from('integrations')
-    .select('provider, from_address, allowed_recipients')
-    .eq('kind', 'email')
-    .maybeSingle()
-  if (!integ) return EMAIL_NOT_CONFIGURED
-
-  const allowed = (integ.allowed_recipients ?? null) as string[] | null
-  if (allowed && allowed.length && !recipientAllowed(to, allowed)) {
-    return `Can't email ${to}: this workspace only allows sending to ${allowed.join(', ')}.`
-  }
-
-  // Rate limit: max sends per rolling hour across the workspace.
-  const since = new Date(Date.now() - 3_600_000).toISOString()
-  const { count } = await db
-    .from('activity_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('type', 'email.sent')
-    .gte('created_at', since)
-  if ((count ?? 0) >= SEND_LIMIT_PER_HOUR) {
-    return `Email rate limit reached (${SEND_LIMIT_PER_HOUR} per hour). Try again later.`
-  }
-
-  // Decrypt the provider key from Vault (service-role-only RPC).
-  const { data: key } = await db.rpc('read_email_secret')
-  if (!key || typeof key !== 'string') {
-    return 'Email is configured but its API key could not be read. An admin may need to re-save it in Settings → Email.'
-  }
-
-  try {
-    const sent = await sendViaProvider(integ.provider as string, key, integ.from_address as string, to, subject, body)
-    if (!sent.ok) {
-      await logActivity(db, 'email.error', `Email to ${to} failed (${sent.status})`, { to, subject, status: sent.status }, userId)
-      return `The email provider rejected the message (HTTP ${sent.status}). ${sent.detail}`
-    }
-  } catch (err) {
-    return `Failed to send email: ${err instanceof Error ? err.message : 'error'}`
-  }
-
-  await logActivity(db, 'email.sent', `Emailed ${to}: ${subject || '(no subject)'}`, { to, subject }, userId)
-  return `Email sent to ${to}.`
-}
-
-// Post a message into Slack. This is the proactive counterpart to the reactive
-// slack-events reply path: a scheduled/loop/webhook/chat agent can now initiate
-// a message (e.g. post a daily summary to #standup) instead of only answering an
-// @mention. Exfiltration-capable like send_email — gated the same way (admin
-// activation, agent tool_ids scoping, webhooks.allow_tools) — so every post is
-// rate-limited and written to the activity log. Reads the bot token from Vault
-// via the same service-role-only RPC slack-events uses.
-async function sendSlackMessage(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db) return SLACK_NOT_CONFIGURED
-  const channel = String(input?.channel ?? '').trim()
-  const text = String(input?.text ?? '')
-  const threadTs = input?.thread_ts ? String(input.thread_ts).trim() : null
-  if (!channel) return 'No Slack channel was provided (pass a channel id like C0123456 or a name like #general).'
-  if (!text.trim()) return 'No message text was provided.'
-
-  // Rate limit: cap posts per rolling hour across the workspace so a runaway
-  // loop or misfiring schedule can't spam a channel.
-  const since = new Date(Date.now() - 3_600_000).toISOString()
-  const { count } = await db
-    .from('activity_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('type', 'slack.sent')
-    .gte('created_at', since)
-  if ((count ?? 0) >= SLACK_SEND_LIMIT_PER_HOUR) {
-    return `Slack rate limit reached (${SLACK_SEND_LIMIT_PER_HOUR} per hour). Try again later.`
-  }
-
-  // Decrypt the bot token from Vault (service-role-only RPC; returns a row set).
-  const { data: secretRows } = await db.rpc('read_slack_secrets')
-  const secrets = (secretRows?.[0] ?? null) as { bot_token?: string } | null
-  if (!secrets?.bot_token) return SLACK_NOT_CONFIGURED
-
-  const posted = await postSlackMessage(secrets.bot_token, channel, toMrkdwn(text), threadTs)
-  if (!posted.ok) {
-    await logActivity(db, 'slack.error', `Slack post to ${channel} failed`, { channel, error: posted.error ?? null }, userId)
-    return `Slack rejected the message: ${posted.error ?? 'unknown error'}.`
-  }
-  await logActivity(db, 'slack.sent', `Posted to Slack ${channel}`, { channel, thread_ts: threadTs }, userId)
-  return `Message posted to Slack channel ${channel}.`
-}
-
-// --- Team secrets vault ------------------------------------------------------
-// Builtins run with the service role (RLS bypassed), so these re-enforce the
-// private/workspace share rule in code via the security-definer RPCs. `get_secret`
-// returns a raw credential into the conversation — exfiltration-capable, like
-// send_email — so every read is written to the activity log.
-
 async function listSecrets(db: DB | null, userId: string | null): Promise<string> {
   if (!db) return 'The team vault is unavailable.'
   const { data } = await db
@@ -665,84 +415,6 @@ async function getSecret(
 // The loop runs in the background (the `loop` edge function streams to loop_runs),
 // so start_loop returns immediately with a run id and check_loop reads progress.
 // Shares createLoop/triggerLoopRun with the MCP server so both stay in lockstep.
-
-async function startLoop(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Loops are unavailable.'
-  const goal = String(input?.goal ?? '').trim()
-  if (!goal) return 'A goal is required — the prompt describing what the loop should optimize toward.'
-
-  let agentId = await resolveAgent(db, input?.agent as string | undefined)
-  if (!agentId) {
-    if (input?.agent) return `No agent named "${input.agent}". Omit "agent" to use the default loop agent.`
-    agentId = await findOrCreateLoopAgent(db, userId)
-  }
-  const feedbackToolId = input?.feedback_tool ? await resolveFeedbackTool(db, String(input.feedback_tool)) : null
-  if (input?.feedback_tool && !feedbackToolId) {
-    return `No http tool named "${input.feedback_tool}" to use as the feedback source.`
-  }
-
-  let loop: { id: string; name: string }
-  try {
-    loop = await createLoop(db, userId, {
-      name: input?.name,
-      goal,
-      rubric: input?.rubric,
-      max_iterations: input?.max_iterations,
-      budget_usd: input?.budget_usd,
-      target_score: input?.target_score,
-      agent_id: agentId,
-      feedback_tool_id: feedbackToolId,
-    })
-  } catch (err) {
-    return `Could not create the loop: ${err instanceof Error ? err.message : 'error'}`
-  }
-
-  try {
-    const { run_id } = await triggerLoopRun(loop.id, userId)
-    await logActivity(db, 'loop.started', `Started loop "${loop.name}"`, { loop_id: loop.id, run_id }, userId)
-    return `Started loop "${loop.name}" (run id ${run_id}). It iterates in the background up to its budget/iteration cap. Call check_loop with run_id "${run_id}" to see progress and the best result so far.`
-  } catch (err) {
-    return `Created the loop but could not start it: ${err instanceof Error ? err.message : 'error'}`
-  }
-}
-
-async function checkLoop(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Loops are unavailable.'
-  const runId = String(input?.run_id ?? '').trim()
-  const loopRef = String(input?.loop ?? '').trim()
-  // deno-lint-ignore no-explicit-any
-  let run: any = null
-  if (runId) run = await getRun(db, runId)
-  else if (loopRef) {
-    const loop = await resolveLoop(db, userId, loopRef)
-    if (!loop) return `No loop named "${loopRef}" that you can access.`
-    run = await latestRunForLoop(db, loop.id)
-  } else {
-    return 'Pass a run_id (from start_loop) or a loop name/id to check.'
-  }
-  if (!run) return 'No run found yet.'
-  return formatRun(run)
-}
-
-async function listLoops(db: DB | null, userId: string | null): Promise<string> {
-  if (!db || !userId) return 'Loops are unavailable.'
-  const out = await listLoopsText(db, userId)
-  return out === 'No loops yet.' ? 'No loops yet. Use start_loop to create and run one.' : out
-}
-
-// --- User tables ("Tables" feature) -----------------------------------------
-// Builtins run with the service role (RLS bypassed), so these enforce the same
-// private/workspace access in code: a table is reachable when the caller owns it
-// OR it's shared workspace-wide. Writes follow the same rule (workspace tables
-// are collaborative). Structural creation goes through the create_user_table RPC.
 
 interface UTColumn {
   key: string
@@ -949,55 +621,6 @@ async function createTable(
   const created = (Array.isArray(data) ? data[0] : data) as { name?: string } | null
   return `Created table "${created?.name ?? name}" (${visibility}). It's now in Tables and you can add rows to it.`
 }
-
-async function checkEmail(db: DB | null, input: Record<string, unknown>): Promise<string> {
-  if (!db) return EMAIL_NOT_CONFIGURED
-  const { data: integ } = await db.from('integrations').select('id').eq('kind', 'email').maybeSingle()
-  if (!integ) return EMAIL_NOT_CONFIGURED
-
-  const unreadOnly = input?.unread_only !== false // default true
-  const markRead = input?.mark_read === true
-  let limit = Number(input?.limit ?? 10)
-  if (!Number.isFinite(limit) || limit <= 0) limit = 10
-  limit = Math.min(Math.trunc(limit), 25)
-
-  // The inbox is now source-agnostic; check_email scopes to email rows.
-  let q = db
-    .from('inbox_messages')
-    .select('id, from_address, subject, body_text, received_at, read_at')
-    .eq('source', 'email')
-    .order('received_at', { ascending: false })
-    .limit(limit)
-  if (unreadOnly) q = q.is('read_at', null)
-  const { data: msgs } = await q
-  if (!msgs || msgs.length === 0) {
-    return unreadOnly ? 'No unread email in the workspace inbox.' : 'The workspace inbox is empty.'
-  }
-
-  if (markRead) {
-    const ids = (msgs as Array<{ id: string; read_at: string | null }>)
-      .filter((m) => !m.read_at)
-      .map((m) => m.id)
-    if (ids.length) await db.from('inbox_messages').update({ read_at: new Date().toISOString() }).in('id', ids)
-  }
-
-  return (msgs as Array<{ from_address: string; subject: string; body_text: string; received_at: string }>)
-    .map((m, i) => {
-      const when = new Date(m.received_at).toISOString().slice(0, 16).replace('T', ' ')
-      const preview = (m.body_text ?? '').slice(0, MAX_BODY_PREVIEW)
-      return `[${i + 1}] From: ${m.from_address}\nSubject: ${m.subject || '(no subject)'}\nDate: ${when} UTC\n${preview}`
-    })
-    .join('\n\n---\n\n')
-}
-
-// --- Content authoring (artifacts / collections / knowledge) -----------------
-// The in-app mirror of the MCP server's authoring actions, so the internal AI and
-// agents can centralize content the team can chat with. All run with the service
-// role and re-enforce access in code: artifacts/collections are created owned by
-// the caller; resolveCollection only ever resolves the caller's own or a
-// workspace-shared collection. The "ingest GitHub articles into a collection"
-// flow lives here, and — because all three loops share runBuiltin — a scheduled
-// or webhook-driven agent can keep that collection updated too.
 
 // Resolve a collection by id or name for this caller (own + workspace-shared);
 // optionally create it (owned by the caller, private) when missing.
@@ -2192,105 +1815,6 @@ async function addLinkToCollection(
   return `Added link ${linkId} to collection "${col.name}".`
 }
 
-// --- Unified inbox (messages) ------------------------------------------------
-const MESSAGE_SOURCES = ['email', 'slack', 'whatsapp', 'sms', 'webhook', 'manual', 'other']
-
-async function saveMessage(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'The inbox is unavailable.'
-  const body = String(input?.body ?? '').trim()
-  if (!body) return 'A message body is required.'
-  const source = MESSAGE_SOURCES.includes(String(input?.source)) ? String(input?.source) : 'manual'
-  const { data, error } = await db
-    .from('inbox_messages')
-    .insert({
-      owner_id: userId,
-      source,
-      from_name: String(input?.from ?? ''),
-      from_address: String(input?.from ?? ''),
-      subject: String(input?.subject ?? ''),
-      body_text: body.slice(0, 50_000),
-      url: typeof input?.url === 'string' ? input.url : null,
-      visibility: 'private',
-    })
-    .select('id')
-    .single()
-  if (error) return `Could not save the message: ${error.message}`
-  let note = ''
-  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
-  if (ref) {
-    const col = await resolveCollection(db, userId, ref, true)
-    if (col) {
-      await db.from('collection_inbox_messages').upsert(
-        { collection_id: col.id, inbox_message_id: data.id, added_by: userId },
-        { onConflict: 'collection_id,inbox_message_id', ignoreDuplicates: true },
-      )
-      note = ` Filed into collection "${col.name}".`
-    }
-  }
-  await logActivity(db, 'message.saved', `Saved a ${source} message`, { id: data.id, source }, userId)
-  return `Saved message (id ${data.id}).${note}`
-}
-
-async function listMessages(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'The inbox is unavailable.'
-  let limit = Number(input?.limit ?? 20)
-  if (!Number.isFinite(limit) || limit <= 0) limit = 20
-  limit = Math.min(Math.trunc(limit), 50)
-  let query = db
-    .from('inbox_messages')
-    .select('id, source, from_address, subject, body_text, received_at, read_at')
-    .or(`owner_id.eq.${userId},visibility.eq.workspace`)
-    .order('received_at', { ascending: false })
-    .limit(limit)
-  if (typeof input?.source === 'string' && input.source.trim()) query = query.eq('source', input.source.trim())
-  if (input?.unread_only === true) query = query.is('read_at', null)
-  const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
-  if (ref) {
-    const col = await resolveCollection(db, userId, ref, false)
-    if (!col) return `Collection "${ref}" not found.`
-    const { data: members } = await db.from('collection_inbox_messages').select('inbox_message_id').eq('collection_id', col.id)
-    const ids = (members ?? []).map((m: { inbox_message_id: string }) => m.inbox_message_id)
-    if (!ids.length) return `No messages in collection "${col.name}".`
-    query = query.in('id', ids)
-  }
-  const { data } = await query
-  if (!data || !data.length) return 'No messages. Use save_message to add one, or connect an inbound source.'
-  return (data as Array<{ id: string; source: string; from_address: string; subject: string; body_text: string; received_at: string }>)
-    .map((m, i) => {
-      const when = new Date(m.received_at).toISOString().slice(0, 16).replace('T', ' ')
-      const preview = (m.body_text ?? '').slice(0, MAX_BODY_PREVIEW)
-      return `[${i + 1}] (${m.source}) From: ${m.from_address || '—'}\nSubject: ${m.subject || '(no subject)'}\nDate: ${when} UTC\n${preview}\nid: ${m.id}`
-    })
-    .join('\n\n---\n\n')
-}
-
-async function addMessageToCollection(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'The inbox is unavailable.'
-  const ref = String(input?.collection ?? '').trim()
-  const messageId = String(input?.message_id ?? '').trim()
-  if (!ref || !messageId) return 'Pass both a collection (name or id) and a message_id.'
-  const col = await resolveCollection(db, userId, ref, true)
-  if (!col) return `Could not resolve collection "${ref}".`
-  const { error } = await db.from('collection_inbox_messages').upsert(
-    { collection_id: col.id, inbox_message_id: messageId, added_by: userId },
-    { onConflict: 'collection_id,inbox_message_id', ignoreDuplicates: true },
-  )
-  if (error) return `Could not add to the collection: ${error.message}`
-  return `Added message ${messageId} to collection "${col.name}".`
-}
-
 async function addTableToCollection(
   db: DB | null,
   input: Record<string, unknown>,
@@ -2310,327 +1834,6 @@ async function addTableToCollection(
   )
   if (error) return `Could not add to the collection: ${error.message}`
   return `Added table "${t.name}" to collection "${col.name}".`
-}
-
-// ---------------------------------------------------------------------------
-// Capability-worker jobs (agent_jobs). The main AI queues heavy binary work for
-// a specialized Railway worker (OfficeCLI / ffmpeg), then polls for the result.
-// All four run with the service role and re-scope to the caller in code: jobs
-// are attributed to `requested_by = userId`, and reads/cancels require the
-// caller to own the job (or be an admin, enforced by the get). The worker side
-// (claim/run/complete) lives in workers/* and is not reachable from chat.
-// ---------------------------------------------------------------------------
-async function createAgentJob(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Capability workers are unavailable.'
-  const operation = String(input?.operation ?? '').trim()
-  const capability = operation.split('.')[0]
-  const opError = validateOperation(capability, operation)
-  if (opError) return opError
-
-  const manifest = normalizeInputManifest(input?.input_manifest)
-  const parameters = input?.parameters && typeof input.parameters === 'object' ? input.parameters : {}
-  const instructions = typeof input?.instructions === 'string' ? input.instructions.trim() : ''
-  const priority = input?.priority != null ? clampPriority(input.priority) : DEFAULT_PRIORITY
-  const conversationId = typeof input?.conversation_id === 'string' && input.conversation_id.trim()
-    ? input.conversation_id.trim()
-    : null
-
-  const idempotencyKey = buildIdempotencyKey({ workspaceId: null, operation, manifest, instructions, parameters })
-
-  // Dedup: if an identical request is already open for this user, return it
-  // instead of minting a duplicate job (the partial unique index also guards).
-  const { data: existing } = await db
-    .from('agent_jobs')
-    .select('id, status')
-    .eq('requested_by', userId)
-    .eq('idempotency_key', idempotencyKey)
-    .in('status', OPEN_STATUSES)
-    .maybeSingle()
-  if (existing) {
-    return `An identical ${operation} job is already ${existing.status} (id ${existing.id}). Poll it with get_agent_job.`
-  }
-
-  const { data, error } = await db
-    .from('agent_jobs')
-    .insert({
-      requested_by: userId,
-      conversation_id: conversationId,
-      capability,
-      operation,
-      status: 'queued',
-      priority,
-      instructions: instructions || null,
-      input_manifest: manifest,
-      parameters,
-      attempts: 0,
-      max_attempts: DEFAULT_MAX_ATTEMPTS,
-      idempotency_key: idempotencyKey,
-    })
-    .select('id')
-    .single()
-  if (error) return `Could not create the job: ${error.message}`
-  await logActivity(db, 'agent_job.created', `Queued ${operation}`, { id: data.id, capability, operation }, userId)
-  return `Queued job ${data.id} (${operation}). It will run on the ${capability} worker — poll get_agent_job with id "${data.id}" until it completes.`
-}
-
-async function getAgentJob(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Capability workers are unavailable.'
-  const id = String(input?.id ?? '').trim()
-  if (!id) return 'A job id is required.'
-  const { data: job, error } = await db.from('agent_jobs').select('*').eq('id', id).maybeSingle()
-  if (error) return `Could not read the job: ${error.message}`
-  if (!job) return `No job with id "${id}".`
-  if (job.requested_by !== userId && !(await isAdmin(db, userId))) {
-    return `No job with id "${id}".`
-  }
-  return summarizeJob(job as Record<string, unknown>)
-}
-
-async function listAgentJobs(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Capability workers are unavailable.'
-  const limit = Math.max(1, Math.min(100, Number(input?.limit) || 20))
-  let q = db
-    .from('agent_jobs')
-    .select('id, capability, operation, status, created_at')
-    .eq('requested_by', userId)
-    .order('created_at', { ascending: false })
-    .limit(limit)
-  const capability = typeof input?.capability === 'string' ? input.capability.trim() : ''
-  if (capability) q = q.eq('capability', capability)
-  const status = typeof input?.status === 'string' ? input.status.trim() : ''
-  if (status) q = q.eq('status', status)
-  const { data, error } = await q
-  if (error) return `Could not list jobs: ${error.message}`
-  if (!data || !data.length) return 'No jobs yet.'
-  return data
-    .map((j) => `• ${j.operation} — ${j.status} — id: ${j.id} — ${String(j.created_at).slice(0, 10)}`)
-    .join('\n')
-}
-
-async function cancelAgentJob(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Capability workers are unavailable.'
-  const id = String(input?.id ?? '').trim()
-  if (!id) return 'A job id is required.'
-  const { data: job } = await db
-    .from('agent_jobs')
-    .select('id, requested_by, status')
-    .eq('id', id)
-    .maybeSingle()
-  if (!job || job.requested_by !== userId) return `No job with id "${id}".`
-  if (!OPEN_STATUSES.includes(job.status as typeof OPEN_STATUSES[number])) {
-    return `Job ${id} is already ${job.status} — nothing to cancel.`
-  }
-  const { error } = await db
-    .from('agent_jobs')
-    .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
-    .eq('id', id)
-    .eq('requested_by', userId)
-  if (error) return `Could not cancel the job: ${error.message}`
-  await logActivity(db, 'agent_job.cancelled', `Cancelled job ${id}`, { id }, userId)
-  return `Cancelled job ${id}.`
-}
-
-// --- Build tools (agents / tools / webhooks / skills) -----------------------
-// The in-app mirror of the MCP server's "build" actions, so the internal
-// assistant (and the scheduler/webhook/Slack loops) can create and manage
-// agents, HTTP tools, webhooks, and skills — not just an external Claude over
-// MCP. These run with the service role, so the same admin gates the MCP server
-// enforces (HTTP tools + always-on prompts are admin-only) are re-checked here
-// in code. The MCP server delegates to these (via runBuiltin) so both paths
-// share one implementation and never drift.
-
-async function listAgents(db: DB | null, userId: string | null): Promise<string> {
-  if (!db || !userId) return 'Agents are unavailable.'
-  const { data, error } = await db
-    .from('agents')
-    .select('id, name, description, is_active')
-    .order('created_at', { ascending: false })
-  if (error) return `Could not list agents: ${error.message}`
-  const rows = (data ?? []) as Array<{ id: string; name: string; description: string | null; is_active: boolean }>
-  if (!rows.length) return 'No agents yet. Create one with create_agent.'
-  return rows
-    .map((a) => `• ${a.name} (${a.id})${a.is_active ? '' : ' [inactive]'} — ${a.description || 'no description'}`)
-    .join('\n')
-}
-
-async function createAgent(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Agents are unavailable.'
-  const name = String(input?.name ?? '').trim()
-  if (!name) return 'An agent name is required.'
-  const instructions = String(input?.instructions ?? '').trim()
-  if (!instructions) return 'Agent instructions (the system prompt) are required.'
-  const toolIds = Array.isArray(input?.tool_ids) ? (input.tool_ids as unknown[]).map(String) : []
-  const collectionIds = Array.isArray(input?.collection_ids) ? (input.collection_ids as unknown[]).map(String) : []
-  const { data, error } = await db
-    .from('agents')
-    .insert({
-      owner_id: userId,
-      name,
-      description: String(input?.description ?? ''),
-      instructions,
-      tool_ids: toolIds,
-      collection_ids: collectionIds,
-    })
-    .select('id')
-    .single()
-  if (error) return `Could not create the agent: ${error.message}`
-  await logActivity(db, 'agent.created', `Created agent "${name}"`, { id: data.id }, userId)
-  return `Created agent "${name}" (id ${data.id}). It's now in the dashboard under Agents.`
-}
-
-async function updateAgent(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Agents are unavailable.'
-  const ref = String(input?.agent ?? '').trim()
-  if (!ref) return 'update_agent needs an agent id or exact name.'
-
-  // Resolve the agent by id or name
-  const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)
-  const query = db.from('agents').select('id, name, owner_id')
-  const { data: agent, error: fetchError } = isId
-    ? await query.eq('id', ref).maybeSingle()
-    : await query.eq('name', ref).maybeSingle()
-
-  if (fetchError) return `Could not fetch the agent: ${fetchError.message}`
-  if (!agent) return `No agent matches "${ref}".`
-
-  // Check ownership: owner or admin
-  const isOwner = agent.owner_id === userId
-  const isAdminUser = await isAdmin(db, userId)
-  if (!isOwner && !isAdminUser) {
-    return `Only the agent owner or an admin can update "${agent.name}".`
-  }
-
-  // Build the patch from provided fields
-  const patch: Record<string, unknown> = {}
-  if (typeof input?.name === 'string' && input.name.trim()) {
-    patch.name = input.name.trim()
-  }
-  if (typeof input?.description === 'string') {
-    patch.description = input.description
-  }
-  if (typeof input?.instructions === 'string') {
-    patch.instructions = input.instructions
-  }
-  if (Array.isArray(input?.tool_ids)) {
-    patch.tool_ids = (input.tool_ids as unknown[]).map(String)
-  }
-  if (Array.isArray(input?.collection_ids)) {
-    patch.collection_ids = (input.collection_ids as unknown[]).map(String)
-  }
-  if (typeof input?.is_active === 'boolean') {
-    patch.is_active = input.is_active
-  }
-
-  if (!Object.keys(patch).length) {
-    return 'Nothing to update — pass name, description, instructions, tool_ids, collection_ids, and/or is_active.'
-  }
-
-  patch.updated_at = new Date().toISOString()
-
-  const { error } = await db.from('agents').update(patch).eq('id', agent.id)
-  if (error) return `Could not update the agent: ${error.message}`
-
-  await logActivity(
-    db,
-    'agent.updated',
-    `Updated agent "${(patch.name as string) ?? agent.name}"`,
-    { id: agent.id },
-    userId,
-  )
-
-  return `Updated agent "${(patch.name as string) ?? agent.name}" (id ${agent.id}).`
-}
-
-async function listTools(db: DB | null, userId: string | null): Promise<string> {
-  if (!db || !userId) return 'Tools are unavailable.'
-  const { data, error } = await db.from('tools').select('id, name, kind, is_active')
-  if (error) return `Could not list tools: ${error.message}`
-  const rows = (data ?? []) as Array<{ id: string; name: string; kind: string; is_active: boolean }>
-  if (!rows.length) return 'No tools.'
-  return rows
-    .map((t) => `• ${t.kind === 'web' ? 'web_browsing' : t.name} (${t.id}, ${t.kind})${t.is_active ? '' : ' [off]'}`)
-    .join('\n')
-}
-
-async function createHttpTool(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Tools are unavailable.'
-  if (!(await isAdmin(db, userId))) return 'Only admins can create tools.'
-  const name = String(input?.name ?? '').trim()
-  if (!name) return 'A tool name is required.'
-  const url = String(input?.url ?? '').trim()
-  if (!url) return 'The tool needs a config url to POST inputs to.'
-  const headers = input?.headers && typeof input.headers === 'object' ? { headers: input.headers } : {}
-  const { data, error } = await db
-    .from('tools')
-    .insert({
-      name,
-      description: String(input?.description ?? ''),
-      kind: 'http',
-      input_schema: (input?.input_schema as unknown) ?? { type: 'object', properties: {} },
-      config: {
-        url,
-        method: String(input?.method ?? 'POST'),
-        ...headers,
-      },
-      is_active: true,
-      created_by: userId,
-    })
-    .select('id')
-    .single()
-  if (error) return `Could not create the tool: ${error.message}`
-  await logActivity(db, 'tool.created', `Created HTTP tool "${name}"`, { id: data.id }, userId)
-  return `Created tool "${name}" (id ${data.id}), enabled.`
-}
-
-async function createWebhook(
-  db: DB | null,
-  input: Record<string, unknown>,
-  userId: string | null,
-): Promise<string> {
-  if (!db || !userId) return 'Webhooks are unavailable.'
-  const name = String(input?.name ?? '').trim()
-  if (!name) return 'A webhook name is required.'
-  const { data, error } = await db
-    .from('webhooks')
-    .insert({
-      owner_id: userId,
-      name,
-      prompt: String(input?.prompt ?? ''),
-    })
-    .select('token')
-    .single()
-  if (error) return `Could not create the webhook: ${error.message}`
-  await logActivity(db, 'webhook.created', `Created webhook "${name}"`, {}, userId)
-  const base = Deno.env.get('SUPABASE_URL') ?? ''
-  return `Created webhook "${name}". POST payloads to:\n${base}/functions/v1/webhook/${data.token}`
 }
 
 // Resolve a skill by id or exact name, scoped to the caller's own skills plus
