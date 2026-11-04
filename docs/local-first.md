@@ -34,9 +34,9 @@ nothing is lost on hosted.
 | Secrets (vault) | Kept | |
 | MCP (server + external servers) | Kept | |
 
-Not discussed yet, still in the app: Collections, Artifacts, To-dos, Links,
-Whiteboards, Cards, Memory, Skills, Activity, Usage, Guardrails, Security,
-Evals, Home dashboard widgets. See Open questions.
+Everything not on the removal list stays in both builds: Collections,
+Artifacts, To-dos, Links, Whiteboards, Cards, Memory, Skills, Activity, Usage,
+Guardrails, Security, Evals and the Home dashboard widgets.
 
 ## Target architecture (local build)
 
@@ -46,7 +46,7 @@ Evals, Home dashboard widgets. See Open questions.
 │     │  data layer: src/lib/data/*  (local backend)      │
 │     ▼  HTTP + SSE on 127.0.0.1                          │
 │  Sidecar "brain" (Bun-compiled single binary, TS)       │
-│     • SQLite (bun:sqlite) + FTS5 + sqlite-vec           │
+│     • SQLite (bun:sqlite) + FTS5 (sqlite-vec later)     │
 │     • chat orchestrator + builtins (ported from         │
 │       supabase/functions/_shared)                       │
 │     • MCP server: HTTP for the app, stdio for           │
@@ -86,7 +86,7 @@ WebView:
 | RPCs (24 calls) | Sidecar endpoints, or plain SQL in the repo layer |
 | Realtime `postgres_changes` (21 subscriptions) | Sidecar SSE stream: `{table, op, row}` events |
 | Storage buckets | Files on disk. Uploads go to `<app support>/uploads/`; watched folders stay where they are |
-| pgvector + tsvector hybrid search | `sqlite-vec` + FTS5, same reciprocal-rank fusion as `0087_hybrid_search_single_rpc` |
+| pgvector + tsvector hybrid search | FTS5 keyword search first; `sqlite-vec` added later only if evals show misses |
 | Edge functions | Sidecar routes (chat, transcribe, link-meta, mcp, evals) |
 | pg_cron ingest tick | Sidecar background queue triggered by file events |
 | Vault (secrets) | Values in macOS Keychain, names and allowed hosts in SQLite |
@@ -98,8 +98,8 @@ WebView:
 - **Watched folders:** the user adds folders (for example `~/Notes`,
   `~/Documents/Clients`). The sidecar watches them (FSEvents through
   `@parcel/watcher` or Rust `notify`), and on add or change extracts text from
-  md, txt, pdf, docx and html. It chunks and embeds that text into
-  `file_chunks`. Deletes remove the chunks. The files themselves are never
+  md, txt, pdf, docx and html. It chunks that text into `file_chunks` and the
+  FTS5 index. Deletes remove the chunks. The files themselves are never
   moved or copied.
 - **Uploads:** drag-and-drop or chat attachments are copied into
   `<app support>/uploads/` and indexed the same way.
@@ -117,7 +117,7 @@ messages(id, conversation_id, role, content, attachments JSON, created_at)
 watched_folders(id, path UNIQUE, enabled, added_at)
 files(id, source, path, name, mime, size, mtime, sha256, index_status, created_at)
 file_chunks(id, file_id, ord, text)            -- + FTS5 virtual table
-file_chunk_vec USING vec0(embedding float[N])  -- sqlite-vec, rowid = file_chunks.id
+-- later, if needed: file_chunk_vec USING vec0(...)  rowid = file_chunks.id
 
 -- tables
 user_tables(id, name, description, columns JSON, created_at, updated_at)
@@ -162,21 +162,43 @@ almost 1:1.
    watched folders UI, `.dmg` build in CI, plus a `brain mcp --stdio` entry
    for Claude Desktop/Code.
 5. **Local models + meeting notes locally.** OpenAI-compatible base URL in
-   Models settings (Ollama / LM Studio), local embeddings, whisper.cpp (or a
-   local OpenAI-compatible STT) for meeting notes.
+   Models settings (Ollama / LM Studio), whisper.cpp (or a local
+   OpenAI-compatible STT) for meeting notes, and local embeddings if retrieval
+   evals call for them.
 6. **Hosted later.** Decide whether hosted stays a separate product, becomes
    optional sync, or turns into federation between local brains.
 
+## Retrieval without vectors first (proposal)
+
+The second brain is mostly curated: collections, artifacts, notes, to-dos,
+terminology. Most of that fits in context, so the main path does not need
+embeddings:
+
+1. **Collections as context.** Picking a collection injects its contents, as
+   chat does today (`_shared/collections.ts`).
+2. **Teach the model the map.** An always-on prompt plus a cheap
+   `list_collections` / `get_collection` call lets the model pick which
+   collection to pull in, the same way Claude Code navigates a repo.
+3. **Keyword search as a tool.** SQLite FTS5 (BM25 ranking, built into SQLite)
+   over artifacts, notes and file chunks, exposed as `search_documents`. Good
+   models issue several keyword queries and then read the hits, the way Claude
+   Code uses grep. This is offline, needs no model, and nothing has to be
+   re-indexed when you switch models.
+
+Embeddings earn their keep when watched folders grow into thousands of files,
+when queries are paraphrases ("pricing tiers" vs "plans"), or when a small local
+model is bad at picking keywords. So `file_chunks` keeps a stable id that a
+`sqlite-vec` table can attach to later. Vectors can be added (local
+`nomic-embed-text` through Ollama, or an API) without a schema rewrite.
+
+Evals already has a `rag` target that scores retrieval, so a small suite of
+real questions can decide whether FTS5 alone misses things before vectors are
+added.
+
 ## Open questions
 
-- Keep or drop for local v1: Collections, Artifacts, To-dos, Links,
-  Whiteboards, Cards, Memory, Skills? (Collections and Artifacts look core to a
-  second brain. Whiteboards and Cards pull in Excalidraw and dnd-kit.)
-- Admin-only governance pages (Usage, Guardrails, Security, Evals, Activity)
-  make less sense for a single user. Drop them locally, or keep Evals for
-  testing local models?
-- Embeddings: a local model (for example `nomic-embed-text` through Ollama) by
-  default, or OpenRouter, so search works offline?
+- Retrieval: start without vectors? See "Retrieval without vectors first"
+  below. Not decided yet.
 - Should the hosted build eventually drop the now-unused tables (inbox,
   agents, loops, events, webhooks, features, knowledge_*)? That would be a
   destructive migration, so it waits until the local build is settled.
