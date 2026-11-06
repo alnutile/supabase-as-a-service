@@ -12,14 +12,12 @@ import { fetchLinkMeta, normalizeUrl } from '../lib/links'
 import { useOrganizationName } from '../lib/useOrganizationName'
 import {
   ActivityIcon,
-  AgentIcon,
   ArrowRightIcon,
   ArtifactIcon,
   ChatIcon,
   CheckIcon,
   CloseIcon,
   FileIcon,
-  ForgeIcon,
   GlobeIcon,
   LinkIcon,
   LockIcon,
@@ -32,11 +30,9 @@ import {
   SkillIcon,
   SparkleIcon,
   TodoIcon,
-  ToolIcon,
   UploadIcon,
   UsageIcon,
   UsersIcon,
-  WebhookIcon,
   type IconProps,
 } from '../components/icons'
 
@@ -50,13 +46,9 @@ type Card = {
 
 const CARDS: Card[] = [
   { to: '/chat', title: 'Chat', icon: ChatIcon, desc: 'Chat with your AI — bring in your tools, skills and uploaded files, and work alongside teammates in a shared thread.' },
-  { to: '/agents', title: 'Agents', icon: AgentIcon, desc: 'Processes that run on a schedule — every few minutes, hourly or daily — with the tools and skills they need to get the job done on their own.' },
   { to: '/artifacts', title: 'Artifacts', icon: ArtifactIcon, desc: 'As your team builds items and documents, save them all here and share any one of them with a hosted link.' },
   { to: '/skills', title: 'Skills', icon: SkillIcon, desc: 'Organize the documents that teach the AI how your team likes work done, and update them whenever things change.' },
-  { to: '/tools', title: 'Tools', icon: ToolIcon, desc: 'Capabilities the AI can call to get work done. A handful come built in — and you’ll find plenty more that are easy to make.' },
-  { to: '/forge', title: 'Forge', icon: ForgeIcon, adminOnly: true, desc: 'Build the more complex, deterministic functions the AI can lean on. A calculator is the classic example: exact math beats a guess.' },
   { to: '/guardrails', title: 'Guardrails', icon: ShieldIcon, adminOnly: true, desc: 'Put guardrails in place for your business that keep certain prompts and behaviors from ever running.' },
-  { to: '/webhooks', title: 'Webhooks', icon: WebhookIcon, desc: 'Take in information from other systems like an API or an event, then have an agent react to it automatically.' },
   { to: '/activity', title: 'Activity', icon: ActivityIcon, desc: 'See everything happening across your system — built for logging and troubleshooting.' },
   { to: '/usage', title: 'Usage', icon: UsageIcon, adminOnly: true, desc: 'Track the tokens being spent and the models in use, with cost insights pulled straight from OpenRouter.' },
   { to: '/files', title: 'Files', icon: FileIcon, desc: 'Every uploaded file and its indexing status — soon usable across chats so your team can build shared context.' },
@@ -527,12 +519,6 @@ function Overview({
           <ArtifactIcon className="h-[18px] w-[18px]" /> New artifact
         </button>
         <button
-          onClick={() => navigate('/agents')}
-          className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
-        >
-          <AgentIcon className="h-[18px] w-[18px]" /> New agent
-        </button>
-        <button
           onClick={onOpenTodoModal}
           className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
         >
@@ -886,7 +872,7 @@ function Explore({
         className="mb-6 flex w-full max-w-xl items-center gap-3 rounded-2xl border border-border bg-surface px-5 py-[14px] text-left text-[15px] text-faint shadow-soft transition hover:border-primary hover:text-muted"
       >
         <SearchIcon className="h-5 w-5 shrink-0" />
-        <span className="flex-1">Search chats, artifacts, files, to-dos, links, agents…</span>
+        <span className="flex-1">Search chats, artifacts, files, to-dos, links…</span>
         <kbd className="rounded-md border border-border bg-surface-2 px-2 py-1 text-[11px] font-semibold">
           {isMac ? '⌘K' : 'Ctrl K'}
         </kbd>
@@ -898,12 +884,6 @@ function Explore({
           className={`${quick} border-none bg-primary text-white shadow-soft hover:bg-primary-strong`}
         >
           <SparkleIcon className="h-[18px] w-[18px]" /> Start a chat
-        </button>
-        <button
-          onClick={() => navigate('/agents')}
-          className={`${quick} border border-border bg-surface text-text hover:border-primary hover:text-primary`}
-        >
-          <AgentIcon className="h-[18px] w-[18px]" /> New agent
         </button>
       </div>
 

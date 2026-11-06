@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { allNavItems, isFeatureEnabled, type FlagMap } from '../lib/nav'
 import {
-  AgentIcon,
   ArtifactIcon,
   ChatIcon,
   CollectionIcon,
@@ -14,8 +13,6 @@ import {
   SkillIcon,
   TableIcon,
   TodoIcon,
-  ToolIcon,
-  WebhookIcon,
   type IconProps,
 } from './icons'
 
@@ -88,7 +85,7 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
 
   // Every source is independent; run them all at once and tolerate individual
   // failures (a missing table or RLS denial just contributes nothing).
-  const [conversations, artifacts, collections, todos, links, files, tables, agents, skills, tools, webhooks] =
+  const [conversations, artifacts, collections, todos, links, files, tables, skills] =
     await Promise.all([
       supabase
         .from('conversations')
@@ -130,25 +127,10 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
         .or(orIlike(q, ['name', 'description']))
         .limit(PER_SOURCE),
       supabase
-        .from('agents')
-        .select('id, name, description')
-        .or(orIlike(q, ['name', 'description']))
-        .limit(PER_SOURCE),
-      supabase
         .from('skills')
         .select('id, name, description')
         .or(orIlike(q, ['name', 'description']))
         .is('deleted_at', null)
-        .limit(PER_SOURCE),
-      supabase
-        .from('tools')
-        .select('id, name, description')
-        .or(orIlike(q, ['name', 'description']))
-        .limit(PER_SOURCE),
-      supabase
-        .from('webhooks')
-        .select('id, name')
-        .ilike('name', `%${q.replace(/[%_]/g, '\\$&')}%`)
         .limit(PER_SOURCE),
     ])
 
@@ -216,15 +198,6 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
       to: '/tables',
       icon: TableIcon,
     })
-  for (const a of agents.data ?? [])
-    out.push({
-      key: `agent:${a.id}`,
-      group: 'Agents',
-      title: a.name,
-      subtitle: a.description || undefined,
-      to: '/agents',
-      icon: AgentIcon,
-    })
   for (const s of skills.data ?? [])
     out.push({
       key: `skill:${s.id}`,
@@ -233,23 +206,6 @@ async function runSearch(q: string, isAdmin: boolean, flags: FlagMap): Promise<R
       subtitle: s.description ?? undefined,
       to: '/skills',
       icon: SkillIcon,
-    })
-  for (const t of tools.data ?? [])
-    out.push({
-      key: `tool:${t.id}`,
-      group: 'Tools',
-      title: t.name,
-      subtitle: t.description || undefined,
-      to: '/tools',
-      icon: ToolIcon,
-    })
-  for (const w of webhooks.data ?? [])
-    out.push({
-      key: `wh:${w.id}`,
-      group: 'Webhooks',
-      title: w.name,
-      to: '/webhooks',
-      icon: WebhookIcon,
     })
 
   return out

@@ -16,7 +16,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { Markdown } from '../components/Markdown'
 import { CopyButton } from '../components/CopyButton'
 import {
-  AgentIcon,
   ArtifactIcon,
   ChatIcon,
   CheckIcon,
@@ -53,7 +52,6 @@ type Conversation = Database['public']['Tables']['conversations']['Row']
 type Message = Database['public']['Tables']['messages']['Row']
 type Artifact = Database['public']['Tables']['artifacts']['Row']
 type Skill = Database['public']['Tables']['skills']['Row']
-type Agent = Database['public']['Tables']['agents']['Row']
 type Collection = Database['public']['Tables']['collections']['Row']
 type WorkspaceMember = { id: string; email: string | null; display_name: string | null; avatar_url: string | null }
 
@@ -65,7 +63,6 @@ export default function ChatPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [agent, setAgent] = useState<Agent | null>(null)
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -404,31 +401,6 @@ export default function ChatPage() {
     }
   }, [collectionIds, collectionTokens])
 
-  // --- If launched as an agent (?agent=id), load it and run chats with its prompt ---
-  const agentId = searchParams.get('agent')
-  useEffect(() => {
-    if (!agentId) {
-      setAgent(null)
-      return
-    }
-    supabase
-      .from('agents')
-      .select('*')
-      .eq('id', agentId)
-      .maybeSingle()
-      .then(({ data }) => setAgent(data))
-  }, [agentId])
-
-  // --- Launched from Agents → Run (?run=1): kick the agent off once. ---
-  const autoRan = useRef(false)
-  useEffect(() => {
-    if (searchParams.get('run') === '1' && agent && !conversationId && !autoRan.current && !sending) {
-      autoRan.current = true
-      void submit('Run your task now — use your tools as needed, then give me the result.', [])
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent, conversationId, searchParams, sending])
-
   // --- Load + subscribe to messages for the active conversation ---
   useEffect(() => {
     seen.current = new Set()
@@ -513,7 +485,7 @@ export default function ChatPage() {
   }, [conversationId, user])
 
   // Rate an assistant answer. Upserts (one verdict per user per message) and
-  // snapshots what produced it (agent/source) so feedback can be attributed later.
+  // snapshots what produced it (source) so feedback can be attributed later.
   async function saveFeedback(messageId: string, patch: FeedbackPatch) {
     if (!user) return
     const existing = feedback[messageId]
@@ -531,8 +503,7 @@ export default function ChatPage() {
         rating: next.rating,
         category: next.category,
         note: next.note,
-        agent_id: agent?.id ?? null,
-        context: { source: agent ? 'agent' : 'chat', agent_name: agent?.name ?? null },
+        context: { source: 'chat' },
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'message_id,owner_id' },
@@ -550,8 +521,7 @@ export default function ChatPage() {
       .single()
     if (insErr || !data) throw insErr ?? new Error('Could not create conversation')
     await loadConversations()
-    // Preserve the agent context across the navigation to the new conversation.
-    navigate(`/chat/${data.id}${agentId ? `?agent=${agentId}` : ''}`)
+    navigate(`/chat/${data.id}`)
     return data.id
   }
 
@@ -687,11 +657,9 @@ export default function ChatPage() {
       await streamChat(
         history,
         (delta) => setStreaming((s) => (s ?? '') + delta),
-        // Running as an agent: layer its prompt onto the workspace context and
-        // scope the assistant to the agent's chosen tools. The chat is scoped to
-        // the user-picked collections PLUS any the agent is bound to.
+        // Scope the chat to the user-picked collections.
         (() => {
-          const merged = [...new Set([...collectionIds, ...(agent?.collection_ids ?? [])])]
+          const merged = collectionIds
           const groupNote = isGroup
             ? 'This is a group thread between several human teammates; each human message is prefixed with the sender\'s name. You were summoned with @ai — answer the thread, addressing people by name when useful.'
             : ''
@@ -700,10 +668,9 @@ export default function ChatPage() {
           const artifactNote = panelArtifact
             ? `The user has the artifact "${panelArtifact.title}" (id ${panelArtifact.id}, type ${panelArtifact.type}) open in a live panel beside this chat. When they ask you to change, update, or add to "it" (the artifact/tracker/doc), call get_artifact with that id to read the current version, then update_artifact with the complete new content — do NOT create a new artifact or emit a :::artifact block for a revision. The panel updates live when you save.`
             : ''
-          const system = [agent?.instructions, groupNote, artifactNote].filter(Boolean).join('\n\n')
+          const system = [groupNote, artifactNote].filter(Boolean).join('\n\n')
           return {
             ...(system ? { system } : {}),
-            ...(agent ? { toolIds: agent.tool_ids, agentId: agent.id } : {}),
             ...(merged.length ? { collectionIds: merged } : {}),
             // Persist the reply server-side so a reload / navigating away mid-
             // stream no longer loses it: the chat function finishes the run in a
@@ -1097,15 +1064,6 @@ export default function ChatPage() {
             <PlusIcon className="h-4 w-4" /> New
           </button>
         </div>
-        {agent && (
-          <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-            <AgentIcon className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 truncate font-medium">Agent: {agent.name}</span>
-            <button onClick={() => navigate('/chat')} className="ml-auto text-xs underline hover:no-underline">
-              Exit agent
-            </button>
-          </div>
-        )}
 
         {/* Thread header: who's in this conversation + add people. */}
         {conversationId && (
@@ -1204,7 +1162,7 @@ export default function ChatPage() {
                   })}
                 {directory.filter((d) => d.id !== convo?.owner_id).length === 0 && (
                   <p className="px-2 py-3 text-center text-xs text-faint">
-                    No other members yet — invite people in Settings.
+                    No other members yet.
                   </p>
                 )}
               </div>

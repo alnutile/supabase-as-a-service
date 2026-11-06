@@ -3,6 +3,7 @@ import {
   allNavItems,
   flaggableGroups,
   isFeatureEnabled,
+  localGroups,
   navGroups,
   settingsGroup,
   visibleGroups,
@@ -67,11 +68,21 @@ describe('nav config invariants', () => {
     // Settings items are alwaysOn and live outside navGroups → never flaggable.
     for (const s of settingsGroup.items) expect(flaggableKeys).not.toContain(s.key)
     // A regular feature area is flaggable.
-    expect(flaggableKeys).toContain('inbox')
+    expect(flaggableKeys).toContain('collections')
     expect(flaggableKeys).toContain('tables')
   })
 
   it('navGroups Settings is not duplicated inside the feature areas', () => {
     expect(navGroups.some((g) => g.label === 'Settings')).toBe(false)
+  })
+})
+
+describe('localGroups', () => {
+  it('keeps only local-ready areas and drops empty groups', () => {
+    const local = localGroups(navGroups)
+    const keys = local.flatMap((g) => g.items.map((i) => i.key))
+    expect(keys).toContain('terminology')
+    expect(keys).not.toContain('chat')
+    expect(local.every((g) => g.items.length > 0)).toBe(true)
   })
 })

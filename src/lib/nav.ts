@@ -13,43 +13,31 @@
 
 import {
   ActivityIcon,
-  AgentIcon,
   ApiIcon,
   ArtifactIcon,
-  BoltIcon,
   BuildingIcon,
   CalendarIcon,
   CardsIcon,
   ChatIcon,
   CollectionIcon,
-  CompilerIcon,
   EvalIcon,
-  FeedbackIcon,
   FileIcon,
   FlagIcon,
-  ForgeIcon,
   GlobeIcon,
   HomeIcon,
-  InboxIcon,
   LinkIcon,
   LockIcon,
-  LoopIcon,
-  MailIcon,
   MemoryIcon,
   MicIcon,
-  PulseIcon,
   RadarIcon,
   ShieldIcon,
   SkillIcon,
-  SlackIcon,
   SparkleIcon,
   TableIcon,
   TerminologyIcon,
   TodoIcon,
-  ToolIcon,
   UsageIcon,
   UsersIcon,
-  WebhookIcon,
   WhiteboardIcon,
   type IconProps,
 } from '../components/icons'
@@ -67,6 +55,8 @@ export type NavItem = {
   alwaysOn?: boolean
   /** Extra search terms for the ⌘K palette. */
   keywords?: string
+  /** Works on the local (SQLite) backend; see src/lib/mode.ts. */
+  localReady?: boolean
 }
 
 export type NavGroup = { label: string | null; items: NavItem[] }
@@ -79,20 +69,12 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: '/home', label: 'Home', key: 'home', icon: HomeIcon, alwaysOn: true, keywords: 'dashboard' },
       { to: '/chat', label: 'Chat', key: 'chat', icon: ChatIcon, alwaysOn: true, keywords: 'ai assistant conversation' },
-      { to: '/inbox', label: 'Inbox', key: 'inbox', icon: InboxIcon, keywords: 'messages email slack whatsapp unified' },
     ],
   },
   {
     label: 'Assets',
     items: [
       { to: '/collections', label: 'Collections', key: 'collections', icon: CollectionIcon },
-      {
-        to: '/knowledge',
-        label: 'Knowledge',
-        key: 'knowledge',
-        icon: CompilerIcon,
-        keywords: 'compiled compiler pages conflicts brief provenance decisions glossary maintained understanding second brain',
-      },
       { to: '/files', label: 'Files', key: 'files', icon: FileIcon, keywords: 'upload storage pdf' },
       { to: '/tables', label: 'Tables', key: 'tables', icon: TableIcon, keywords: 'data spreadsheet' },
       { to: '/artifacts', label: 'Artifacts', key: 'artifacts', icon: ArtifactIcon, keywords: 'documents docs' },
@@ -114,26 +96,8 @@ export const navGroups: NavGroup[] = [
       },
       { to: '/memory', label: 'Memory', key: 'memory', icon: MemoryIcon, keywords: 'remember preferences personalization profile context' },
       { to: '/meeting-notes', label: 'Meeting Notes', key: 'meeting-notes', icon: MicIcon, keywords: 'record transcribe audio voice stt speech meeting minutes' },
-      { to: '/terminology', label: 'Terminology', key: 'terminology', icon: TerminologyIcon, keywords: 'glossary terms definitions dictionary' },
+      { to: '/terminology', label: 'Terminology', key: 'terminology', icon: TerminologyIcon, keywords: 'glossary terms definitions dictionary', localReady: true },
       { to: '/skills', label: 'Skills', key: 'skills', icon: SkillIcon, keywords: 'prompts' },
-    ],
-  },
-  {
-    label: 'Automation',
-    items: [
-      { to: '/agents', label: 'Agents', key: 'agents', icon: AgentIcon },
-      { to: '/listeners', label: 'Listeners', key: 'listeners', icon: BoltIcon, keywords: 'automation events rules triggers' },
-      { to: '/events', label: 'Events', key: 'events', icon: PulseIcon, keywords: 'automation stream feed' },
-      { to: '/loops', label: 'Loops', key: 'loops', icon: LoopIcon },
-      { to: '/tools', label: 'Tools', key: 'tools', icon: ToolIcon },
-      { to: '/forge', label: 'Forge', key: 'forge', icon: ForgeIcon, adminOnly: true, keywords: 'functions deploy' },
-    ],
-  },
-  {
-    label: 'Connections',
-    items: [
-      { to: '/webhooks', label: 'Webhooks', key: 'webhooks', icon: WebhookIcon },
-      { to: '/api', label: 'API', key: 'api', icon: ApiIcon, keywords: 'rest curl tokens' },
     ],
   },
   {
@@ -141,8 +105,6 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: '/activity', label: 'Activity', key: 'activity', icon: ActivityIcon, keywords: 'log feed' },
       { to: '/usage', label: 'Usage', key: 'usage', icon: UsageIcon, adminOnly: true, keywords: 'cost spend tokens' },
-      { to: '/feedback', label: 'Feedback', key: 'feedback', icon: FeedbackIcon, adminOnly: true },
-      { to: '/features', label: 'Features', key: 'features', icon: SparkleIcon, keywords: 'roadmap board' },
     ],
   },
   {
@@ -167,11 +129,7 @@ export const settingsGroup: NavGroup = {
     { to: '/settings/models', label: 'Models', key: 'settings.models', icon: SparkleIcon, adminOnly: true, alwaysOn: true, keywords: 'settings openrouter model profile' },
     { to: '/settings/timezone', label: 'Timezone', key: 'settings.timezone', icon: CalendarIcon, adminOnly: true, alwaysOn: true, keywords: 'settings timezone tz utc clock schedule automations time' },
     { to: '/settings/organization', label: 'Organization', key: 'settings.organization', icon: BuildingIcon, adminOnly: true, alwaysOn: true, keywords: 'settings organization name workspace company team' },
-    { to: '/settings/email', label: 'Email', key: 'settings.email', icon: MailIcon, adminOnly: true, alwaysOn: true, keywords: 'settings postmark resend inbound' },
-    { to: '/settings/slack', label: 'Slack', key: 'settings.slack', icon: SlackIcon, adminOnly: true, alwaysOn: true, keywords: 'settings bot channel' },
-    { to: '/settings/dropbox', label: 'Dropbox', key: 'settings.dropbox', icon: FileIcon, adminOnly: true, alwaysOn: true, keywords: 'settings dropbox integration file link metadata' },
     { to: '/settings/mcp', label: 'External MCP', key: 'settings.mcp', icon: GlobeIcon, adminOnly: true, alwaysOn: true, keywords: 'settings zapier server' },
-    { to: '/settings/people', label: 'Invite people', key: 'settings.people', icon: UsersIcon, adminOnly: true, alwaysOn: true, keywords: 'settings invite members allowed emails' },
     { to: '/settings/feature-flags', label: 'Feature flags', key: 'settings.feature-flags', icon: FlagIcon, adminOnly: true, alwaysOn: true, keywords: 'settings hide show disable areas sidebar' },
   ],
 }
@@ -204,6 +162,16 @@ export function visibleGroups(
         (item) => (!item.adminOnly || isAdmin) && isFeatureEnabled(item, flags),
       ),
     }))
+    .filter((group) => group.items.length > 0)
+}
+
+/**
+ * The sidebar for the local build: only the areas that already run on the
+ * local backend. Groups left empty are dropped.
+ */
+export function localGroups(groups: NavGroup[]): NavGroup[] {
+  return groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => item.localReady) }))
     .filter((group) => group.items.length > 0)
 }
 

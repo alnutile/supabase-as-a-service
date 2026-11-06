@@ -3,8 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { isLocalMode, LOCAL_HOME } from './lib/mode'
 import LoginPage from './pages/LoginPage'
-import JoinPage from './pages/JoinPage'
 import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
 import ArtifactsPage from './pages/ArtifactsPage'
@@ -15,46 +15,28 @@ const WhiteboardEditorPage = lazy(() => import('./pages/WhiteboardEditorPage'))
 import CardBoardsPage from './pages/CardBoardsPage'
 import CardBoardEditorPage from './pages/CardBoardEditorPage'
 import CollectionsPage from './pages/CollectionsPage'
-import KnowledgePage from './pages/KnowledgePage'
 import TodosPage from './pages/TodosPage'
 import LinksPage from './pages/LinksPage'
 import MemoryPage from './pages/MemoryPage'
 import MeetingNotesPage from './pages/MeetingNotesPage'
 import TerminologyPage from './pages/TerminologyPage'
-import InboxPage from './pages/InboxPage'
-import InboxAccountsPage from './pages/InboxAccountsPage'
-import EventsPage from './pages/EventsPage'
-import ListenersPage from './pages/ListenersPage'
 import PublicArtifactPage from './pages/PublicArtifactPage'
 import StandaloneArtifactPage from './pages/StandaloneArtifactPage'
 import FilesPage from './pages/FilesPage'
 import SkillsPage from './pages/SkillsPage'
-import WebhooksPage from './pages/WebhooksPage'
-import ToolsPage from './pages/ToolsPage'
 import TablesPage from './pages/TablesPage'
-import ForgePage from './pages/ForgePage'
 import GuardrailsPage from './pages/GuardrailsPage'
 import EvalsPage from './pages/EvalsPage'
 import VaultPage from './pages/VaultPage'
 import SecurityPage from './pages/SecurityPage'
-import AgentsPage from './pages/AgentsPage'
-import AgentDetailPage from './pages/AgentDetailPage'
-import LoopsPage from './pages/LoopsPage'
 import ActivityPage from './pages/ActivityPage'
-import ApiPage from './pages/ApiPage'
 import UsagePage from './pages/UsagePage'
-import FeedbackPage from './pages/FeedbackPage'
-import FeaturesPage from './pages/FeaturesPage'
 import ProfileSettings from './pages/settings/ProfileSettings'
 import ConnectClaudeSettings from './pages/settings/ConnectClaudeSettings'
 import ModelsSettings from './pages/settings/ModelsSettings'
 import TimezoneSettings from './pages/settings/TimezoneSettings'
 import OrganizationSettings from './pages/settings/OrganizationSettings'
-import EmailSettings from './pages/settings/EmailSettings'
-import SlackSettings from './pages/settings/SlackSettings'
-import DropboxSettings from './pages/settings/DropboxSettings'
 import McpSettings from './pages/settings/McpSettings'
-import InviteSettings from './pages/settings/InviteSettings'
 import FeatureFlagsSettings from './pages/settings/FeatureFlagsSettings'
 
 export default function App() {
@@ -72,7 +54,6 @@ export default function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/join/:token" element={<JoinPage />} />
       <Route path="/share/a/:slug" element={<PublicArtifactPage />} />
       <Route path="/p/:slug" element={<StandaloneArtifactPage />} />
 
@@ -84,12 +65,10 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/home" replace />} />
+        <Route index element={<Navigate to={isLocalMode ? LOCAL_HOME : '/home'} replace />} />
         <Route path="home" element={<HomePage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:conversationId" element={<ChatPage />} />
-        <Route path="inbox" element={<InboxPage />} />
-        <Route path="inbox/accounts" element={<InboxAccountsPage />} />
         <Route path="artifacts" element={<ArtifactsPage />} />
         <Route path="artifacts/:artifactId" element={<ArtifactEditorPage />} />
         <Route path="whiteboards" element={<WhiteboardsPage />} />
@@ -115,28 +94,16 @@ export default function App() {
         <Route path="links" element={<LinksPage />} />
         <Route path="memory" element={<MemoryPage />} />
         <Route path="meeting-notes" element={<MeetingNotesPage />} />
-        <Route path="knowledge" element={<KnowledgePage />} />
         <Route path="terminology" element={<TerminologyPage />} />
         <Route path="terminology/:termId" element={<TerminologyPage />} />
         <Route path="skills" element={<SkillsPage />} />
-        <Route path="webhooks" element={<WebhooksPage />} />
-        <Route path="tools" element={<ToolsPage />} />
         <Route path="tables" element={<TablesPage />} />
-        <Route path="forge" element={<ForgePage />} />
         <Route path="guardrails" element={<GuardrailsPage />} />
         <Route path="evals" element={<EvalsPage />} />
         <Route path="vault" element={<VaultPage />} />
         <Route path="security" element={<SecurityPage />} />
-        <Route path="agents" element={<AgentsPage />} />
-        <Route path="agents/:agentId" element={<AgentDetailPage />} />
-        <Route path="loops" element={<LoopsPage />} />
-        <Route path="listeners" element={<ListenersPage />} />
-        <Route path="events" element={<EventsPage />} />
-        <Route path="api" element={<ApiPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="usage" element={<UsagePage />} />
-        <Route path="feedback" element={<FeedbackPage />} />
-        <Route path="features" element={<FeaturesPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="settings" element={<Navigate to="/settings/profile" replace />} />
         <Route path="settings/profile" element={<ProfileSettings />} />
@@ -144,11 +111,7 @@ export default function App() {
         <Route path="settings/models" element={<ModelsSettings />} />
         <Route path="settings/timezone" element={<TimezoneSettings />} />
         <Route path="settings/organization" element={<OrganizationSettings />} />
-        <Route path="settings/email" element={<EmailSettings />} />
-        <Route path="settings/slack" element={<SlackSettings />} />
-        <Route path="settings/dropbox" element={<DropboxSettings />} />
         <Route path="settings/mcp" element={<McpSettings />} />
-        <Route path="settings/people" element={<InviteSettings />} />
         <Route path="settings/feature-flags" element={<FeatureFlagsSettings />} />
       </Route>
 

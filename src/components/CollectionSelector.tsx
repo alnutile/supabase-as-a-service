@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Database } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
+import { data, type Collection, type CollectionItemKind } from '../lib/data'
 import { CheckIcon, CollectionIcon, PlusIcon } from './icons'
-
-type Collection = Database['public']['Tables']['collections']['Row']
 
 /**
  * Inline collections picker for a single item. Shows which collections the item
@@ -16,41 +12,23 @@ export function CollectionSelector({
   itemType,
 }: {
   itemId: string
-  itemType: 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'agent' | 'whiteboard' | 'card_board'
+  itemType: CollectionItemKind
 }) {
-  const { user } = useAuth()
   const [collections, setCollections] = useState<Collection[]>([])
   const [memberCollections, setMemberCollections] = useState<Set<string>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [busy, setBusy] = useState(false)
 
-  // Map item type to the join table and column
-  const cfg = {
-    artifact: { table: 'collection_artifacts', col: 'artifact_id' },
-    file: { table: 'collection_files', col: 'file_id' },
-    table: { table: 'collection_tables', col: 'table_id' },
-    todo: { table: 'collection_todos', col: 'todo_id' },
-    link: { table: 'collection_links', col: 'link_id' },
-    term: { table: 'collection_terminology', col: 'term_id' },
-    agent: { table: 'collection_agents', col: 'agent_id' },
-    whiteboard: { table: 'collection_whiteboards', col: 'whiteboard_id' },
-    card_board: { table: 'collection_card_boards', col: 'card_board_id' },
-  }[itemType]
-
   const refresh = useCallback(async () => {
     // Load all collections and which ones contain this item
-    const [cRes, mRes] = await Promise.all([
-      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
-      supabase
-        .from(cfg.table as 'collection_artifacts')
-        .select('collection_id')
-        .eq(cfg.col as 'artifact_id', itemId),
+    const [collectionRows, memberRows] = await Promise.all([
+      data.collections.list().catch(() => []),
+      data.collections.memberships(itemType, [itemId]).catch(() => []),
     ])
-    setCollections(cRes.data ?? [])
-    const ids = new Set((mRes.data ?? []).map((row) => row.collection_id))
-    setMemberCollections(ids)
-  }, [cfg.table, cfg.col, itemId])
+    setCollections(collectionRows)
+    setMemberCollections(new Set(memberRows.map((row) => row.collectionId)))
+  }, [itemType, itemId])
 
   useEffect(() => {
     refresh()
@@ -62,19 +40,10 @@ export function CollectionSelector({
     const adding = !memberCollections.has(collectionId)
     try {
       if (adding) {
-        await supabase
-          .from(cfg.table as 'collection_artifacts')
-          .upsert(
-            { collection_id: collectionId, [cfg.col]: itemId, added_by: user!.id } as never,
-            { onConflict: `collection_id,${cfg.col}`, ignoreDuplicates: true }
-          )
+        await data.collections.addItems(itemType, collectionId, [itemId])
         setMemberCollections((prev) => new Set([...prev, collectionId]))
       } else {
-        await supabase
-          .from(cfg.table as 'collection_artifacts')
-          .delete()
-          .eq('collection_id', collectionId)
-          .eq(cfg.col as 'artifact_id', itemId)
+        await data.collections.removeItems(itemType, collectionId, [itemId])
         setMemberCollections((prev) => {
           const next = new Set(prev)
           next.delete(collectionId)
@@ -91,22 +60,12 @@ export function CollectionSelector({
     if (!name || busy) return
     setBusy(true)
     try {
-      const { data } = await supabase
-        .from('collections')
-        .insert({ owner_id: user!.id, name, visibility: 'private' })
-        .select()
-        .single()
-      if (!data) return
-      setCollections((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      const created = await data.collections.create({ name })
+      setCollections((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
       setNewName('')
       // Add the item to the new collection
-      await supabase
-        .from(cfg.table as 'collection_artifacts')
-        .upsert(
-          { collection_id: data.id, [cfg.col]: itemId, added_by: user!.id } as never,
-          { onConflict: `collection_id,${cfg.col}`, ignoreDuplicates: true }
-        )
-      setMemberCollections((prev) => new Set([...prev, data.id]))
+      await data.collections.addItems(itemType, created.id, [itemId])
+      setMemberCollections((prev) => new Set([...prev, created.id]))
     } finally {
       setBusy(false)
     }

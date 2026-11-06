@@ -14,7 +14,6 @@ import { estimateTokensFromChars } from '../lib/tokens'
 import { useOrchestratorContext } from '../lib/useModelContext'
 import { ContextMeter } from '../components/ContextMeter'
 import {
-  AgentIcon,
   ArrowRightIcon,
   ArtifactIcon,
   ChatIcon,
@@ -38,7 +37,7 @@ import {
 } from '../components/icons'
 
 type Collection = Database['public']['Tables']['collections']['Row']
-type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'agent' | 'whiteboard'
+type Kind = 'artifact' | 'file' | 'table' | 'todo' | 'link' | 'term' | 'whiteboard'
 type SortOption = 'name' | 'created_at' | 'updated_at'
 
 // Per-kind wiring: the base table it lives in, the join table, and the join's
@@ -61,13 +60,12 @@ const KINDS: Record<
   table: { title: 'Tables', icon: TableIcon, base: 'user_tables', link: 'collection_tables', col: 'table_id', label: 'name', sortOptions: ['name'] },
   link: { title: 'Links', icon: LinkIcon, base: 'links', link: 'collection_links', col: 'link_id', label: 'title', sortOptions: ['created_at', 'name'] },
   term: { title: 'Terminology', icon: TerminologyIcon, base: 'terminology', link: 'collection_terminology', col: 'term_id', label: 'term', sortOptions: ['name'] },
-  agent: { title: 'Agents', icon: AgentIcon, base: 'agents', link: 'collection_agents', col: 'agent_id', label: 'name', sortOptions: ['name'] },
   whiteboard: { title: 'Whiteboards', icon: WhiteboardIcon, base: 'whiteboards', link: 'collection_whiteboards', col: 'whiteboard_id', label: 'title', sortOptions: ['created_at', 'name'] },
 }
-const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'whiteboard', 'term', 'agent']
+const KIND_ORDER: Kind[] = ['todo', 'artifact', 'file', 'table', 'link', 'whiteboard', 'term']
 
 // URL segment for each kind: /collections/:collectionId/todos/:itemId etc.
-const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links', term: 'terminology', agent: 'agents', whiteboard: 'whiteboards' }
+const KIND_TO_SLUG: Record<Kind, string> = { todo: 'todos', artifact: 'artifacts', file: 'files', table: 'tables', link: 'links', term: 'terminology', whiteboard: 'whiteboards' }
 const SLUG_TO_KIND: Record<string, Kind> = Object.fromEntries(Object.entries(KIND_TO_SLUG).map(([k, s]) => [s, k as Kind]))
 
 type Item = { id: string; label: string; meta?: string; created_at?: string; updated_at?: string }
@@ -92,7 +90,7 @@ export default function CollectionsPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   const load = useCallback(async () => {
-    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, crRes, stats] = await Promise.all([
+    const [cRes, caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cwRes, crRes, stats] = await Promise.all([
       supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
       supabase.from('collection_artifacts').select('collection_id'),
       supabase.from('collection_files').select('collection_id'),
@@ -100,14 +98,13 @@ export default function CollectionsPage() {
       supabase.from('collection_tables').select('collection_id'),
       supabase.from('collection_links').select('collection_id'),
       supabase.from('collection_terminology').select('collection_id'),
-      supabase.from('collection_agents').select('collection_id'),
       supabase.from('collection_whiteboards').select('collection_id'),
       supabase.from('collection_repositories').select('collection_id'),
       supabase.rpc('collection_token_stats'),
     ])
     setCollections(cRes.data ?? [])
     const c: Record<string, number> = {}
-    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cgRes, cwRes, crRes]) {
+    for (const res of [caRes, cfRes, ctRes, cuRes, clRes, ctrRes, cwRes, crRes]) {
       for (const r of res.data ?? []) c[r.collection_id] = (c[r.collection_id] ?? 0) + 1
     }
     setCounts(c)
@@ -279,7 +276,7 @@ export default function CollectionsPage() {
               </div>
               <h2 className="text-lg font-semibold text-text">Your collections</h2>
               <p className="mt-2 text-sm text-muted">
-                A collection groups to-dos, artifacts, files, tables, links, whiteboards and agents so you can see them on one dashboard and chat with the whole set at once.
+                A collection groups to-dos, artifacts, files, tables, links and whiteboards so you can see them on one dashboard and chat with the whole set at once.
               </p>
             </div>
           </div>
@@ -356,14 +353,13 @@ function CollectionDashboard({
   }
 
   const loadItems = useCallback(async () => {
-    const [a, f, t, u, l, tr, g, w] = await Promise.all([
+    const [a, f, t, u, l, tr, w] = await Promise.all([
       supabase.from('collection_artifacts').select('artifacts(id, title, type, created_at, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_files').select('files(id, name, size_bytes, created_at, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_todos').select('todos(id, title, done, due_date, created_at, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_tables').select('user_tables(id, name, created_at, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_links').select('links(id, title, url, created_at, updated_at)').eq('collection_id', collection.id),
       supabase.from('collection_terminology').select('terminology(id, term, definition, created_at)').eq('collection_id', collection.id),
-      supabase.from('collection_agents').select('agents(id, name, description, created_at)').eq('collection_id', collection.id),
       supabase.from('collection_whiteboards').select('whiteboards(id, title, created_at, updated_at)').eq('collection_id', collection.id),
     ])
     const pluck = (rows: unknown, key: string) =>
@@ -418,12 +414,6 @@ function CollectionDashboard({
         id: String(x.id),
         label: String(x.term),
         meta: String(x.definition).substring(0, 80) + (String(x.definition).length > 80 ? '...' : ''),
-        created_at: String(x.created_at ?? ''),
-      })),
-      agent: pluck(g.data, 'agents').map((x) => ({
-        id: String(x.id),
-        label: String(x.name),
-        meta: x.description ? String(x.description) : undefined,
         created_at: String(x.created_at ?? ''),
       })),
       whiteboard: pluck(w.data, 'whiteboards').map((x) => ({
@@ -502,13 +492,6 @@ function CollectionDashboard({
       })
       const created = (Array.isArray(data) ? data[0] : data) as { id?: string } | null
       id = created?.id ?? null
-    } else if (kind === 'agent') {
-      const { data } = await supabase
-        .from('agents')
-        .insert({ owner_id: user.id, name, instructions: '' })
-        .select('id')
-        .single()
-      id = data?.id ?? null
     } else if (kind === 'whiteboard') {
       const { data } = await supabase
         .from('whiteboards')
@@ -1024,24 +1007,6 @@ function ItemModal({ kind, id, onClose, onChanged }: { kind: Kind; id: string; o
           </div>
         ),
       })
-    } else if (kind === 'agent') {
-      const { data } = await supabase.from('agents').select('*').eq('id', id).maybeSingle()
-      if (!data) return setDetail('missing')
-      setDetail({
-        title: data.name,
-        meta: `${data.tool_ids.length} tool${data.tool_ids.length === 1 ? '' : 's'} · updated ${formatDate(data.updated_at)}`,
-        fullPageTo: `/chat?agent=${data.id}`,
-        body: (
-          <div className="space-y-3">
-            {data.description && <p className="text-sm text-muted">{data.description}</p>}
-            {data.instructions ? (
-              <pre className="max-w-full whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-xs text-text">{data.instructions}</pre>
-            ) : (
-              <p className="text-sm text-faint">No instructions yet.</p>
-            )}
-          </div>
-        ),
-      })
     } else if (kind === 'whiteboard') {
       const { data } = await supabase.from('whiteboards').select('*').eq('id', id).maybeSingle()
       if (!data) return setDetail('missing')
@@ -1184,7 +1149,7 @@ function CollectionChat({ collection, onChanged }: { collection: Collection; onC
   }, [messages, streaming])
 
   const system =
-    `You are the assistant for the "${collection.name}" collection. Its current contents (to-dos, artifacts, files, tables, links, agents) are provided as context. ` +
+    `You are the assistant for the "${collection.name}" collection. Its current contents (to-dos, artifacts, files, tables, links) are provided as context. ` +
     `When the user asks to add a task, note, document, or link, USE YOUR TOOLS (create_todo, add_note, create_artifact, save_link, …) and file it into the "${collection.name}" collection (pass collection: "${collection.name}"). ` +
     `Prefer tools over emitting artifact blocks. Keep replies short and practical.`
 
