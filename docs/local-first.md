@@ -160,11 +160,14 @@ almost 1:1.
      (`AddToCollectionBar`, `CollectionSelector`).
    - Next, in rough order: Memory, Links, To-dos, Artifacts, Collections
      page, Tables, Meeting notes, Files, Secrets, Chat, then the rest.
-3. **Sidecar + SQLite.** New `local/` package: Bun app, SQLite schema +
-   migrations, ports of `_shared/{builtins,retrieval,collections,mcp,
-   orchestrator}` and `chat/index.ts`. Add a `local` implementation of each
-   data module that calls the sidecar. Run it first as a plain web app (`vite`
-   + sidecar) before Tauri.
+3. **Sidecar + SQLite (started, area by area).** `local/` is a Bun server
+   that owns a SQLite file and serves the data API on loopback;
+   `npm run dev:local` runs the UI against it with no Supabase (see
+   `local/README.md`). Areas move over one at a time, in the same order as
+   phase 2.
+   - Done: Terminology, plus collections and collection membership.
+   - Still to port: the chat loop, builtins, retrieval and MCP from
+     `supabase/functions/_shared`.
 4. **Tauri shell.** `src-tauri/`, sidecar bundling, Keychain, folder picker,
    watched folders UI, `.dmg` build in CI, plus a `brain mcp --stdio` entry
    for Claude Desktop/Code.

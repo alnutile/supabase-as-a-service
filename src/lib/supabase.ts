@@ -1,8 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './database.types'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+import { isLocalMode } from './mode'
+
+// The local build has no Supabase. It still imports this module through pages
+// that haven't moved to src/lib/data yet, so give it an inert placeholder
+// client (those pages are behind the "not available locally yet" screen).
+const supabaseUrl = isLocalMode ? 'http://127.0.0.1:9' : (import.meta.env.VITE_SUPABASE_URL as string)
+const supabaseAnonKey = isLocalMode ? 'local-mode-no-supabase' : (import.meta.env.VITE_SUPABASE_ANON_KEY as string)
 
 if (!supabaseUrl || !supabaseAnonKey) {
   // Surfaced early and loudly so misconfiguration is obvious in dev.

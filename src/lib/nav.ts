@@ -55,6 +55,8 @@ export type NavItem = {
   alwaysOn?: boolean
   /** Extra search terms for the ⌘K palette. */
   keywords?: string
+  /** Works on the local (SQLite) backend; see src/lib/mode.ts. */
+  localReady?: boolean
 }
 
 export type NavGroup = { label: string | null; items: NavItem[] }
@@ -94,7 +96,7 @@ export const navGroups: NavGroup[] = [
       },
       { to: '/memory', label: 'Memory', key: 'memory', icon: MemoryIcon, keywords: 'remember preferences personalization profile context' },
       { to: '/meeting-notes', label: 'Meeting Notes', key: 'meeting-notes', icon: MicIcon, keywords: 'record transcribe audio voice stt speech meeting minutes' },
-      { to: '/terminology', label: 'Terminology', key: 'terminology', icon: TerminologyIcon, keywords: 'glossary terms definitions dictionary' },
+      { to: '/terminology', label: 'Terminology', key: 'terminology', icon: TerminologyIcon, keywords: 'glossary terms definitions dictionary', localReady: true },
       { to: '/skills', label: 'Skills', key: 'skills', icon: SkillIcon, keywords: 'prompts' },
     ],
   },
@@ -160,6 +162,16 @@ export function visibleGroups(
         (item) => (!item.adminOnly || isAdmin) && isFeatureEnabled(item, flags),
       ),
     }))
+    .filter((group) => group.items.length > 0)
+}
+
+/**
+ * The sidebar for the local build: only the areas that already run on the
+ * local backend. Groups left empty are dropped.
+ */
+export function localGroups(groups: NavGroup[]): NavGroup[] {
+  return groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => item.localReady) }))
     .filter((group) => group.items.length > 0)
 }
 

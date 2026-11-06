@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { isLocalMode, LOCAL_HOME } from './lib/mode'
 import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
@@ -64,7 +65,7 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/home" replace />} />
+        <Route index element={<Navigate to={isLocalMode ? LOCAL_HOME : '/home'} replace />} />
         <Route path="home" element={<HomePage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:conversationId" element={<ChatPage />} />
