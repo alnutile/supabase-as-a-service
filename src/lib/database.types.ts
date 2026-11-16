@@ -386,6 +386,7 @@ export interface Database {
           screenshot_path: string | null
           notes: string
           visibility: CollectionVisibility
+          tags: string[] | null
           created_at: string
           updated_at: string
         }
@@ -400,6 +401,7 @@ export interface Database {
           screenshot_path?: string | null
           notes?: string
           visibility?: CollectionVisibility
+          tags?: string[] | null
           created_at?: string
           updated_at?: string
         }
