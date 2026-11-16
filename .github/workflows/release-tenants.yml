@@ -114,4 +114,4 @@ jobs:
 
       - name: Deploy edge functions (${{ matrix.ref }})
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
-        run: supabase functions deploy --project-ref ${{ matrix.ref }}
+        run: supabase functions deploy --project-ref ${{ matrix.ref }} --yes
