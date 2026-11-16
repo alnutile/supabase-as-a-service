@@ -32,15 +32,17 @@ export type SearchableLink = {
   title: string
   description: string | null
   notes: string | null
+  tags: string[] | null
 }
 
-// Case-insensitive substring match against the title, URL, description and
-// notes — the quick search on the Links page (complements the global ⌘K search,
+// Case-insensitive substring match against the title, URL, description, notes
+// and tags — the quick search on the Links page (complements the global ⌘K search,
 // mirrors matchesTodoQuery on To-dos).
 export function matchesLinkQuery(link: SearchableLink, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [link.title, link.url, link.description, link.notes].some((f) => (f ?? '').toLowerCase().includes(q))
+  const tagsStr = (link.tags ?? []).join(' ').toLowerCase()
+  return [link.title, link.url, link.description, link.notes, tagsStr].some((f) => (f ?? '').toLowerCase().includes(q))
 }
 
 export type LinkEditForm = {

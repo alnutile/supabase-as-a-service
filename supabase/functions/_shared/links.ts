@@ -11,6 +11,7 @@ export type LinkRow = {
   url: string
   title: string
   description: string
+  tags?: string[] | null
   created_at?: string | null
   updated_at?: string | null
 }
@@ -37,12 +38,13 @@ export function timestampLine(row: LinkRow): string {
   return `saved: ${saved} · updated: ${updated}`
 }
 
-/** One bullet per link: title/url, a truncated description, the id and dates. */
+/** One bullet per link: title/url, a truncated description, tags (if any), the id and dates. */
 export function formatLinkList(rows: LinkRow[]): string {
   return rows
     .map((l) => {
       const lines = [`• ${l.title} — ${l.url}`]
       if (l.description) lines.push(`  ${l.description.slice(0, 200)}`)
+      if (l.tags && l.tags.length > 0) lines.push(`  tags: [${l.tags.join(', ')}]`)
       const ts = timestampLine(l)
       lines.push(`  id: ${l.id}${ts ? ` · ${ts}` : ''}`)
       return lines.join('\n')

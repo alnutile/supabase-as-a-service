@@ -64,5 +64,6 @@ jobs:
 
       # Deploys every function under supabase/functions (dirs starting with `_`,
       # like `_shared`, are ignored). verify_jwt comes from supabase/config.toml.
+      # --yes skips the interactive confirmation prompt in non-interactive CI.
       - name: Deploy functions
-        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF" --yes

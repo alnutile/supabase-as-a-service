@@ -46,6 +46,7 @@ export default function LinksPage() {
   const [fetchingIds, setFetchingIds] = useState<Set<string>>(new Set())
   const [screenshots, setScreenshots] = useState<Record<string, string>>({}) // link id -> signed URL
   const [activeCollection, setActiveCollection] = useState<string | null>(null)
+  const [activeTag, setActiveTag] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Link | null>(null)
@@ -88,7 +89,7 @@ export default function LinksPage() {
 
   const selectedIds = useMemo(() => [...selected], [selected])
 
-  // The visible list: collection filter → quick search (title/url/description/notes).
+  // The visible list: collection filter → tag filter → quick search (title/url/description/notes/tags).
   // Counts drive the picker's per-collection numbers and hide the empty ones.
   const collectionCounts = useMemo(() => {
     const out: Record<string, number> = {}
@@ -101,16 +102,32 @@ export default function LinksPage() {
     return collections.find((c) => c.id === activeCollection)?.name ?? null
   }, [activeCollection, collections])
 
+  // All tags used across all links, for the tag filter dropdown
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>()
+    for (const link of links) {
+      if (link.tags) {
+        for (const tag of link.tags) {
+          tagSet.add(tag)
+        }
+      }
+    }
+    return Array.from(tagSet).sort()
+  }, [links])
+
   const visible = useMemo(() => {
     let list = links
     if (activeCollection) {
       const set = members[activeCollection] ?? new Set()
       list = list.filter((l) => set.has(l.id))
     }
+    if (activeTag) {
+      list = list.filter((l) => l.tags && l.tags.includes(activeTag))
+    }
     const q = search.trim()
     if (q) list = list.filter((l) => matchesLinkQuery(l, q))
     return list
-  }, [links, members, activeCollection, search])
+  }, [links, members, activeCollection, activeTag, search])
 
   // --- mutations -----------------------------------------------------------
 
@@ -277,8 +294,7 @@ export default function LinksPage() {
           )}
         </div>
 
-        {/* Collection filter — one searchable control instead of a pill per
-            collection (see src/components/CollectionPicker.tsx). */}
+        {/* Collection and tag filters */}
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <CollectionPicker
             collections={collections}
@@ -288,6 +304,29 @@ export default function LinksPage() {
             mode="single"
             totalLabel={String(links.length)}
           />
+          {allTags.length > 0 && (
+            <select
+              value={activeTag ?? ''}
+              onChange={(e) => setActiveTag(e.target.value || null)}
+              className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+            >
+              <option value="">All tags</option>
+              {allTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  #{tag}
+                </option>
+              ))}
+            </select>
+          )}
+          {activeTag && (
+            <button
+              onClick={() => setActiveTag(null)}
+              className="flex items-center gap-1.5 rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary-soft/80"
+            >
+              #{activeTag}
+              <CloseIcon className="h-3 w-3" />
+            </button>
+          )}
         </div>
 
         {/* Card grid */}
@@ -349,12 +388,13 @@ function EditLinkModal({
 }: {
   link: Link
   onClose: () => void
-  onSave: (patch: { url: string; title: string; description: string; notes: string }) => Promise<void>
+  onSave: (patch: { url: string; title: string; description: string; notes: string; tags: string[] }) => Promise<void>
 }) {
   const [url, setUrl] = useState(link.url)
   const [title, setTitle] = useState(link.title)
   const [description, setDescription] = useState(link.description)
   const [notes, setNotes] = useState(link.notes)
+  const [tagsInput, setTagsInput] = useState((link.tags ?? []).join(', '))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -365,8 +405,12 @@ function EditLinkModal({
       setError(res.error)
       return
     }
+    const tags = tagsInput
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
     setSaving(true)
-    await onSave(res.patch)
+    await onSave({ ...res.patch, tags })
     setSaving(false)
   }
 
@@ -429,6 +473,16 @@ function EditLinkModal({
               placeholder="Your private notes about this link…"
               className="resize-y rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
             />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-muted">Tags</span>
+            <input
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              placeholder="article, reference, important (comma-separated)"
+              className="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary-soft"
+            />
+            <span className="text-xs text-faint">Separate tags with commas</span>
           </label>
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
@@ -537,6 +591,18 @@ function LinkCard({
           </span>
         </a>
         <p className="truncate text-[11px] uppercase tracking-wide text-faint">{host}</p>
+        {link.tags && link.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {link.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted"
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
         {fetching ? (
           <p className="text-xs text-faint">Fetching preview…</p>
         ) : (
