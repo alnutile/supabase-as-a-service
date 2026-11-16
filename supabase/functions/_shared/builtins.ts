@@ -2053,6 +2053,9 @@ async function saveLink(
   if (!/^https?:\/\//i.test(url)) return 'A full http(s) url is required.'
   const meta = await fetchLinkMetadata(url)
   const title = (typeof input?.title === 'string' && input.title.trim()) || meta.title
+  const tags = Array.isArray(input?.tags)
+    ? input.tags.filter((t): t is string => typeof t === 'string').map((t) => t.trim()).filter(Boolean)
+    : []
   const { data, error } = await db
     .from('links')
     .insert({
@@ -2063,6 +2066,7 @@ async function saveLink(
       image_url: meta.image_url,
       favicon_url: meta.favicon_url,
       notes: String(input?.notes ?? ''),
+      tags: tags.length > 0 ? tags : [],
       visibility: 'private',
     })
     .select('id')
@@ -2098,12 +2102,17 @@ async function listLinks(
   }
   let query = db
     .from('links')
-    .select('id, url, title, description, created_at, updated_at')
+    .select('id, url, title, description, tags, created_at, updated_at')
     .or(`owner_id.eq.${userId},visibility.eq.workspace`)
     .order(column, { ascending: false })
     .limit(100)
   if (since) query = query.gte(column, since)
   if (until) query = query.lte(column, until)
+  const tag = typeof input?.tag === 'string' ? input.tag.trim() : ''
+  if (tag) {
+    // Use the GIN index: tags @> ARRAY['article'] finds every link tagged "article"
+    query = query.contains('tags', [tag])
+  }
   const ref = typeof input?.collection === 'string' ? input.collection.trim() : ''
   if (ref) {
     const col = await resolveCollection(db, userId, ref, false)

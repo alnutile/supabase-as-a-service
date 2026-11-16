@@ -128,7 +128,9 @@ browser. Data is protected by Postgres **row-level security**, not by hiding key
   private, filed into collections, live for everyone over realtime.
 - **Planner** — Excalidraw whiteboards and free-form card boards, both multiplayer, both
   readable *and* drawable by the AI.
-- **Links** — shared bookmarks that fetch their own title, description, and preview image.
+- **Links** — shared bookmarks that fetch their own title, description, and preview image. Tag
+  links to organize them (e.g. "article", "reference") and filter by tag in the UI. The bot
+  can tag links via SQL: `UPDATE links SET tags = ARRAY['article'] WHERE id = '...'`.
 
 </details>
 

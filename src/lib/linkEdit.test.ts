@@ -64,7 +64,7 @@ describe('buildLinkEditPatch', () => {
 
 describe('matchesLinkQuery', () => {
   function link(partial: Partial<SearchableLink>): SearchableLink {
-    return { url: 'https://example.com/', title: '', description: null, notes: null, ...partial }
+    return { url: 'https://example.com/', title: '', description: null, notes: null, tags: null, ...partial }
   }
 
   it('matches an empty query against anything', () => {
@@ -92,5 +92,18 @@ describe('matchesLinkQuery', () => {
 
   it('returns false when no field contains the query', () => {
     expect(matchesLinkQuery(link({ title: 'Alpha', url: 'https://a.com', description: 'beta' }), 'gamma')).toBe(false)
+  })
+
+  it('matches tags case-insensitively', () => {
+    expect(matchesLinkQuery(link({ title: 'X', tags: ['article', 'reference'] }), 'article')).toBe(true)
+    expect(matchesLinkQuery(link({ title: 'X', tags: ['article', 'reference'] }), 'REFERENCE')).toBe(true)
+  })
+
+  it('tolerates null tags', () => {
+    expect(matchesLinkQuery(link({ title: 'X', tags: null }), 'missing')).toBe(false)
+  })
+
+  it('tolerates empty tags array', () => {
+    expect(matchesLinkQuery(link({ title: 'X', tags: [] }), 'missing')).toBe(false)
   })
 })

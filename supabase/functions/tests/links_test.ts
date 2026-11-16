@@ -86,6 +86,34 @@ Deno.test('formatLinkList puts one bullet per link', () => {
   assertEquals(out, '• A — https://a.test\n  id: 1\n• B — https://b.test\n  id: 2')
 })
 
+Deno.test('formatLinkList includes tags when present', () => {
+  const out = formatLinkList([
+    {
+      id: 'id-1',
+      url: 'https://example.com/article',
+      title: 'An article',
+      description: 'About something',
+      tags: ['article', 'reference'],
+      created_at: '2026-08-01T09:00:00+00:00',
+      updated_at: '2026-08-01T09:00:00+00:00',
+    },
+  ])
+  assert(out.includes('tags: [article, reference]'))
+  assert(out.includes('• An article — https://example.com/article'))
+})
+
+Deno.test('formatLinkList omits tags line when tags is empty or null', () => {
+  const withEmpty = formatLinkList([
+    { id: '1', url: 'https://a.test', title: 'A', description: '', tags: [] },
+  ])
+  assert(!withEmpty.includes('tags:'))
+  
+  const withNull = formatLinkList([
+    { id: '2', url: 'https://b.test', title: 'B', description: '', tags: null },
+  ])
+  assert(!withNull.includes('tags:'))
+})
+
 Deno.test('parseDateBound passes an ISO timestamp through, normalized to UTC', () => {
   assertEquals(parseDateBound('2026-08-31T14:03:22+00:00', 'start'), '2026-08-31T14:03:22.000Z')
   assertEquals(parseDateBound('2026-08-31T10:03:22-04:00', 'end'), '2026-08-31T14:03:22.000Z')
