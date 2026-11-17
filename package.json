@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:local": "node scripts/dev-local.mjs",
+    "local:server": "bun local/server.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "start": "node server.js",

@@ -7,16 +7,7 @@ verify_jwt = true
 [functions.transcribe]
 verify_jwt = true
 
-[functions.email-test]
-verify_jwt = true
-
 [functions.mcp-admin]
-verify_jwt = true
-
-[functions.forge]
-verify_jwt = true
-
-[functions.loop]
 verify_jwt = true
 
 # Fetches a URL's title/description/preview image for the Links area — any
@@ -24,32 +15,17 @@ verify_jwt = true
 [functions.link-meta]
 verify_jwt = true
 
-# AI-powered cron expression generator for the agent editor's schedule UI.
-# Accepts natural language (e.g., "Friday 7am") and returns a valid cron expression.
-[functions.cron-helper]
-verify_jwt = true
-
 # Public / token-gated functions — must stay verify_jwt = false so external
 # callers (and pg_cron via pg_net) reach them without a Supabase JWT. They are
-# gated instead by an unguessable token in the URL (webhook / email-inbound), a
-# per-user token (mcp), or the cron secret (scheduler / ingest). Declaring them
-# here keeps a plain `supabase functions deploy <name>` from flipping them back
-# to the verify_jwt=true default.
-[functions.webhook]
-verify_jwt = false
-
+# gated instead by a per-user token (mcp) or the cron secret (ingest). Declaring
+# them here keeps a plain `supabase functions deploy <name>` from flipping them
+# back to the verify_jwt=true default.
 [functions.mcp]
 verify_jwt = false
 
 # OAuth 2.1 (PKCE) authorization server for the MCP connector — public so Claude's
 # "Add custom connector" flow can discover it, register, and run authorize/token.
 [functions.mcp-oauth]
-verify_jwt = false
-
-[functions.email-inbound]
-verify_jwt = false
-
-[functions.scheduler]
 verify_jwt = false
 
 [functions.ingest]
@@ -60,73 +36,11 @@ verify_jwt = false
 [functions.p]
 verify_jwt = false
 
-# Plain-REST CRUD API around artifacts, gated by a per-user bearer token
-# (mcp_tokens) instead of a Supabase JWT, so external systems can push/sync
-# artifacts and tag them into collections.
-[functions.artifacts]
-verify_jwt = false
-
-# Plain-REST CRUD API around to-dos, same bearer-token (mcp_tokens) auth as the
-# artifacts function, so external systems can capture/sync tasks and tag them
-# into collections.
-[functions.todos]
-verify_jwt = false
-
-# Universal tool runner: invoke any active tool (builtin/http/mcp) directly, or
-# chain several — no model in the loop. Accepts BOTH a personal mcp_tokens
-# token and a Supabase session JWT, so it must stay verify_jwt = false; the JWT
-# is verified in code via auth.getUser (never trusted from its payload).
-[functions.run-tool]
-verify_jwt = false
-
-# The GitHub side of the Features kanban: opens the approved-for-work issue,
-# syncs the linked PR, and squash-merges on the "approved to merge" lane.
-# verify_jwt + an is_admin check in the body; the GitHub PAT lives in the vault.
-[functions.features]
-verify_jwt = true
-
-# Slack Events API endpoint (rooms bound to collections). Public because Slack
-# calls it; gated in code by the app's signing secret (HMAC over every request,
-# read from Vault) — not by a URL token.
-[functions.slack-events]
-verify_jwt = false
-
-# Event-listener dispatcher: ticked by pg_cron (via pg_net), it matches new
-# `events` rows to active `event_listeners` and runs their actions. Gated by the
-# same cron secret as the scheduler.
-[functions.event-dispatch]
-verify_jwt = false
-
-# Unified inbox ingest: accepts arbitrary pushed messages (Slack / WhatsApp /
-# Zapier / scripts) into `messages`. Gated by a per-user bearer token
-# (mcp_tokens), same auth as run-tool, so it must stay verify_jwt = false.
-[functions.message-inbound]
-verify_jwt = false
-
-# IMAP inbox poller: pulls new mail from registered email_accounts into the
-# unified inbox. Cron-ticked and gated by the DB cron secret (x-cron-secret),
-# so it must stay verify_jwt = false (no user JWT on a cron POST).
-[functions.email-poll]
-verify_jwt = false
-
-# "Test connection" for the Add-an-inbox form: connects to an IMAP mailbox and
-# reports success. verify_jwt = true so only a signed-in user can trigger it.
-[functions.imap-test]
-verify_jwt = true
-
 # Public write-form endpoint for user tables: an anonymous visitor submits a form
 # (baked into a shared artifact/page) and one row lands in the owner's table.
 # Public because the browser has no session; gated in code by an opaque form
 # token + a per-form column allow-list + rate limit (runs as the service role).
 [functions.form-submit]
-verify_jwt = false
-
-# Knowledge compiler: runs a compilation pass over a collection (gather new
-# sources -> extract claims -> update compiled pages within the collection's
-# trust boundary -> flag conflicts -> write a change brief). Public because the
-# UI, agents, scripts and cron all trigger it; gated in code by a session JWT or
-# a personal mcp_tokens bearer, exactly like run-tool.
-[functions.compile]
 verify_jwt = false
 
 [functions.github-repositories]

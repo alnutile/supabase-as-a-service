@@ -14,5 +14,10 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Local build (npm run dev:local): the UI calls /api on its own origin and
+    // Vite forwards it to the second-brain server, so that server needs no CORS.
+    proxy: {
+      '/api': `http://127.0.0.1:${process.env.BRAIN_PORT || 8787}`,
+    },
   },
 })

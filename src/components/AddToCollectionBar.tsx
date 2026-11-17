@@ -1,26 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Database } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
+import { data, type Collection } from '../lib/data'
 import { CheckIcon, CollectionIcon } from './icons'
 
-type Collection = Database['public']['Tables']['collections']['Row']
-
-// Which join table + column a given content kind uses. Collections are
-// multi-content: artifacts, files, tables (+ more) all link the same way, so
-// this one bar serves every page that wants to file things into a collection.
-const KIND = {
-  file: { table: 'collection_files', col: 'file_id', noun: 'file' },
-  table: { table: 'collection_tables', col: 'table_id', noun: 'table' },
-  artifact: { table: 'collection_artifacts', col: 'artifact_id', noun: 'artifact' },
-  link: { table: 'collection_links', col: 'link_id', noun: 'link' },
-  term: { table: 'collection_terminology', col: 'term_id', noun: 'term' },
-  agent: { table: 'collection_agents', col: 'agent_id', noun: 'agent' },
-  whiteboard: { table: 'collection_whiteboards', col: 'whiteboard_id', noun: 'whiteboard' },
-  card_board: { table: 'collection_card_boards', col: 'card_board_id', noun: 'card board' },
-} as const
-
-type Kind = keyof typeof KIND
+// Collections are multi-content: artifacts, files, tables (+ more) all link
+// the same way, so this one bar serves every page that files things into a
+// collection. The data layer maps each kind to its storage.
+type Kind = 'file' | 'table' | 'artifact' | 'link' | 'term' | 'whiteboard' | 'card_board'
 
 /**
  * Floating "N selected → Add to collection" bar. Drop it on any list page,
@@ -36,8 +21,6 @@ export function AddToCollectionBar({
   selectedIds: string[]
   onClear: () => void
 }) {
-  const { user } = useAuth()
-  const cfg = KIND[kind]
   const [collections, setCollections] = useState<Collection[]>([])
   // collectionId -> set of selected ids already filed into it.
   const [members, setMembers] = useState<Record<string, Set<string>>>({})
@@ -47,26 +30,18 @@ export function AddToCollectionBar({
   const ref = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
-    // The link table/column are chosen at runtime, which the generated types
-    // can't track; all link tables are structurally identical, so we cast to a
-    // representative one (`collection_files`) and read the dynamic column loosely.
-    const [cRes, mRes] = await Promise.all([
-      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
-      selectedIds.length
-        ? supabase
-            .from(cfg.table as 'collection_files')
-            .select(`collection_id, ${cfg.col}`)
-            .in(cfg.col as 'file_id', selectedIds)
-        : Promise.resolve({ data: [] }),
+    const [collectionRows, memberRows] = await Promise.all([
+      data.collections.list().catch(() => []),
+      data.collections.memberships(kind, selectedIds).catch(() => []),
     ])
-    setCollections(cRes.data ?? [])
+    setCollections(collectionRows)
     const map: Record<string, Set<string>> = {}
-    for (const row of (mRes.data ?? []) as unknown as Array<Record<string, string>>) {
-      const set = (map[row.collection_id] ??= new Set())
-      set.add(row[cfg.col])
+    for (const row of memberRows) {
+      const set = (map[row.collectionId] ??= new Set())
+      set.add(row.itemId)
     }
     setMembers(map)
-  }, [cfg.table, cfg.col, selectedIds])
+  }, [kind, selectedIds])
 
   useEffect(() => {
     if (selectedIds.length) refresh()
@@ -93,19 +68,9 @@ export function AddToCollectionBar({
     if (!selectedIds.length || busy) return
     setBusy(true)
     const adding = !allIn(cid)
-    const rows = selectedIds.map((id) => ({ collection_id: cid, [cfg.col]: id, added_by: user!.id }))
     try {
-      if (adding) {
-        await supabase
-          .from(cfg.table as 'collection_files')
-          .upsert(rows as never, { onConflict: `collection_id,${cfg.col}`, ignoreDuplicates: true })
-      } else {
-        await supabase
-          .from(cfg.table as 'collection_files')
-          .delete()
-          .eq('collection_id', cid)
-          .in(cfg.col as 'file_id', selectedIds)
-      }
+      if (adding) await data.collections.addItems(kind, cid, selectedIds)
+      else await data.collections.removeItems(kind, cid, selectedIds)
       setMembers((prev) => {
         const next = { ...prev }
         const set = new Set(next[cid] ?? [])
@@ -126,19 +91,11 @@ export function AddToCollectionBar({
     if (!name || busy) return
     setBusy(true)
     try {
-      const { data } = await supabase
-        .from('collections')
-        .insert({ owner_id: user!.id, name, visibility: 'private' })
-        .select()
-        .single()
-      if (!data) return
-      setCollections((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      const created = await data.collections.create({ name })
+      setCollections((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
       setNewName('')
-      const rows = selectedIds.map((id) => ({ collection_id: data.id, [cfg.col]: id, added_by: user!.id }))
-      await supabase
-        .from(cfg.table as 'collection_files')
-        .upsert(rows as never, { onConflict: `collection_id,${cfg.col}`, ignoreDuplicates: true })
-      setMembers((prev) => ({ ...prev, [data.id]: new Set(selectedIds) }))
+      await data.collections.addItems(kind, created.id, selectedIds)
+      setMembers((prev) => ({ ...prev, [created.id]: new Set(selectedIds) }))
     } finally {
       setBusy(false)
     }

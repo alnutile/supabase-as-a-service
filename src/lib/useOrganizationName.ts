@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import { isLocalMode } from './mode'
 
 // The workspace's organization name (`workspace_settings.organization_name`,
 // migration 0125), shared by every surface that shows it — the home page
@@ -34,6 +35,8 @@ function load() {
 }
 
 function subscribe(listener: (value: string) => void): () => void {
+  // The local build has no workspace settings yet: the tab keeps the app name.
+  if (isLocalMode) return () => {}
   listeners.add(listener)
   if (listeners.size === 1) {
     // First consumer: fetch once and open the single realtime channel, so an

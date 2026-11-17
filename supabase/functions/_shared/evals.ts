@@ -134,16 +134,8 @@ export async function executeSuiteRun(
   const { runJudge } = await import('./judge.ts')
   const sandboxTools = suite.sandbox_tools !== false
 
-  // An agent suite runs each question through that agent's prompt + tools.
-  let agentSystem: string | null = null
-  let agentToolIds: string[] | null = null
-  if (suite.target_kind === 'agent') {
-    if (!suite.agent_id) return await fail('this agent suite has no agent selected')
-    const { data: agent } = await db.from('agents').select('instructions, tool_ids').eq('id', suite.agent_id).maybeSingle()
-    if (!agent) return await fail("the suite's agent no longer exists")
-    agentSystem = agent.instructions ?? null
-    agentToolIds = Array.isArray(agent.tool_ids) ? agent.tool_ids : null
-  }
+  // Agents were removed; suites that targeted one can no longer run.
+  if (suite.target_kind === 'agent') return await fail('agent suites are no longer supported, switch the target to chat')
 
   let passedCount = 0
   let totalCost = 0
@@ -225,7 +217,7 @@ export async function executeSuiteRun(
           latency_ms: Date.now() - started,
         })
       }
-    } else if (suite.target_kind === 'chat' || suite.target_kind === 'agent') {
+    } else if (suite.target_kind === 'chat') {
       for (const c of cases as Case[]) {
         const started = Date.now()
         const assertions = (Array.isArray(c.assertions) ? c.assertions : []) as Assertion[]
@@ -239,8 +231,8 @@ export async function executeSuiteRun(
         try {
           const ans = await runOrchestrator(db, {
             question: String(c.input ?? ''),
-            system: agentSystem,
-            toolIds: agentToolIds,
+            system: null,
+            toolIds: null,
             model: modelOverride,
             userId,
             collectionIds,

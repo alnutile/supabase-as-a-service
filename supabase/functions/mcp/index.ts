@@ -1,10 +1,9 @@
 // Supabase Edge Function: `mcp` (PUBLIC — verify_jwt=false).
 // A Model Context Protocol server (JSON-RPC over HTTP) that an external Claude
-// (Claude Code / Desktop) connects to. It exposes tools to BUILD things on this
-// workspace — agents, tools, skills, webhooks, artifacts — so you can say
-// "write an agent that does X on my system" and Claude pushes it here, where it
-// shows up in the dashboard. Auth is a per-user token from `mcp_tokens`; every
-// action runs as that token's owner.
+// (Claude Code / Desktop) connects to. It exposes the workspace (artifacts,
+// collections, files, tables, to-dos, links, memory, skills and more) so an
+// external Claude can read from and write to this second brain. Auth is a
+// per-user token from `mcp_tokens`; every action runs as that token's owner.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4'
 import {
   artifactUrlLines,
@@ -23,18 +22,6 @@ import { forget, listMemories, remember, updateMemory } from '../_shared/memory.
 import { runBuiltin } from '../_shared/builtins.ts'
 import { expandMcpTools, type McpRouter, runMcpTool } from '../_shared/mcp.ts'
 import { functionBaseUrl, isExpired, protectedResourceMetadata } from '../_shared/oauth.ts'
-import {
-  createLoop,
-  findOrCreateLoopAgent,
-  formatRun,
-  getRun,
-  latestRunForLoop,
-  listLoopsText,
-  resolveAgent,
-  resolveFeedbackTool,
-  resolveLoop,
-  triggerLoopRun,
-} from '../_shared/loops.ts'
 import {
   formatEvalRun,
   formatMatrix,
@@ -67,55 +54,6 @@ async function isAdmin(db: DB, owner: string): Promise<boolean> {
 
 // --- Tool definitions exposed over MCP ---
 const TOOLS = [
-  {
-    name: 'list_agents',
-    description: 'List the agents defined on this workspace.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'create_agent',
-    description:
-      'Create a new agent: a deployable unit with a name, a system prompt (instructions), and optional tool ids it may use. Appears in the dashboard.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        instructions: { type: 'string', description: 'The agent system prompt.' },
-        description: { type: 'string' },
-        tool_ids: { type: 'array', items: { type: 'string' }, description: 'Tool ids the agent may use.' },
-        collection_ids: { type: 'array', items: { type: 'string' }, description: 'Collection ids the agent uses as context.' },
-      },
-      required: ['name', 'instructions'],
-    },
-  },
-  {
-    name: 'list_tools',
-    description: 'List the tools (capabilities) available on this workspace.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'create_http_tool',
-    description:
-      'Create a custom HTTP tool the assistant can call. Claude posts the inputs as JSON to the given URL. ' +
-      'For authenticated APIs, set headers and reference a workspace Vault secret with {{vault:secret_name}} — ' +
-      'it is resolved server-side at call time, so the credential never appears in the tool row or the conversation. Admin only.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'snake_case function name' },
-        description: { type: 'string', description: 'When to use it.' },
-        url: { type: 'string', description: 'Endpoint that receives the inputs.' },
-        input_schema: { type: 'object', description: 'JSON Schema for the arguments.' },
-        method: { type: 'string', enum: ['POST', 'GET'] },
-        headers: {
-          type: 'object',
-          description:
-            'Headers sent with every call, e.g. {"Authorization": "Bearer {{vault:my_api_key}}"}. {{vault:name}} placeholders are replaced with workspace Vault secrets at call time.',
-        },
-      },
-      required: ['name', 'description', 'url'],
-    },
-  },
   {
     name: 'create_skill',
     description:
@@ -204,134 +142,6 @@ const TOOLS = [
   // The workspace maintains a COMPILED layer on top of its raw material. A
   // compiled page is the maintained answer; files, links and messages are the
   // evidence behind it. Check compiled pages before searching raw documents.
-  {
-    name: 'compile_collection',
-    description:
-      'Run a knowledge-compilation pass over a collection: read the sources added since the last pass, extract claims, update the collection\'s compiled pages, flag contradictions for human review, and return a change brief. Use after new material lands in a collection — not to answer a question.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        collection: { type: 'string', description: 'Collection name or id to compile.' },
-        since: { type: 'string', description: 'Optional ISO 8601 cutoff; defaults to the last successful pass.' },
-        dry_run: { type: 'boolean', description: 'Analyze and report without writing any compiled page.' },
-      },
-      required: ['collection'],
-    },
-  },
-  {
-    name: 'list_knowledge_pages',
-    description:
-      'List the workspace\'s COMPILED knowledge pages (maintained understanding) with ids and status. Check here BEFORE searching raw documents. Filter by collection, kind, status, or a title substring.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        collection: { type: 'string' },
-        kind: { type: 'string', description: 'concept|decision|process|person|project|terminology|principle|question|profile' },
-        status: { type: 'string', description: 'compiled|needs-review|contradicted|stale|confirmed|archived' },
-        title_contains: { type: 'string' },
-        limit: { type: 'number' },
-      },
-    },
-  },
-  {
-    name: 'get_knowledge_page',
-    description:
-      'Read one compiled knowledge page in full, with the claims behind it and where each came from. Identify it by id, key, or exact title.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string' },
-        key: { type: 'string' },
-        title: { type: 'string' },
-        include_claims: { type: 'boolean' },
-      },
-    },
-  },
-  {
-    name: 'update_knowledge_page',
-    description:
-      'Create or maintain a compiled knowledge page. Use append to add understanding and revise to correct wording; write durable reference prose, not a summary of one document. A human-confirmed page can only be appended to.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        id: { type: 'string' },
-        key: { type: 'string' },
-        kind: { type: 'string' },
-        body: { type: 'string' },
-        op: { type: 'string', description: 'append (default) or revise.' },
-        collection: { type: 'string' },
-        summary: { type: 'string' },
-        labels: { type: 'array', items: { type: 'string' } },
-        confirmed: { type: 'boolean', description: 'Only when a HUMAN has verified the page.' },
-        visibility: { type: 'string' },
-      },
-      required: ['body'],
-    },
-  },
-  {
-    name: 'list_conflicts',
-    description:
-      'List open knowledge conflicts and held updates awaiting a human decision — contradictions between new evidence and compiled knowledge that the compiler deliberately refused to resolve on its own.',
-    inputSchema: {
-      type: 'object',
-      properties: { collection: { type: 'string' }, status: { type: 'string' }, limit: { type: 'number' } },
-    },
-  },
-  {
-    name: 'resolve_conflict',
-    description:
-      'Record a HUMAN decision on a knowledge conflict. Only call this once the user has said which source is current — never decide for them. apply writes the new text; keep leaves the page as it is; dismiss closes it.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string' },
-        decision: { type: 'string', description: 'apply | keep | dismiss' },
-        note: { type: 'string' },
-      },
-      required: ['id', 'decision'],
-    },
-  },
-  {
-    name: 'get_change_brief',
-    description:
-      'Read the change brief from a compilation pass: what was added, updated, linked, what became stale, what conflicts were found and what needs human review. Defaults to the most recent pass.',
-    inputSchema: {
-      type: 'object',
-      properties: { run_id: { type: 'string' }, collection: { type: 'string' } },
-    },
-  },
-  {
-    name: 'set_compile_policy',
-    description:
-      'Set a collection\'s compilation policy — the trust boundary for automatic knowledge editing. autonomy is suggest | guarded (default) | auto. never_auto protects pages by kind, label or title substring (e.g. "financial commitments", "client-facing").',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        collection: { type: 'string' },
-        enabled: { type: 'boolean' },
-        autonomy: { type: 'string' },
-        compile_sources: { type: 'array', items: { type: 'string' } },
-        maintain_kinds: { type: 'array', items: { type: 'string' } },
-        never_auto: { type: 'array', items: { type: 'string' } },
-        min_confidence: { type: 'number' },
-        stale_days: { type: 'number' },
-      },
-      required: ['collection'],
-    },
-  },
-  {
-    name: 'create_webhook',
-    description: 'Create a webhook (a public URL that runs a prompt on inbound payloads). Returns the URL.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        prompt: { type: 'string', description: 'What to do with each payload.' },
-      },
-      required: ['name'],
-    },
-  },
   {
     name: 'create_artifact',
     description:
@@ -971,107 +781,6 @@ const TOOLS = [
     },
   },
   {
-    name: 'create_agent_job',
-    description:
-      'Queue a job for a specialized capability worker (OfficeCLI documents or ffmpeg media) instead of doing heavy binary work in-context. Pass `operation` (e.g. office.create_docx, media.extract_frames — the capability is inferred from the prefix), an `input_manifest` array referencing files by file_id/artifact_id/storage_path (NOT contents), `instructions`, and optional operation `parameters`. Returns the job id; poll it with get_agent_job. A Railway/Docker worker runs it.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        operation: {
-          type: 'string',
-          description:
-            'One of: office.inspect_document, office.render_document, office.create_docx, office.convert_document, media.probe, media.extract_audio, media.extract_frames, media.create_thumbnail, media.transcode, media.clip.',
-        },
-        instructions: { type: 'string', description: 'Natural-language instructions for the worker.' },
-        input_manifest: {
-          type: 'array',
-          description: 'Input references: each {file_id?|artifact_id?|storage_path?, role?, required?}.',
-          items: { type: 'object' },
-        },
-        parameters: { type: 'object', description: 'Operation-specific parameters (e.g. timestamps [0,15], format png).' },
-        priority: { type: 'number', description: '0-100, default 50 (higher runs first).' },
-      },
-      required: ['operation'],
-    },
-  },
-  {
-    name: 'get_agent_job',
-    description:
-      'Check a capability-worker job by id: its status, error (if any), and — when completed — its result manifest of output files/artifacts. Poll after create_agent_job until completed / failed / cancelled / dead_letter.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string', description: 'The job id returned by create_agent_job.' } },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'list_agent_jobs',
-    description: 'List your capability-worker jobs, most recent first, with ids and statuses. Optionally filter by capability (office|media) or status.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        capability: { type: 'string', enum: ['office', 'media'] },
-        status: { type: 'string' },
-        limit: { type: 'number', description: 'Max rows (default 20, max 100).' },
-      },
-    },
-  },
-  {
-    name: 'cancel_agent_job',
-    description: 'Cancel a queued or in-flight capability-worker job you own (by id). Already-completed jobs are unaffected.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string', description: 'The job id to cancel.' } },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'save_message',
-    description:
-      'Save a message into the unified inbox — a captured note, a forwarded email, a Slack/WhatsApp message, etc. Optionally file it into a collection (by name; created if missing).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        body: { type: 'string', description: 'The message body/content.' },
-        subject: { type: 'string', description: 'Optional subject/title.' },
-        from: { type: 'string', description: 'Who it is from (name, email, handle, or phone).' },
-        source: {
-          type: 'string',
-          enum: ['email', 'slack', 'whatsapp', 'sms', 'webhook', 'manual', 'other'],
-          description: 'Where it came from (default manual).',
-        },
-        url: { type: 'string', description: 'Optional link back to the original.' },
-        collection: { type: 'string', description: 'Optional collection name (or id) to file it into; created if missing.' },
-      },
-      required: ['body'],
-    },
-  },
-  {
-    name: 'list_messages',
-    description: 'List messages from the unified inbox. Optionally filter by source (email/slack/whatsapp/...), by collection (name/id), or only unread.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        source: { type: 'string', description: 'Optional source filter.' },
-        collection: { type: 'string', description: 'Optional collection name or id to filter by.' },
-        unread_only: { type: 'boolean', description: 'Only unread messages (default false).' },
-        limit: { type: 'number', description: 'Max messages to return (default 20, max 50).' },
-      },
-    },
-  },
-  {
-    name: 'add_message_to_collection',
-    description: 'Add an existing inbox message to a collection (both by name or id). The collection is created if it does not exist.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        collection: { type: 'string', description: 'Collection name or id.' },
-        message_id: { type: 'string', description: 'The inbox message id to add.' },
-      },
-      required: ['collection', 'message_id'],
-    },
-  },
-  {
     name: 'get_activity',
     description:
       'Recent workspace activity (events, tool calls, creations) as structured JSON. Pass `since` (ISO 8601) for a time-scoped diff, `type` to filter to one event type, and `limit`. Upgrade of list_activity for daily syncs.',
@@ -1232,84 +941,31 @@ const TOOLS = [
     },
   },
   {
-    name: 'list_loops',
-    description: 'List the goal-directed loops you can run (name, goal, budget, iteration cap).',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'create_loop',
-    description:
-      'Create a loop: a goal-directed run that iterates toward a goal, scoring each candidate 0–100 and keeping the best, stopping when it hits its budget, iteration cap, target score, or converges. Give it a goal (the prompt) and a rubric (how to grade candidates). Runs against an agent — omit "agent" to use a default one. Appears in the Loops dashboard; run it with run_loop.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        goal: { type: 'string', description: 'The objective the loop optimizes toward (the prompt).' },
-        rubric: {
-          type: 'string',
-          description: 'How to grade each candidate 0–100. Used by the built-in judge when no feedback tool is set.',
-        },
-        name: { type: 'string', description: 'Optional label; defaults to the goal.' },
-        max_iterations: { type: 'integer', description: 'Max rounds, 1–50 (default 10).' },
-        budget_usd: { type: 'number', description: 'Hard model-cost cap in USD for the whole run (default 1).' },
-        target_score: { type: 'number', description: 'Stop early once the best score reaches this (0–100, optional).' },
-        agent: { type: 'string', description: 'Optional agent name/id to run; a default loop agent is used if omitted.' },
-        feedback_tool: {
-          type: 'string',
-          description: 'Optional http tool name/id that scores candidates ({score, detail}); the judge + rubric is used if omitted.',
-        },
-      },
-      required: ['goal'],
-    },
-  },
-  {
-    name: 'run_loop',
-    description:
-      'Start a run of an existing loop (by name or id). It runs in the background until it hits its budget, iteration cap, target score, or converges. Returns a run id — poll it with get_loop_run.',
-    inputSchema: {
-      type: 'object',
-      properties: { loop: { type: 'string', description: 'The loop name or id to run.' } },
-      required: ['loop'],
-    },
-  },
-  {
-    name: 'get_loop_run',
-    description:
-      "Check in on a loop run: its status, iterations, cost so far, best score, and (once done) the best output. Pass the run_id from run_loop, or a loop name/id to get its latest run.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        run_id: { type: 'string', description: 'The run id returned by run_loop.' },
-        loop: { type: 'string', description: 'Or a loop name/id to check its latest run.' },
-      },
-    },
-  },
-  {
     name: 'list_evals',
     description:
-      'List the eval suites (Promptfoo-style regression tests for the AI pipeline): each suite\'s id, target (rag / chat / agent), and latest pass-rate. Admin only.',
+      'List the eval suites (Promptfoo-style regression tests for the AI pipeline): each suite\'s id, target (rag / chat / tool), and latest pass-rate. Admin only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'create_eval_suite',
     description:
-      'Create an eval suite: a named set of cases run through the real pipeline to measure quality and catch regressions when you swap models or edit prompts. Pick a target: "rag" (deterministic — scores whether search_documents retrieves the right passages), "chat" (answers each question through the live assistant, then a judge grades it vs. your reference answer), "agent" (same, through a specific agent\'s prompt + tools), or "tool" (deterministic — runs a tool directly, no model, and grades its output; each case input is JSON {"tool","input"}). For chat/agent you can ground answers in collections AND test TOOL USAGE — assert which tools the assistant called (see add_eval_cases). By default chat/agent runs are SANDBOXED: only read-only tools execute; side-effecting/external tools (create_*, send_email, http, MCP) are captured but not run, so a suite is safe to re-run on a schedule/matrix. Set sandbox_tools:false for an integration test that performs real side-effects. Returns the suite id; add cases with add_eval_cases, then run_eval. Admin only.',
+      'Create an eval suite: a named set of cases run through the real pipeline to measure quality and catch regressions when you swap models or edit prompts. Pick a target: "rag" (deterministic — scores whether search_documents retrieves the right passages), "chat" (answers each question through the live assistant, then a judge grades it vs. your reference answer), or "tool" (deterministic — runs a tool directly, no model, and grades its output; each case input is JSON {"tool","input"}). For chat you can ground answers in collections AND test TOOL USAGE — assert which tools the assistant called (see add_eval_cases). By default chat runs are SANDBOXED: only read-only tools execute; side-effecting/external tools (create_*, http, MCP) are captured but not run, so a suite is safe to re-run on a schedule/matrix. Set sandbox_tools:false for an integration test that performs real side-effects. Returns the suite id; add cases with add_eval_cases, then run_eval. Admin only.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Suite name.' },
         description: { type: 'string', description: 'Optional description.' },
-        target: { type: 'string', enum: ['rag', 'chat', 'agent', 'tool'], description: 'What to test (default "chat").' },
-        agent: { type: 'string', description: 'For target "agent": the agent name/id to run each case through.' },
-        rubric: { type: 'string', description: 'For chat/agent: how the judge should grade the answer (blank = a sensible default; omit entirely for a pure tool-usage case with no reference).' },
+        target: { type: 'string', enum: ['rag', 'chat', 'tool'], description: 'What to test (default "chat").' },
+        rubric: { type: 'string', description: 'For chat: how the judge should grade the answer (blank = a sensible default; omit entirely for a pure tool-usage case with no reference).' },
         judge_model: { type: 'string', description: 'Optional OpenRouter slug for the judge (blank = the cheap utility profile).' },
         collections: {
           type: 'array',
           items: { type: 'string' },
-          description: 'For chat/agent: collection names/ids to inject as grounding context, so answers are graded FROM that knowledge set.',
+          description: 'For chat: collection names/ids to inject as grounding context, so answers are graded FROM that knowledge set.',
         },
         sandbox_tools: {
           type: 'boolean',
-          description: 'chat/agent only. Default true: only read-only tools execute; side-effecting/external tools are captured but not run. Set false for a real-side-effects integration test.',
+          description: 'chat only. Default true: only read-only tools execute; side-effecting/external tools are captured but not run. Set false for a real-side-effects integration test.',
         },
       },
       required: ['name'],
@@ -1318,9 +974,9 @@ const TOOLS = [
   {
     name: 'add_eval_cases',
     description:
-      'Add one or more cases to a suite in a single call — the fast way to build a dataset (generate the cases yourself, then bulk-insert). A case is an input plus optional assertions. For chat/agent suites the input is a question and "expected" is the reference answer the judge grades against; for rag, assertions about retrieval; for "tool" suites, the input is JSON {"tool":"name","input":{…}} and assertions grade the tool\'s output. ' +
+      'Add one or more cases to a suite in a single call — the fast way to build a dataset (generate the cases yourself, then bulk-insert). A case is an input plus optional assertions. For chat suites the input is a question and "expected" is the reference answer the judge grades against; for rag, assertions about retrieval; for "tool" suites, the input is JSON {"tool":"name","input":{…}} and assertions grade the tool\'s output. ' +
       'Assertion types: text — {"type":"contains","text":"…"}, {"type":"not_contains","text":"…"}, {"type":"regex","pattern":"…"}; retrieval — {"type":"retrieves","doc":"…"}, {"type":"recall_at_k","doc":"…","k":5}; ' +
-      'TOOL USAGE (chat/agent) — {"type":"calls_tool","tool":"search_documents"}, {"type":"not_calls_tool","tool":"send_email"} (safety/injection guard), {"type":"calls_tool_with","tool":"create_todo","arg_contains":"insurance"} or with "arg_regex", {"type":"tool_call_count","tool":"search_documents","max":1}. A case with only tool assertions and no expected/rubric passes on the assertions alone (no judge). Admin only.',
+      'TOOL USAGE (chat) — {"type":"calls_tool","tool":"search_documents"}, {"type":"not_calls_tool","tool":"send_email"} (safety/injection guard), {"type":"calls_tool_with","tool":"create_todo","arg_contains":"insurance"} or with "arg_regex", {"type":"tool_call_count","tool":"search_documents","max":1}. A case with only tool assertions and no expected/rubric passes on the assertions alone (no judge). Admin only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1333,7 +989,7 @@ const TOOLS = [
             properties: {
               name: { type: 'string', description: 'Optional label.' },
               input: { type: 'string', description: 'The question/query, or for a "tool" suite JSON {"tool","input"} (required).' },
-              expected: { type: 'string', description: 'Reference answer to grade against (chat/agent suites).' },
+              expected: { type: 'string', description: 'Reference answer to grade against (chat suites).' },
               assertions: { type: 'array', description: 'Typed assertions about the result (see the tool description).', items: { type: 'object' } },
             },
             required: ['input'],
@@ -1696,30 +1352,15 @@ function text(t: string, isError = false) {
 // deno-lint-ignore no-explicit-any
 async function callTool(db: DB, owner: string, name: string, args: any) {
   switch (name) {
-    // Build tools (agents / HTTP tools / webhooks / skills) are delegated to the
-    // shared runBuiltin so the internal assistant and this MCP server run one
-    // implementation (admin gates re-checked in code there). See _shared/builtins.ts.
-    case 'list_agents':
-    case 'create_agent':
-    case 'list_tools':
-    case 'create_http_tool':
-    case 'create_webhook':
+    // Skill tools are delegated to the shared runBuiltin so the internal
+    // assistant and this MCP server run one implementation (admin gates
+    // re-checked in code there). See _shared/builtins.ts.
     case 'create_skill':
     case 'list_skills':
     case 'get_skill':
     case 'update_skill':
     case 'delete_skill':
     case 'restore_skill':
-    // Knowledge-compiler tools share one implementation with the internal
-    // assistant (_shared/compiler_tools.ts) so the two never drift.
-    case 'compile_collection':
-    case 'list_knowledge_pages':
-    case 'get_knowledge_page':
-    case 'update_knowledge_page':
-    case 'list_conflicts':
-    case 'resolve_conflict':
-    case 'get_change_brief':
-    case 'set_compile_policy':
       return text(await runBuiltin(db, name, args, owner))
     case 'create_artifact': {
       const type = normalizeArtifactType(args.type)
@@ -2052,9 +1693,6 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'summarize_resource':
     case 'list_links':
     case 'add_link_to_collection':
-    case 'save_message':
-    case 'list_messages':
-    case 'add_message_to_collection':
     case 'create_whiteboard':
     case 'list_whiteboards':
     case 'get_whiteboard':
@@ -2065,10 +1703,6 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
     case 'get_card_board':
     case 'add_cards':
     case 'add_card_board_to_collection':
-    case 'create_agent_job':
-    case 'get_agent_job':
-    case 'list_agent_jobs':
-    case 'cancel_agent_job':
       return text(await runBuiltin(db, name, args, owner))
     case 'get_activity': {
       const since = parseSince(args.since)
@@ -2199,67 +1833,6 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (!data || !data.length) return text(`No row with id ${rowId} in "${t.name}" — nothing deleted.`, true)
       return text(`Deleted row ${rowId} from "${t.name}".`)
     }
-    case 'list_loops':
-      return text(await listLoopsText(db, owner))
-    case 'create_loop': {
-      const goal = String(args.goal ?? '').trim()
-      if (!goal) return text('create_loop needs a goal (the prompt the loop optimizes toward).', true)
-      let agentId = await resolveAgent(db, args.agent)
-      if (!agentId) {
-        if (args.agent) {
-          return text(`No agent named "${args.agent}". Omit "agent" to use the default loop agent, or create_agent first.`, true)
-        }
-        agentId = await findOrCreateLoopAgent(db, owner)
-      }
-      const feedbackToolId = args.feedback_tool ? await resolveFeedbackTool(db, String(args.feedback_tool)) : null
-      if (args.feedback_tool && !feedbackToolId) {
-        return text(`No http tool named "${args.feedback_tool}" to use as the feedback source.`, true)
-      }
-      try {
-        const loop = await createLoop(db, owner, {
-          name: args.name,
-          goal,
-          rubric: args.rubric,
-          max_iterations: args.max_iterations,
-          budget_usd: args.budget_usd,
-          target_score: args.target_score,
-          agent_id: agentId,
-          feedback_tool_id: feedbackToolId,
-        })
-        return text(`Created loop "${loop.name}" (id ${loop.id}). It's in the Loops dashboard — start it with run_loop "${loop.id}".`)
-      } catch (err) {
-        return text(`Error: ${err instanceof Error ? err.message : 'could not create the loop'}`, true)
-      }
-    }
-    case 'run_loop': {
-      const ref = String(args.loop ?? '').trim()
-      if (!ref) return text('run_loop needs a loop (name or id).', true)
-      const loop = await resolveLoop(db, owner, ref)
-      if (!loop) return text(`No loop named "${ref}" that you can run.`, true)
-      try {
-        const { run_id } = await triggerLoopRun(loop.id, owner)
-        return text(
-          `Started loop "${loop.name}". Run id: ${run_id}. It iterates in the background until it hits its budget, iteration cap, target score, or converges. Check on it with get_loop_run "${run_id}".`,
-        )
-      } catch (err) {
-        return text(`Error: ${err instanceof Error ? err.message : 'could not start the loop'}`, true)
-      }
-    }
-    case 'get_loop_run': {
-      const runId = String(args.run_id ?? '').trim()
-      const loopRef = String(args.loop ?? '').trim()
-      let run = null
-      if (runId) run = await getRun(db, runId)
-      else if (loopRef) {
-        const loop = await resolveLoop(db, owner, loopRef)
-        if (!loop) return text(`No loop named "${loopRef}" that you can access.`, true)
-        run = await latestRunForLoop(db, loop.id)
-      } else {
-        return text('get_loop_run needs a run_id (from run_loop) or a loop name/id.', true)
-      }
-      if (!run) return text('No run found yet.', true)
-      return text(formatRun(run))
-    }
     case 'list_evals': {
       if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
       return text(await listSuitesText(db))
@@ -2268,12 +1841,7 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
       if (!(await isAdmin(db, owner))) return text('Evals are admin only.', true)
       const name = String(args.name ?? '').trim()
       if (!name) return text('create_eval_suite needs a name.', true)
-      const target = ['rag', 'chat', 'agent', 'tool'].includes(String(args.target)) ? String(args.target) : 'chat'
-      let agentId: string | null = null
-      if (target === 'agent') {
-        agentId = await resolveAgent(db, args.agent)
-        if (!agentId) return text(`Target "agent" needs a valid agent — no agent named "${args.agent ?? ''}". Create one first with create_agent.`, true)
-      }
+      const target = ['rag', 'chat', 'tool'].includes(String(args.target)) ? String(args.target) : 'chat'
       // Grounding collections must already exist (don't silently mint one for a test set).
       const collectionIds: string[] = []
       for (const ref of Array.isArray(args.collections) ? args.collections : []) {
@@ -2287,7 +1855,6 @@ async function callTool(db: DB, owner: string, name: string, args: any) {
           name,
           description: String(args.description ?? ''),
           target_kind: target,
-          agent_id: agentId,
           rubric: String(args.rubric ?? ''),
           judge_model: args.judge_model ? String(args.judge_model) : null,
           collection_ids: collectionIds,

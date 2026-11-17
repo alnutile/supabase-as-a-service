@@ -9,7 +9,6 @@ type Suite = Database['public']['Tables']['eval_suites']['Row']
 type Case = Database['public']['Tables']['eval_cases']['Row']
 type Run = Database['public']['Tables']['eval_runs']['Row']
 type Result = Database['public']['Tables']['eval_results']['Row']
-type AgentLite = { id: string; name: string }
 type CollectionLite = { id: string; name: string }
 
 type AssertionRow = { type: string; value: string; k: number }
@@ -31,7 +30,6 @@ const ASSERTION_TYPES = [
 const TARGETS = [
   { value: 'rag', label: 'Retrieval (rag)', blurb: 'Scores whether search_documents finds the right passages. Deterministic, no judge.' },
   { value: 'chat', label: 'Chat answer', blurb: 'Answers each question through the real chat pipeline, then a judge model grades it vs. your reference answer. Can also assert which tools it calls.' },
-  { value: 'agent', label: 'Agent answer', blurb: "Runs each question through a specific agent's prompt + tools, then judges the answer. Can also assert tool usage." },
   { value: 'tool', label: 'Tool (deterministic)', blurb: 'Runs a tool directly (no model) and grades its output. Each case input is JSON like {"tool":"name","input":{…}}.' },
 ]
 
@@ -130,7 +128,7 @@ export default function EvalsPage() {
         <p className="mb-6 text-sm text-muted">
           Define questions + reference answers, run them through the real pipeline, and grade them — like Promptfoo.
           <strong> Retrieval</strong> suites score whether <code className="rounded bg-surface-2 px-1">search_documents</code> finds
-          the right passages (deterministic). <strong>Chat / agent</strong> suites answer each question through the live
+          the right passages (deterministic). <strong>Chat</strong> suites answer each question through the live
           assistant and grade it with a judge model against your reference answer.
         </p>
 
@@ -172,12 +170,10 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   const [name, setName] = useState(suite.name)
   const [description, setDescription] = useState(suite.description)
   const [targetKind, setTargetKind] = useState(suite.target_kind)
-  const [agentId, setAgentId] = useState(suite.agent_id ?? '')
   const [rubric, setRubric] = useState(suite.rubric)
   const [judgeModel, setJudgeModel] = useState(suite.judge_model ?? '')
   const [collectionIds, setCollectionIds] = useState<string[]>(suite.collection_ids ?? [])
   const [sandboxTools, setSandboxTools] = useState(suite.sandbox_tools ?? true)
-  const [agents, setAgents] = useState<AgentLite[]>([])
   const [collections, setCollections] = useState<CollectionLite[]>([])
   const [cases, setCases] = useState<Case[]>([])
   const [runs, setRuns] = useState<Run[]>([])
@@ -189,7 +185,7 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   const [compareModels, setCompareModels] = useState('')
   const [error, setError] = useState('')
 
-  const isJudged = targetKind === 'chat' || targetKind === 'agent'
+  const isJudged = targetKind === 'chat'
 
   const loadCases = useCallback(async () => {
     const { data } = await supabase.from('eval_cases').select('*').eq('suite_id', suite.id).order('created_at')
@@ -205,7 +201,6 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
   useEffect(() => {
     loadCases()
     loadRuns()
-    supabase.from('agents').select('id, name').order('name').then(({ data }) => setAgents(data ?? []))
     supabase.from('collections').select('id, name').order('pinned', { ascending: false }).order('name').then(({ data }) => setCollections(data ?? []))
   }, [loadCases, loadRuns])
 
@@ -312,13 +307,6 @@ function SuiteDetail({ suite, onBack }: { suite: Suite; onBack: () => void }) {
                 className="rounded-md border border-border-strong bg-surface px-2 py-1.5 text-xs">
                 {TARGETS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
-              {targetKind === 'agent' && (
-                <select value={agentId} onChange={(e) => { setAgentId(e.target.value); saveMeta({ agent_id: e.target.value || null }) }}
-                  className="rounded-md border border-border-strong bg-surface px-2 py-1.5 text-xs">
-                  <option value="">Pick an agent…</option>
-                  {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              )}
             </div>
             <p className="text-xs text-faint">{TARGETS.find((t) => t.value === targetKind)?.blurb}</p>
 

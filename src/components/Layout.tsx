@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { isLocalMode, isLocalReady } from '../lib/mode'
 import { APP_NAME, appTitle } from '../lib/appTitle'
 import { useOrganizationName } from '../lib/useOrganizationName'
 import { GlobalSearch, isMac, openGlobalSearch } from './GlobalSearch'
@@ -9,6 +10,7 @@ import { InstallPrompt } from './InstallPrompt'
 import {
   navGroups,
   settingsGroup,
+  localGroups,
   visibleGroups,
   type FlagMap,
   type NavGroup,
@@ -95,6 +97,7 @@ function useTheme(): [Theme, (t: Theme) => void] {
 export function Layout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
@@ -113,7 +116,8 @@ export function Layout() {
   }, [orgName])
 
   useEffect(() => {
-    if (!user) return
+    // Local mode: one user, no profiles table yet.
+    if (!user || isLocalMode) return
     supabase
       .from('profiles')
       .select('is_admin, avatar_url')
@@ -129,7 +133,7 @@ export function Layout() {
   // subscribe to changes so toggling on the Feature Flags page updates every
   // open sidebar live (feature_flags is in the realtime publication, 0065).
   useEffect(() => {
-    if (!user) return
+    if (!user || isLocalMode) return
     const loadFlags = () =>
       supabase
         .from('feature_flags')
@@ -204,8 +208,9 @@ export function Layout() {
   // Apply admin gating + feature flags to the sidebar. Settings is a section of
   // its own, pinned to the bottom (its items are always-on, so flags never hide
   // them — an admin can't lock themselves out of the flags page).
-  const mainGroups = visibleGroups(navGroups, { flags, isAdmin })
-  const [settingsVisible] = visibleGroups([settingsGroup], { flags, isAdmin })
+  // The local build shows only the areas that already run on the local backend.
+  const mainGroups = isLocalMode ? localGroups(navGroups) : visibleGroups(navGroups, { flags, isAdmin })
+  const [settingsVisible] = isLocalMode ? [] : visibleGroups([settingsGroup], { flags, isAdmin })
 
   return (
     <div className="flex h-full bg-bg text-text">
@@ -246,8 +251,8 @@ export function Layout() {
           </button>
         </div>
 
-        {/* Global search trigger (⌘K / Ctrl+K also opens it) */}
-        <div className="px-[14px] pb-1">
+        {/* Global search trigger (⌘K / Ctrl+K also opens it). Not in the local build yet. */}
+        <div className={`px-[14px] pb-1 ${isLocalMode ? 'hidden' : ''}`}>
           <button
             onClick={() => {
               setDrawerOpen(false)
@@ -324,16 +329,25 @@ export function Layout() {
                 </div>
               )}
             </div>
-            <button
-              title="Sign out"
-              onClick={async () => {
-                await signOut()
-                navigate('/login')
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-[9px] text-faint hover:bg-surface-hover hover:text-text"
-            >
-              <LogoutIcon className="h-[18px] w-[18px]" />
-            </button>
+            {isLocalMode ? (
+              <span
+                title="Running on this machine (SQLite)"
+                className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary"
+              >
+                Local
+              </span>
+            ) : (
+              <button
+                title="Sign out"
+                onClick={async () => {
+                  await signOut()
+                  navigate('/login')
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-[9px] text-faint hover:bg-surface-hover hover:text-text"
+              >
+                <LogoutIcon className="h-[18px] w-[18px]" />
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -356,7 +370,7 @@ export function Layout() {
           </span>
           <button
             onClick={openGlobalSearch}
-            className="ml-auto rounded-md p-1.5 text-muted hover:bg-surface-hover"
+            className={`ml-auto rounded-md p-1.5 text-muted hover:bg-surface-hover ${isLocalMode ? 'hidden' : ''}`}
             aria-label="Search"
           >
             <SearchIcon className="h-5 w-5" />
@@ -364,11 +378,25 @@ export function Layout() {
         </header>
 
         <main className="min-w-0 flex-1 overflow-hidden bg-bg">
-          <Outlet />
+          {/* "/" stays on the Outlet so its index route can redirect to a ready area. */}
+          {isLocalMode && pathname !== '/' && !isLocalReady(pathname) ? <LocalNotReady /> : <Outlet />}
         </main>
       </div>
 
-      <GlobalSearch isAdmin={isAdmin} flags={flags} />
+      {!isLocalMode && <GlobalSearch isAdmin={isAdmin} flags={flags} />}
+    </div>
+  )
+}
+
+// Local mode: this area still talks to Supabase directly, so it can't run on
+// the local backend yet (docs/local-first.md, phase 2).
+function LocalNotReady() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <p className="text-base font-semibold text-text">Not available locally yet</p>
+      <p className="max-w-sm text-sm text-muted">
+        This area still needs to move onto the local backend. Terminology works today; more areas are on the way.
+      </p>
     </div>
   )
 }

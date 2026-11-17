@@ -2,6 +2,12 @@
 
 Guidance for AI agents (and humans) working in this repository.
 
+> **Heads up (local-first branch):** Inbox, Knowledge, Agents, Listeners/Events, Loops,
+> Tools/Forge/run-tool, Webhooks, the REST API, Feedback, Features, Dropbox and invites
+> have been removed from the app, the edge functions and MCP. Sections below that describe
+> them are historical until this file is rewritten. The plan for the SQLite + Tauri build
+> is in [docs/local-first.md](docs/local-first.md).
+
 ## What this is
 
 A React intranet layer on top of Supabase: auth, an AI chat assistant, shareable

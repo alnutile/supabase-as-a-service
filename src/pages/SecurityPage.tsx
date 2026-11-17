@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/util'
-import { CheckIcon, LockIcon, RadarIcon, SparkleIcon } from '../components/icons'
+import { CheckIcon, LockIcon, RadarIcon } from '../components/icons'
 
 // Governance → Security: the workspace posture scan as a dashboard. "Run scan"
 // invokes the run_security_scan builtin through the universal run-tool function
@@ -177,33 +177,6 @@ export default function SecurityPage() {
     load()
   }
 
-  // Promote: file the finding on the Features board (idea lane). From there
-  // the existing approval drags take over — this button never spends AI effort
-  // or touches GitHub by itself.
-  async function promote(f: Finding) {
-    if (!user) return
-    setNotice(null)
-    const { data: feature, error } = await supabase
-      .from('features')
-      .insert({
-        title: f.title,
-        description: `${f.detail}\n\nSuggested fix: ${f.suggestion}\n\n(Filed from the Security dashboard, finding ${f.key}.)`,
-        lane: 'idea',
-        owner_id: user.id,
-      })
-      .select('id')
-      .single()
-    if (error || !feature) {
-      setNotice(error?.message ?? 'Could not create the feature.')
-      return
-    }
-    await supabase
-      .from('security_findings')
-      .update({ status: 'promoted', feature_id: feature.id, updated_at: new Date().toISOString() })
-      .eq('id', f.id)
-    load()
-  }
-
   if (isAdmin === false) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-faint">
@@ -235,12 +208,8 @@ export default function SecurityPage() {
           </button>
         </div>
         <p className="mb-6 text-sm text-muted">
-          Deterministic checks over the workspace's configuration — webhooks, guardrails, tools,
-          secrets, sharing. Dismiss a finding to accept the risk (it stays dismissed on future
-          runs), or promote it to the <strong>Features board</strong> to get it fixed through the
-          normal review pipeline. To run this daily, create an agent with only the{' '}
-          <code className="rounded bg-surface-2 px-1">run_security_scan</code> tool and give it a
-          schedule.
+          Deterministic checks over the workspace's configuration: guardrails, tools, secrets,
+          sharing. Dismiss a finding to accept the risk (it stays dismissed on future runs).
         </p>
 
         {notice && (
@@ -318,12 +287,6 @@ export default function SecurityPage() {
               </p>
               <div className="mt-3 flex gap-2">
                 <button
-                  onClick={() => promote(f)}
-                  className="flex items-center gap-1.5 rounded-lg bg-primary-soft px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary-soft/70"
-                >
-                  <SparkleIcon className="h-3.5 w-3.5" /> Promote to feature
-                </button>
-                <button
                   onClick={() => dismiss(f)}
                   className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted hover:bg-surface-hover"
                 >
@@ -355,13 +318,7 @@ export default function SecurityPage() {
                       {f.severity}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-muted">{f.title}</span>
-                    {f.status === 'promoted' && f.feature_id ? (
-                      <a href="/features" className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary">
-                        on the board
-                      </a>
-                    ) : (
-                      <span className="text-[11px] text-faint">{f.status}</span>
-                    )}
+                    <span className="text-[11px] text-faint">{f.status}</span>
                     <button onClick={() => reopen(f)} className="text-[11px] font-medium text-muted hover:text-text">
                       Reopen
                     </button>

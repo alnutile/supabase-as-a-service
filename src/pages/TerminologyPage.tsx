@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { Database } from '../lib/database.types'
-import { supabase } from '../lib/supabase'
+import { data, type Collection, type Term, type TermPatch } from '../lib/data'
 import { useAuth } from '../contexts/AuthContext'
 import { AddToCollectionBar } from '../components/AddToCollectionBar'
 import { CollectionPicker } from '../components/CollectionPicker'
@@ -19,9 +18,6 @@ import {
 
 // Stable identity for "nothing picked" — the picker memoizes on `selected`.
 const EMPTY_SELECTION: Set<string> = new Set()
-
-type Term = Database['public']['Tables']['terminology']['Row']
-type Collection = Database['public']['Tables']['collections']['Row']
 
 export default function TerminologyPage() {
   const { user } = useAuth()
@@ -41,17 +37,17 @@ export default function TerminologyPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
-    const [tRes, cRes, mRes] = await Promise.all([
-      supabase.from('terminology').select('*').order('term', { ascending: true }),
-      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
-      supabase.from('collection_terminology').select('collection_id, term_id'),
+    const [termRows, collectionRows, memberRows] = await Promise.all([
+      data.terminology.list().catch(() => []),
+      data.collections.list().catch(() => []),
+      data.collections.memberships('term').catch(() => []),
     ])
-    setTerms(tRes.data ?? [])
-    setCollections(cRes.data ?? [])
+    setTerms(termRows)
+    setCollections(collectionRows)
     const map: Record<string, Set<string>> = {}
-    for (const row of mRes.data ?? []) {
-      const set = (map[row.collection_id] ??= new Set())
-      set.add(row.term_id)
+    for (const row of memberRows) {
+      const set = (map[row.collectionId] ??= new Set())
+      set.add(row.itemId)
     }
     setMembers(map)
     setLoading(false)
@@ -84,25 +80,18 @@ export default function TerminologyPage() {
     const definition = quickDefinition.trim()
     if (!term || !definition || !user || adding) return
     setAdding(true)
-    const { data, error } = await supabase
-      .from('terminology')
-      .insert({ owner_id: user.id, term, definition, visibility: 'private' })
-      .select('*')
-      .single()
+    const created = await data.terminology.create({ term, definition }).catch(() => null)
     setAdding(false)
-    if (!error && data) {
-      setTerms((prev) => [...prev, data])
+    if (created) {
+      setTerms((prev) => [...prev, created])
       setQuickTerm('')
       setQuickDefinition('')
       // If filtering by a collection, file the new term into it so it shows up.
       if (activeCollection) {
-        await supabase.from('collection_terminology').upsert(
-          { collection_id: activeCollection, term_id: data.id, added_by: user.id },
-          { onConflict: 'collection_id,term_id', ignoreDuplicates: true },
-        )
+        await data.collections.addItems('term', activeCollection, [created.id])
         setMembers((prev) => {
           const set = new Set(prev[activeCollection] ?? [])
-          set.add(data.id)
+          set.add(created.id)
           return { ...prev, [activeCollection]: set }
         })
       }
@@ -117,7 +106,7 @@ export default function TerminologyPage() {
       return next
     })
     if (termId === id) navigate('/terminology')
-    await supabase.from('terminology').delete().eq('id', id)
+    await data.terminology.remove(id)
   }
 
   function toggleSelect(id: string) {
@@ -371,18 +360,18 @@ function TermDetailModal({
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      supabase.from('terminology').select('*').eq('id', termId).maybeSingle(),
-      supabase.from('collections').select('*').order('pinned', { ascending: false }).order('name', { ascending: true }),
-      supabase.from('collection_terminology').select('collection_id').eq('term_id', termId),
-    ]).then(([tRes, cRes, mRes]) => {
+      data.terminology.get(termId).catch(() => null),
+      data.collections.list().catch(() => []),
+      data.collections.memberships('term', [termId]).catch(() => []),
+    ]).then(([row, collectionRows, memberRows]) => {
       if (cancelled) return
-      if (!tRes.data) return setTerm('missing')
-      setTerm(tRes.data)
-      setTermText(tRes.data.term)
-      setDefinition(tRes.data.definition)
-      setNotes(tRes.data.notes ?? '')
-      setCollections(cRes.data ?? [])
-      setMembers(new Set((mRes.data ?? []).map((r) => r.collection_id)))
+      if (!row) return setTerm('missing')
+      setTerm(row)
+      setTermText(row.term)
+      setDefinition(row.definition)
+      setNotes(row.notes ?? '')
+      setCollections(collectionRows)
+      setMembers(new Set(memberRows.map((r) => r.collectionId)))
     })
     return () => {
       cancelled = true
@@ -390,11 +379,11 @@ function TermDetailModal({
   }, [termId])
 
   // Persist an edit + reflect it in the modal and the parent list.
-  async function persist(patch: Partial<Term>) {
+  async function persist(patch: TermPatch) {
     if (!term || term === 'missing') return
     setTerm({ ...term, ...patch })
     onPatched(termId, patch)
-    await supabase.from('terminology').update(patch).eq('id', termId)
+    await data.terminology.update(termId, patch)
   }
 
   function saveTerm() {
@@ -414,7 +403,7 @@ function TermDetailModal({
   }
 
   async function removeFromCollection(collectionId: string) {
-    await supabase.from('collection_terminology').delete().eq('collection_id', collectionId).eq('term_id', termId)
+    await data.collections.removeItems('term', collectionId, [termId])
     setMembers((prev) => {
       const next = new Set(prev)
       next.delete(collectionId)
