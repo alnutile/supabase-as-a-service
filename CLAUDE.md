@@ -693,6 +693,20 @@ than once; the unit suites cannot see that, so check it here.**
   page that manages the flags. Layout subscribes to `feature_flags` so toggles apply live.
   The pure filtering logic (`isFeatureEnabled`/`visibleGroups`/`flaggableGroups`) lives in
   `nav.ts` and is unit-tested (`src/lib/nav.test.ts`).
+- **Workspace export (Settings -> Export, any member):** anyone can download everything they
+  can see as one zip of plain files, for migrating off the workspace or handing to an AI as
+  context: `artifacts/*.md` (front matter + body; code/html fenced), `chats/<date> <title>.md`
+  (one transcript per conversation), `whiteboards/*.excalidraw` (opens at excalidraw.com),
+  `cards/*.md` (one list per board in priority order - top first, then left), plus single-file
+  `links.md`, `todos.md` (grouped by lane), `memories.md`, `collections.md` and a `README.md`
+  index. **Browser-only, no edge function, no migration:** `ExportSettings` reads every table
+  with the user's own session (paged past PostgREST's 1000-row cap), so RLS decides what's
+  included and the export can never widen access; a radio narrows it to "only items I own".
+  Archived artifacts, files and tables are left out. The formatting is the pure, unit-tested
+  `src/lib/workspaceExport.ts` (`buildExportEntries` -> zip entries, unique case-insensitive
+  filenames), and the archive is the dependency-free STORE-only writer `src/lib/zip.ts`
+  (CRC-32 + UTF-8 names, no zip64 so <65k entries). *(Planned: files/tables in the export; a
+  matching import.)*
 - **Organization name (migration 0125):** the workspace's own name, another
   `workspace_settings` row (`key='organization_name'`, admin-write/member-read/realtime
   like `timezone`), edited in **Settings → Organization** (`OrganizationSettings`, route
