@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   imageMarkdown,
+  imageUrls,
+  parseStorageUrl,
+  privateImagePath,
+  privateImagesToPublish,
+  publicImagePath,
+  publicImagesToUnpublish,
+  rewriteImageUrls,
   insertAtCursor,
   isImageFile,
   isUrl,
@@ -99,5 +106,48 @@ describe('urlToMarkdown', () => {
   })
   it('trims whitespace from the URL', () => {
     expect(urlToMarkdown('  https://example.com  ')).toBe('[https://example.com](https://example.com)')
+  })
+})
+
+describe('artifact image URL lifecycle', () => {
+  const base = 'https://abc.supabase.co/storage/v1/object'
+  const owner = 'u1'
+  const signed = `${base}/sign/artifact-images/u1/abc/shot.png?token=xyz`
+  const pub = `${base}/public/public-files/u1/artifact-images/abc/shot.png`
+
+  it('parses signed and public storage URLs', () => {
+    expect(parseStorageUrl(signed)).toEqual({ bucket: 'artifact-images', path: 'u1/abc/shot.png' })
+    expect(parseStorageUrl(pub)).toEqual({ bucket: 'public-files', path: 'u1/artifact-images/abc/shot.png' })
+    expect(parseStorageUrl('https://example.com/a.png')).toBeNull()
+  })
+
+  it('maps private ⇄ public paths and rejects non-image public files', () => {
+    expect(publicImagePath('u1/abc/shot.png')).toBe('u1/artifact-images/abc/shot.png')
+    expect(privateImagePath('u1/artifact-images/abc/shot.png')).toBe('u1/abc/shot.png')
+    expect(privateImagePath('u1/abc/report.pdf')).toBeNull() // a file published from Files
+  })
+
+  it('finds markdown and html image URLs', () => {
+    const md = `![a](${signed})\ntext\n<img src="${pub}" alt="b">\n[link](${signed})`
+    expect(imageUrls(md)).toEqual([signed, pub])
+  })
+
+  it('only publishes the owner’s own private images, deduped', () => {
+    const other = `${base}/sign/artifact-images/u2/def/x.png?token=1`
+    const md = `![](${signed}) ![](${signed}) ![](${other}) ![](https://example.com/z.png)`
+    expect(privateImagesToPublish(md, owner)).toEqual(['u1/abc/shot.png'])
+  })
+
+  it('only unpublishes artifact-image copies, not published Files', () => {
+    const file = `${base}/public/public-files/u1/zzz/report.png`
+    expect(publicImagesToUnpublish(`![](${pub}) ![](${file})`, owner)).toEqual([
+      'u1/artifact-images/abc/shot.png',
+    ])
+  })
+
+  it('rewrites image URLs and keeps titles and plain links intact', () => {
+    const md = `![a](${signed} "cap") [l](${signed}) <img src='${signed}'>`
+    const out = rewriteImageUrls(md, (u) => (u === signed ? pub : null))
+    expect(out).toBe(`![a](${pub} "cap") [l](${signed}) <img src='${pub}'>`)
   })
 })
