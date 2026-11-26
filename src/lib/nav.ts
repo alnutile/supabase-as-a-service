@@ -23,6 +23,7 @@ import {
   ChatIcon,
   CollectionIcon,
   CompilerIcon,
+  DownloadIcon,
   EvalIcon,
   FeedbackIcon,
   FileIcon,
@@ -164,6 +165,7 @@ export const settingsGroup: NavGroup = {
   items: [
     { to: '/settings/profile', label: 'Profile', key: 'settings.profile', icon: UsersIcon, alwaysOn: true, keywords: 'settings account name' },
     { to: '/settings/connect', label: 'Connect Claude', key: 'settings.connect', icon: ApiIcon, alwaysOn: true, keywords: 'settings mcp token claude code' },
+    { to: '/settings/export', label: 'Export', key: 'settings.export', icon: DownloadIcon, alwaysOn: true, keywords: 'settings export download zip backup migrate markdown data takeout' },
     { to: '/settings/models', label: 'Models', key: 'settings.models', icon: SparkleIcon, adminOnly: true, alwaysOn: true, keywords: 'settings openrouter model profile' },
     { to: '/settings/timezone', label: 'Timezone', key: 'settings.timezone', icon: CalendarIcon, adminOnly: true, alwaysOn: true, keywords: 'settings timezone tz utc clock schedule automations time' },
     { to: '/settings/organization', label: 'Organization', key: 'settings.organization', icon: BuildingIcon, adminOnly: true, alwaysOn: true, keywords: 'settings organization name workspace company team' },
