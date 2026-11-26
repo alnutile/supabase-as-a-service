@@ -56,6 +56,7 @@ import DropboxSettings from './pages/settings/DropboxSettings'
 import McpSettings from './pages/settings/McpSettings'
 import InviteSettings from './pages/settings/InviteSettings'
 import FeatureFlagsSettings from './pages/settings/FeatureFlagsSettings'
+import ExportSettings from './pages/settings/ExportSettings'
 
 export default function App() {
   const { loading } = useAuth()
@@ -150,6 +151,7 @@ export default function App() {
         <Route path="settings/mcp" element={<McpSettings />} />
         <Route path="settings/people" element={<InviteSettings />} />
         <Route path="settings/feature-flags" element={<FeatureFlagsSettings />} />
+        <Route path="settings/export" element={<ExportSettings />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

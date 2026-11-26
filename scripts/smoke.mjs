@@ -21,7 +21,7 @@ const ORIGIN = `http://localhost:${PORT}`
 const SUPABASE_URL = 'https://example.supabase.co'
 const PROJECT_REF = 'example'
 const COLLECTION_ID = '00000000-0000-4000-8000-000000000010'
-const ROUTES = ['/home', '/todos', '/artifacts', `/collections/${COLLECTION_ID}`]
+const ROUTES = ['/home', '/todos', '/artifacts', '/settings/export', `/collections/${COLLECTION_ID}`]
 
 // Find a browser without downloading one: an explicit override, the browser
 // preinstalled in the Claude Code image, or a Chrome/Chromium the runner
